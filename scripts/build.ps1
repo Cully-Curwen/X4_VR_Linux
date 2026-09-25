@@ -1,5 +1,6 @@
 param([ValidateSet('Debug','Release')][string]$Configuration = 'Release',
-      [ValidateSet('build','build-next')][string]$BuildDirectory = 'build')
+      [ValidateSet('build','build-next')][string]$BuildDirectory = 'build',
+      [switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -11,5 +12,6 @@ $ctest = Join-Path (Split-Path $cmake) 'ctest.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Configure failed' }
 & $cmake --build (Join-Path $projectRoot $BuildDirectory) --config $Configuration
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+if ($SkipTests) { return }
 & $ctest --test-dir (Join-Path $projectRoot $BuildDirectory) -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }

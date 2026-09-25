@@ -48,20 +48,13 @@ Verified numerically against live camera records and eye-texture dumps:
 
 ## How to run
 
-1. Varjo Base + SteamVR running. Registry value (per user) `HKCU\Software\FreeTrack\FreeTrackClient`
-   `Path = <vr-dev>\build\Release`.
-2. `./scripts/build.ps1 -BuildDirectory build`.
-3. Copy `config/stereo.txt` to `reports/captures/stereo.txt`. It is re-read every 500 ms.
-4. `./scripts/observe.ps1 -Target Game -OpenVRBootstrap -CrashWatch -BuildDirectory build -GameArgs "-skipintro -nocputhrottle"`
-5. In X4: Settings → head tracking → FreeTrack (once; persisted). FOV slider max (1.3333).
-   `game_tan_y` must match: 0.8675 at FOV 1.3333 (vertical FOV; independent of resolution).
-6. Resolution: the eyes receive X4's swapchain image, so render big. NVIDIA DSR factor
-   4.00x on the 1920×1080 monitor, then X4 **fullscreen 3840×2160**
-   (`config.xml`: `<fullscreen>true`, `res_width 3840`, `res_height 2160`). This gives
-   ~1245 px/tan (Aero native ≈ 1440). It held a steady 90 fps on the RTX 3090 with DLSS off
-   and AA none. DLSS off avoids temporal history mixing the eyes. Windowed sizes larger
-   than the screen are clamped by X4. Resolution changes in-game rebuild the eye textures.
-7. Load the save. Sit straight, then bump `recenter=` in `stereo.txt` to recentre.
+User-facing instructions (NVIDIA/in-game settings included) are in `README.md`. In short:
+`scripts/install.ps1` (bootstrap, build, FreeTrack registry path, default `stereo.txt`), then
+`scripts/play.ps1` (runs `observe.ps1 -Target Game -OpenVRBootstrap -CrashWatch -GameArgs
+"-skipintro -nocputhrottle"`). Recentre with Ctrl+F12 or by bumping `recenter=` in
+`reports/captures/stereo.txt`. Resolution: fullscreen 3840x2160 via NVIDIA DSR 4x gives
+~1245 px/tan at a steady 90 fps (RTX 3090, DLSS/AA off). Swapchain resizes rebuild the eye
+textures live. Game FOV must be at maximum (120 deg = `game_tan_y` 0.8675).
 
 Calibration tools (X4 running, cockpit loaded): `tools/vr_calibrate.py --pid <pid>`
 (translation, rotation, FOV, latency), `tools/orient_check.py <pid>`, `tools/star_fov.py <pid>`.

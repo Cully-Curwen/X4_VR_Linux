@@ -97,7 +97,12 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         if (!tracked && !settings.synth) return FALSE;
         if (!tracked) head = x4vr::Matrix::identity();
         x4vr::record_render_pose(head); // compositor reprojects from this pose (tracking space)
-        if (recentered != settings.recenter) {
+        // Recentre on Ctrl+F12 (edge-triggered; unbound in X4) or when stereo.txt's counter changes.
+        static bool keys_were_down = false;
+        const bool keys_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F12) & 0x8000);
+        const bool hotkey = keys_down && !keys_were_down;
+        keys_were_down = keys_down;
+        if (recentered != settings.recenter || hotkey) {
             recentered = settings.recenter;
             origin_inverse = x4vr::inverse_rigid(x4vr::seated_origin(head));
             OutputDebugStringA("X4VR freetrack: head position/yaw recentred\n");

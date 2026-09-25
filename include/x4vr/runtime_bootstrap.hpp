@@ -33,7 +33,7 @@ public:
 // Alternate-eye bookkeeping shared by the FreeTrack pose source and the Vulkan layer.
 // Tunables are re-read from %X4VR_CAPTURE_DIR%/stereo.txt ("key=value" per line).
 // delay = presents between the game reading a pose and presenting that frame.
-struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float ipd_scale = 1, pos_scale = 3.6f, yaw_gain = 2.1177f, pitch_gain = 2.1177f, roll_gain = 3.14159f, predict = 0.035f, game_tan_y = 0.5625f;
+struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float ipd_scale = 1, pos_scale = 3.6f, yaw_gain = 2.1177f, pitch_gain = 2.1177f, roll_gain = 3.14159f, predict = 0.035f, game_tan_y = 0.8675f; // 0.8675 = X4 FOV slider at maximum (120 deg)
     // Calibration only: synthetic head pose (x y z metres, yaw pitch roll degrees, relative to
     // the recentred origin) plus a +/- delta alternating per game frame like the eyes.
     bool synth = false, pace = true, valve_bounds = true; float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{}; };
