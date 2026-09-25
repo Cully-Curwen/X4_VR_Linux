@@ -1,0 +1,949 @@
+{
+  "dump": "D:\\Steam\\steamapps\\common\\X4 Foundations\\vr-dev\\reports\\captures\\debug-8e727a2a6e0d4043ad17bf4a14e5335f\\crash-6.dmp",
+  "modules": [
+    {
+      "base": 140699814461440,
+      "size": 117084160,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\X4.exe",
+      "timestamp": 1780395501
+    },
+    {
+      "base": 140719316533248,
+      "size": 2519040,
+      "path": "C:\\Windows\\System32\\ntdll.dll",
+      "timestamp": 1809777610
+    },
+    {
+      "base": 140719300804608,
+      "size": 831488,
+      "path": "C:\\Windows\\System32\\kernel32.dll",
+      "timestamp": 1053609746
+    },
+    {
+      "base": 140719270264832,
+      "size": 4202496,
+      "path": "C:\\Windows\\System32\\KERNELBASE.dll",
+      "timestamp": 677407521
+    },
+    {
+      "base": 140719305654272,
+      "size": 1896448,
+      "path": "C:\\Windows\\System32\\user32.dll",
+      "timestamp": 1277537702
+    },
+    {
+      "base": 140714218618880,
+      "size": 1433600,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\avformat_64-55.dll",
+      "timestamp": 1392645852
+    },
+    {
+      "base": 140714218160128,
+      "size": 405504,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\avutil_64-52.dll",
+      "timestamp": 1392644748
+    },
+    {
+      "base": 140719276687360,
+      "size": 159744,
+      "path": "C:\\Windows\\System32\\win32u.dll",
+      "timestamp": 2922534025
+    },
+    {
+      "base": 140714134798336,
+      "size": 12439552,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\avcodec_64-55.dll",
+      "timestamp": 1392645843
+    },
+    {
+      "base": 140719314567168,
+      "size": 770048,
+      "path": "C:\\Windows\\System32\\advapi32.dll",
+      "timestamp": 736674132
+    },
+    {
+      "base": 140719298969600,
+      "size": 524288,
+      "path": "C:\\Windows\\System32\\ws2_32.dll",
+      "timestamp": 536873802
+    },
+    {
+      "base": 140719287042048,
+      "size": 176128,
+      "path": "C:\\Windows\\System32\\gdi32.dll",
+      "timestamp": 1557283195
+    },
+    {
+      "base": 140714217701376,
+      "size": 454656,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\swscale_64-2.dll",
+      "timestamp": 1392645869
+    },
+    {
+      "base": 140719315419136,
+      "size": 692224,
+      "path": "C:\\Windows\\System32\\msvcrt.dll",
+      "timestamp": 2222928953
+    },
+    {
+      "base": 140719269019648,
+      "size": 1216512,
+      "path": "C:\\Windows\\System32\\gdi32full.dll",
+      "timestamp": 890656319
+    },
+    {
+      "base": 140719276883968,
+      "size": 1359872,
+      "path": "C:\\Windows\\System32\\ucrtbase.dll",
+      "timestamp": 733937011
+    },
+    {
+      "base": 140714216652800,
+      "size": 995328,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\lua51_64.dll",
+      "timestamp": 1593550543
+    },
+    {
+      "base": 140719268298752,
+      "size": 667648,
+      "path": "C:\\Windows\\System32\\msvcp_win.dll",
+      "timestamp": 801462590
+    },
+    {
+      "base": 140719299624960,
+      "size": 1146880,
+      "path": "C:\\Windows\\System32\\rpcrt4.dll",
+      "timestamp": 3146881180
+    },
+    {
+      "base": 140719302770688,
+      "size": 692224,
+      "path": "C:\\Windows\\System32\\sechost.dll",
+      "timestamp": 2925099912
+    },
+    {
+      "base": 140714215079936,
+      "size": 1568768,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\openal32.dll",
+      "timestamp": 1546869466
+    },
+    {
+      "base": 140719287238656,
+      "size": 7962624,
+      "path": "C:\\Windows\\System32\\shell32.dll",
+      "timestamp": 138090267
+    },
+    {
+      "base": 140719312863232,
+      "size": 1679360,
+      "path": "C:\\Windows\\System32\\ole32.dll",
+      "timestamp": 2028696108
+    },
+    {
+      "base": 140719295234048,
+      "size": 3690496,
+      "path": "C:\\Windows\\System32\\combase.dll",
+      "timestamp": 2349147981
+    },
+    {
+      "base": 140719000518656,
+      "size": 221184,
+      "path": "C:\\Windows\\System32\\winmm.dll",
+      "timestamp": 2251690161
+    },
+    {
+      "base": 140719283306496,
+      "size": 888832,
+      "path": "C:\\Windows\\System32\\oleaut32.dll",
+      "timestamp": 62109679
+    },
+    {
+      "base": 140719278325760,
+      "size": 1564672,
+      "path": "C:\\Windows\\System32\\crypt32.dll",
+      "timestamp": 861530059
+    },
+    {
+      "base": 140719282847744,
+      "size": 417792,
+      "path": "C:\\Windows\\System32\\shlwapi.dll",
+      "timestamp": 3184337242
+    },
+    {
+      "base": 140716308561920,
+      "size": 307200,
+      "path": "C:\\Windows\\System32\\dinput8.dll",
+      "timestamp": 2135300203
+    },
+    {
+      "base": 140719220391936,
+      "size": 2408448,
+      "path": "C:\\Windows\\System32\\dbghelp.dll",
+      "timestamp": 2384527248
+    },
+    {
+      "base": 140714651877376,
+      "size": 196608,
+      "path": "C:\\Windows\\System32\\XINPUT1_3.dll",
+      "timestamp": 1778803319
+    },
+    {
+      "base": 140714214752256,
+      "size": 315392,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\steam_api64.dll",
+      "timestamp": 1694465277
+    },
+    {
+      "base": 140718767210496,
+      "size": 2686976,
+      "path": "C:\\Windows\\WinSxS\\amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.26100.9278_none_3e0d1ba8e3303201\\comctl32.dll",
+      "timestamp": 4255066635
+    },
+    {
+      "base": 140714087415808,
+      "size": 6701056,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\tobii_gameintegration_x64.dll",
+      "timestamp": 1713444634
+    },
+    {
+      "base": 140715288035328,
+      "size": 1744896,
+      "path": "C:\\Windows\\System32\\vulkan-1.dll",
+      "timestamp": 1769794049
+    },
+    {
+      "base": 140714633134080,
+      "size": 176128,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\swresample_64-0.dll",
+      "timestamp": 1392644749
+    },
+    {
+      "base": 140719267184640,
+      "size": 172032,
+      "path": "C:\\Windows\\System32\\bcrypt.dll",
+      "timestamp": 1159279676
+    },
+    {
+      "base": 140719308079104,
+      "size": 4747264,
+      "path": "C:\\Windows\\System32\\setupapi.dll",
+      "timestamp": 3676286105
+    },
+    {
+      "base": 140719241297920,
+      "size": 208896,
+      "path": "C:\\Windows\\System32\\IPHLPAPI.DLL",
+      "timestamp": 2286535387
+    },
+    {
+      "base": 140719264628736,
+      "size": 335872,
+      "path": "C:\\Windows\\System32\\cfgmgr32.dll",
+      "timestamp": 712946775
+    },
+    {
+      "base": 140718619885568,
+      "size": 241664,
+      "path": "C:\\Windows\\System32\\dbgcore.dll",
+      "timestamp": 811737392
+    },
+    {
+      "base": 140719307816960,
+      "size": 200704,
+      "path": "C:\\Windows\\System32\\imm32.dll",
+      "timestamp": 2376539079
+    },
+    {
+      "base": 140718694924288,
+      "size": 1978368,
+      "path": "C:\\Windows\\System32\\inputhost.dll",
+      "timestamp": 41609020
+    },
+    {
+      "base": 140719197192192,
+      "size": 1224704,
+      "path": "C:\\Windows\\System32\\CoreMessaging.dll",
+      "timestamp": 974823412
+    },
+    {
+      "base": 140714227335168,
+      "size": 196608,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\support\\drdump\\crashrpt.dll",
+      "timestamp": 1517355046
+    },
+    {
+      "base": 140719173468160,
+      "size": 45056,
+      "path": "C:\\Windows\\System32\\version.dll",
+      "timestamp": 2275202464
+    },
+    {
+      "base": 140719274524672,
+      "size": 704512,
+      "path": "C:\\Windows\\System32\\bcryptPrimitives.dll",
+      "timestamp": 3672939517
+    },
+    {
+      "base": 140719256305664,
+      "size": 49152,
+      "path": "C:\\Windows\\System32\\CRYPTBASE.DLL",
+      "timestamp": 3727022991
+    },
+    {
+      "base": 140719247917056,
+      "size": 110592,
+      "path": "C:\\Windows\\System32\\kernel.appcore.dll",
+      "timestamp": 246514534
+    },
+    {
+      "base": 140716317540352,
+      "size": 26726400,
+      "path": "D:\\Steam\\steamclient64.dll",
+      "timestamp": 1788399258
+    },
+    {
+      "base": 140719307620352,
+      "size": 131072,
+      "path": "C:\\Windows\\System32\\imagehlp.dll",
+      "timestamp": 2156568970
+    },
+    {
+      "base": 140719301656576,
+      "size": 32768,
+      "path": "C:\\Windows\\System32\\psapi.dll",
+      "timestamp": 578728425
+    },
+    {
+      "base": 140716931940352,
+      "size": 3203072,
+      "path": "D:\\Steam\\tier0_s64.dll",
+      "timestamp": 1788399150
+    },
+    {
+      "base": 140717243695104,
+      "size": 798720,
+      "path": "D:\\Steam\\vstdlib_s64.dll",
+      "timestamp": 1788399165
+    },
+    {
+      "base": 140719202107392,
+      "size": 53248,
+      "path": "C:\\Windows\\System32\\secur32.dll",
+      "timestamp": 3076803899
+    },
+    {
+      "base": 140719253815296,
+      "size": 442368,
+      "path": "C:\\Windows\\System32\\mswsock.dll",
+      "timestamp": 2853914095
+    },
+    {
+      "base": 140719250800640,
+      "size": 299008,
+      "path": "C:\\Windows\\System32\\sspicli.dll",
+      "timestamp": 1263343596
+    },
+    {
+      "base": 140719284289536,
+      "size": 1028096,
+      "path": "C:\\Windows\\System32\\SHCore.dll",
+      "timestamp": 3129514382
+    },
+    {
+      "base": 140715257364480,
+      "size": 1798144,
+      "path": "D:\\Steam\\gameoverlayrenderer64.dll",
+      "timestamp": 1788399117
+    },
+    {
+      "base": 140719228715008,
+      "size": 9101312,
+      "path": "C:\\Windows\\System32\\windows.storage.dll",
+      "timestamp": 890365058
+    },
+    {
+      "base": 140719299559424,
+      "size": 40960,
+      "path": "C:\\Windows\\System32\\nsi.dll",
+      "timestamp": 206955086
+    },
+    {
+      "base": 140719124185088,
+      "size": 118784,
+      "path": "C:\\Windows\\System32\\dhcpcsvc6.DLL",
+      "timestamp": 4218805422
+    },
+    {
+      "base": 140719121367040,
+      "size": 151552,
+      "path": "C:\\Windows\\System32\\dhcpcsvc.dll",
+      "timestamp": 1124682484
+    },
+    {
+      "base": 140719242280960,
+      "size": 1409024,
+      "path": "C:\\Windows\\System32\\dnsapi.dll",
+      "timestamp": 2199532320
+    },
+    {
+      "base": 140719251718144,
+      "size": 53248,
+      "path": "C:\\Windows\\System32\\dsparse.dll",
+      "timestamp": 3779774972
+    },
+    {
+      "base": 140719133425664,
+      "size": 45056,
+      "path": "C:\\Windows\\System32\\rasadhlp.dll",
+      "timestamp": 158316011
+    },
+    {
+      "base": 140719012380672,
+      "size": 548864,
+      "path": "C:\\Windows\\System32\\FWPUCLNT.DLL",
+      "timestamp": 245929549
+    },
+    {
+      "base": 140719202828288,
+      "size": 688128,
+      "path": "C:\\Windows\\System32\\uxtheme.dll",
+      "timestamp": 734920565
+    },
+    {
+      "base": 140719303491584,
+      "size": 1421312,
+      "path": "C:\\Windows\\System32\\msctf.dll",
+      "timestamp": 848042006
+    },
+    {
+      "base": 140717011173376,
+      "size": 110592,
+      "path": "C:\\Windows\\System32\\xinput1_4.dll",
+      "timestamp": 3406959078
+    },
+    {
+      "base": 140719264366592,
+      "size": 192512,
+      "path": "C:\\Windows\\System32\\devobj.dll",
+      "timestamp": 1316201479
+    },
+    {
+      "base": 140718690598912,
+      "size": 1318912,
+      "path": "C:\\Windows\\System32\\textinputframework.dll",
+      "timestamp": 360785011
+    },
+    {
+      "base": 140718706327552,
+      "size": 1028096,
+      "path": "C:\\Windows\\System32\\TextShaping.dll",
+      "timestamp": 3432000358
+    },
+    {
+      "base": 140714211934208,
+      "size": 552960,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\sl.interposer.dll",
+      "timestamp": 1743457151
+    },
+    {
+      "base": 140718655209472,
+      "size": 49152,
+      "path": "C:\\Windows\\System32\\VCRUNTIME140_1.dll",
+      "timestamp": 3691554600
+    },
+    {
+      "base": 140718654357504,
+      "size": 643072,
+      "path": "C:\\Windows\\System32\\msvcp140.dll",
+      "timestamp": 954962031
+    },
+    {
+      "base": 140718655012864,
+      "size": 180224,
+      "path": "C:\\Windows\\System32\\VCRUNTIME140.dll",
+      "timestamp": 3277708404
+    },
+    {
+      "base": 140719267381248,
+      "size": 167936,
+      "path": "C:\\Windows\\System32\\profapi.dll",
+      "timestamp": 3813789498
+    },
+    {
+      "base": 140719258599424,
+      "size": 77824,
+      "path": "C:\\Windows\\System32\\msasn1.dll",
+      "timestamp": 180739746
+    },
+    {
+      "base": 140719142469632,
+      "size": 241664,
+      "path": "C:\\Windows\\System32\\cryptnet.dll",
+      "timestamp": 887507683
+    },
+    {
+      "base": 140719135916032,
+      "size": 1548288,
+      "path": "C:\\Windows\\System32\\drvstore.dll",
+      "timestamp": 756374459
+    },
+    {
+      "base": 140719257092096,
+      "size": 434176,
+      "path": "C:\\Windows\\System32\\wldp.dll",
+      "timestamp": 1777933762
+    },
+    {
+      "base": 140718844542976,
+      "size": 561152,
+      "path": "C:\\Windows\\System32\\nvapi64.dll",
+      "timestamp": 1783011965
+    },
+    {
+      "base": 140719209250816,
+      "size": 278528,
+      "path": "C:\\Windows\\System32\\DXCore.dll",
+      "timestamp": 1771679452
+    },
+    {
+      "base": 140718838775808,
+      "size": 5730304,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvapi64_impl.dll",
+      "timestamp": 1783011986
+    },
+    {
+      "base": 140719275311104,
+      "size": 532480,
+      "path": "C:\\Windows\\System32\\wintrust.dll",
+      "timestamp": 1553879383
+    },
+    {
+      "base": 140719258140672,
+      "size": 110592,
+      "path": "C:\\Windows\\System32\\cryptsp.dll",
+      "timestamp": 421397379
+    },
+    {
+      "base": 140719247261696,
+      "size": 233472,
+      "path": "C:\\Windows\\System32\\rsaenh.dll",
+      "timestamp": 1744229608
+    },
+    {
+      "base": 140719254339584,
+      "size": 151552,
+      "path": "C:\\Windows\\System32\\gpapi.dll",
+      "timestamp": 220278649
+    },
+    {
+      "base": 140719179169792,
+      "size": 57344,
+      "path": "C:\\Windows\\System32\\winnsi.dll",
+      "timestamp": 3288765383
+    },
+    {
+      "base": 140714203611136,
+      "size": 749568,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\sl.common.dll",
+      "timestamp": 1743457209
+    },
+    {
+      "base": 140719227011072,
+      "size": 1290240,
+      "path": "C:\\Windows\\System32\\dxgi.dll",
+      "timestamp": 2734512402
+    },
+    {
+      "base": 140717933133824,
+      "size": 143360,
+      "path": "C:\\Windows\\System32\\D3D12.dll",
+      "timestamp": 115991057
+    },
+    {
+      "base": 140719260631040,
+      "size": 385024,
+      "path": "C:\\Windows\\System32\\powrprof.dll",
+      "timestamp": 2858637235
+    },
+    {
+      "base": 140719260499968,
+      "size": 86016,
+      "path": "C:\\Windows\\System32\\umpdc.dll",
+      "timestamp": 3847741064
+    },
+    {
+      "base": 140719170781184,
+      "size": 385024,
+      "path": "C:\\Windows\\System32\\directxdatabasehelper.dll",
+      "timestamp": 2273281722
+    },
+    {
+      "base": 140714211672064,
+      "size": 241664,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\sl.dlss.dll",
+      "timestamp": 1743457222
+    },
+    {
+      "base": 140718757249024,
+      "size": 122880,
+      "path": "C:\\Windows\\System32\\windows.staterepositorycore.dll",
+      "timestamp": 1059573437
+    },
+    {
+      "base": 140714038591488,
+      "size": 48779264,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvoglv64.dll",
+      "timestamp": 1783012683
+    },
+    {
+      "base": 140719202238464,
+      "size": 172032,
+      "path": "C:\\Windows\\System32\\wtsapi32.dll",
+      "timestamp": 2221165697
+    },
+    {
+      "base": 140719249162240,
+      "size": 221184,
+      "path": "C:\\Windows\\System32\\ntmarta.dll",
+      "timestamp": 3598506564
+    },
+    {
+      "base": 140719018868736,
+      "size": 98623488,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvgpucomp64.dll",
+      "timestamp": 1783012394
+    },
+    {
+      "base": 140719282061312,
+      "size": 712704,
+      "path": "C:\\Windows\\System32\\clbcatq.dll",
+      "timestamp": 2564454094
+    },
+    {
+      "base": 140719163899904,
+      "size": 1482752,
+      "path": "C:\\Windows\\System32\\WinTypes.dll",
+      "timestamp": 3666530298
+    },
+    {
+      "base": 140718789951488,
+      "size": 233472,
+      "path": "C:\\Windows\\System32\\rometadata.dll",
+      "timestamp": 1750277957
+    },
+    {
+      "base": 140714202300416,
+      "size": 319488,
+      "path": "C:\\ProgramData\\obs-studio-hook\\graphics-hook64.dll",
+      "timestamp": 2829720082
+    },
+    {
+      "base": 140714201972736,
+      "size": 299008,
+      "path": "D:\\overwolf\\0.310.1.1\\ow-graphics-vulkan.dll",
+      "timestamp": 1714482998
+    },
+    {
+      "base": 140714201645056,
+      "size": 286720,
+      "path": "C:\\Users\\DamienPC\\AppData\\Local\\Overwolf\\Extensions\\ncfplpkmiejjaklknfnkgcpapnhkggmlcppckhcb\\270.0.25\\obs\\data\\obs-plugins\\win-capture\\ow-graphics-hook64.dll",
+      "timestamp": 1267232816
+    },
+    {
+      "base": 140714034266112,
+      "size": 4300800,
+      "path": "D:\\overwolf\\0.310.1.1\\OWClient.dll",
+      "timestamp": 1790074926
+    },
+    {
+      "base": 140719183233024,
+      "size": 4714496,
+      "path": "C:\\Windows\\System32\\D3DCOMPILER_47.dll",
+      "timestamp": 1784779356
+    },
+    {
+      "base": 140715830673408,
+      "size": 2949120,
+      "path": "C:\\Windows\\System32\\nvspcap64.dll",
+      "timestamp": 1718123014
+    },
+    {
+      "base": 140719204007936,
+      "size": 192512,
+      "path": "C:\\Windows\\System32\\dwmapi.dll",
+      "timestamp": 1534219485
+    },
+    {
+      "base": 140714133225472,
+      "size": 1519616,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\_nvngx.dll",
+      "timestamp": 1783012208
+    },
+    {
+      "base": 140713883336704,
+      "size": 49115136,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\nvngx_dlss.dll",
+      "timestamp": 1740709030
+    },
+    {
+      "base": 140713875603456,
+      "size": 7704576,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\nvngx_dlssg.dll",
+      "timestamp": 1739138952
+    },
+    {
+      "base": 140714213113856,
+      "size": 180224,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\sl.pcl.dll",
+      "timestamp": 1743457146
+    },
+    {
+      "base": 140714202890240,
+      "size": 200704,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\sl.reflex.dll",
+      "timestamp": 1743457147
+    },
+    {
+      "base": 140714203414528,
+      "size": 155648,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\vr-dev\\build\\Release\\x4vr_observe.dll",
+      "timestamp": 1790190900
+    },
+    {
+      "base": 140714200334336,
+      "size": 647168,
+      "path": "D:\\Steam\\VkLayer_steam_fossilize64.dll",
+      "timestamp": 1788399110
+    },
+    {
+      "base": 140714132897792,
+      "size": 327680,
+      "path": "D:\\Steam\\SteamOverlayVulkanLayer64.dll",
+      "timestamp": 1788399099
+    },
+    {
+      "base": 140713843228672,
+      "size": 32370688,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvcuda64.dll",
+      "timestamp": 1783015512
+    },
+    {
+      "base": 140714033545216,
+      "size": 716800,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvdxgdmal64.dll",
+      "timestamp": 1783012254
+    },
+    {
+      "base": 140713828483072,
+      "size": 14688256,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvobjectloader64.dll",
+      "timestamp": 1783012345
+    },
+    {
+      "base": 140714593681408,
+      "size": 77824,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\NvLowLatencyVk.dll",
+      "timestamp": 1659037238
+    },
+    {
+      "base": 140718757445632,
+      "size": 589824,
+      "path": "C:\\Program Files\\NVIDIA Corporation\\NvTelemetry\\NvTelemetryAPI64.dll",
+      "timestamp": 1698994545
+    },
+    {
+      "base": 140718831763456,
+      "size": 581632,
+      "path": "C:\\Windows\\System32\\DispBroker.dll",
+      "timestamp": 2491307759
+    },
+    {
+      "base": 140715269095424,
+      "size": 3518464,
+      "path": "C:\\Windows\\System32\\D3D12Core.dll",
+      "timestamp": 4260529899
+    },
+    {
+      "base": 140718201176064,
+      "size": 438272,
+      "path": "C:\\Program Files\\NVIDIA Corporation\\NvTelemetry\\NvTelemetryBridge64.dll",
+      "timestamp": 1698994584
+    },
+    {
+      "base": 140719147974656,
+      "size": 827392,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvldumdx.dll",
+      "timestamp": 1783012028
+    },
+    {
+      "base": 140718835171328,
+      "size": 3555328,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\Display.NvContainer\\NvMessageBus.dll",
+      "timestamp": 1768904691
+    },
+    {
+      "base": 140719004254208,
+      "size": 1290240,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\NvMemMapStoragex.dll",
+      "timestamp": 1783012288
+    },
+    {
+      "base": 140718890090496,
+      "size": 89808896,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvwgf2umx.dll",
+      "timestamp": 1783013008
+    },
+    {
+      "base": 140715823136768,
+      "size": 7499776,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvppex.dll",
+      "timestamp": 1783012100
+    },
+    {
+      "base": 140715268112384,
+      "size": 913408,
+      "path": "C:\\Windows\\System32\\D3DSCache.dll",
+      "timestamp": 38721473
+    },
+    {
+      "base": 140719254536192,
+      "size": 212992,
+      "path": "C:\\Windows\\System32\\userenv.dll",
+      "timestamp": 1246422943
+    },
+    {
+      "base": 140719190376448,
+      "size": 2248704,
+      "path": "C:\\Windows\\System32\\dcomp.dll",
+      "timestamp": 398972969
+    },
+    {
+      "base": 140719183101952,
+      "size": 106496,
+      "path": "C:\\Windows\\System32\\Microsoft.Internal.WarpPal.dll",
+      "timestamp": 1689278011
+    },
+    {
+      "base": 140717011304448,
+      "size": 1097728,
+      "path": "C:\\Windows\\System32\\opengl32.dll",
+      "timestamp": 868189093
+    },
+    {
+      "base": 140718443134976,
+      "size": 184320,
+      "path": "C:\\Windows\\System32\\glu32.dll",
+      "timestamp": 4088227549
+    },
+    {
+      "base": 140719237890048,
+      "size": 61440,
+      "path": "C:\\Windows\\System32\\hid.dll",
+      "timestamp": 1120154832
+    },
+    {
+      "base": 140719146139648,
+      "size": 675840,
+      "path": "C:\\Windows\\System32\\MMDevAPI.dll",
+      "timestamp": 247280673
+    },
+    {
+      "base": 140718500806656,
+      "size": 1798144,
+      "path": "C:\\Windows\\System32\\AudioSes.dll",
+      "timestamp": 2646899618
+    },
+    {
+      "base": 140719207677952,
+      "size": 81920,
+      "path": "C:\\Windows\\System32\\resourcepolicyclient.dll",
+      "timestamp": 306439316
+    },
+    {
+      "base": 140719153676288,
+      "size": 3031040,
+      "path": "C:\\Windows\\System32\\CoreUIComponents.dll",
+      "timestamp": 222445461
+    },
+    {
+      "base": 140718794014720,
+      "size": 1421312,
+      "path": "C:\\Windows\\System32\\Windows.UI.dll",
+      "timestamp": 1565331723
+    },
+    {
+      "base": 140713727426560,
+      "size": 54935552,
+      "path": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nv_dispi.inf_amd64_b26cc1edfbb8f4d0\\nvrtum64.dll",
+      "timestamp": 1783013619
+    },
+    {
+      "base": 140718433697792,
+      "size": 163840,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\ui\\core\\lualibs\\utf8_64.dll",
+      "timestamp": 1597756400
+    },
+    {
+      "base": 140718433566720,
+      "size": 110592,
+      "path": "D:\\Steam\\steamapps\\common\\X4 Foundations\\extensions\\sn_mod_support_apis\\ui_c_library_winpipe_64.txt",
+      "timestamp": 1602049405
+    },
+    {
+      "base": 140718151172096,
+      "size": 3244032,
+      "path": "C:\\Windows\\System32\\explorerframe.dll",
+      "timestamp": 1316122052
+    },
+    {
+      "base": 2059365318656,
+      "size": 905216,
+      "path": "C:\\Windows\\System32\\WinMetadata\\Windows.Devices.winmd",
+      "timestamp": 0
+    }
+  ],
+  "exception": {
+    "thread": 4604,
+    "code": "0xc0000005",
+    "flags": 0,
+    "address": "0x7ff73b99b9e3",
+    "parameters": [
+      "0x0",
+      "0xffffffffffffffff"
+    ],
+    "registers": {
+      "rax": "0x0",
+      "rcx": "0x6b6d5f31305f7265",
+      "rdx": "0x1e0a532f6d7",
+      "rbx": "0x1e04e3d8d80",
+      "rsp": "0x994c2fdb40",
+      "rbp": "0x994c2fdc40",
+      "rsi": "0x994c2fded0",
+      "rdi": "0x1e0a2b51300",
+      "r8": "0x36",
+      "r9": "0x7ff73c14ff2f",
+      "r10": "0x7ff73a760000",
+      "r11": "0x994c2fdaf0",
+      "r12": "0x1df47f20c80",
+      "r13": "0x1df50f970d0",
+      "r14": "0x1e057979e00",
+      "r15": "0x994c2fdd88",
+      "rip": "0x7ff73b99b9e3"
+    },
+    "module": "D:\\Steam\\steamapps\\common\\X4 Foundations\\X4.exe",
+    "rva": "0x123b9e3"
+  },
+  "register_memory": {
+    "rsp": "80 55 e2 47 e0 01 00 00 f8 bd 40 3d f7 7f 00 00 68 c7 15 3d f7 7f 00 00 74 00 00 00 00 00 00 00",
+    "rbp": "dc ba 32 a5 e0 01 00 00 07 00 00 00 00 00 00 00 31 31 36 00 00 00 00 00 40 00 00 00 00 00 00 00",
+    "rsi": "d0 46 c2 8c e0 01 00 00 48 72 3d 4e e0 01 00 00 40 00 00 00 00 00 00 00 4f 00 00 00 00 00 00 00",
+    "r15": "78 6d 6c 20 78 6d 6c 2e 67 7a 00 42 e0 01 00 00 0a 00 00 00 00 00 00 00 0f 00 00 00 00 00 00 00",
+    "rip": "80 3c 01 00 75 f7 48 89 85 88 00 00 00 48 89 95 90 00 00 00 48 c7 c0 ff ff ff ff 66 90 48 ff c0"
+  },
+  "rsi_string_candidate": {
+    "length": 64,
+    "capacity": 79,
+    "address": "0x1e08cc246d0",
+    "contents": null
+  }
+}

@@ -1,0 +1,9 @@
+/build/
+/build-next/
+/external/
+/reference/
+__pycache__/
+/reports/captures/
+/captures/
+reports/*.asm
+reports/camera-peek-*/

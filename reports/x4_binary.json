@@ -1,0 +1,507 @@
+{
+  "executable": "D:\\Steam\\steamapps\\common\\X4 Foundations\\X4.exe",
+  "sha256": "19750a6563889a970f434b5566eb396c6b2dc29ff814bd3e336f838176ad6891",
+  "machine": "0x8664",
+  "imports": [
+    "avformat_64-55.dll",
+    "avcodec_64-55.dll",
+    "avutil_64-52.dll",
+    "swscale_64-2.dll",
+    "lua51_64.dll",
+    "OpenAL32.dll",
+    "KERNEL32.dll",
+    "USER32.dll",
+    "GDI32.dll",
+    "ADVAPI32.dll",
+    "SHELL32.dll",
+    "ole32.dll",
+    "OLEAUT32.dll",
+    "WS2_32.dll",
+    "CRYPT32.dll",
+    "dbghelp.dll",
+    "DINPUT8.dll",
+    "XINPUT1_3.dll",
+    "COMCTL32.dll",
+    "SHLWAPI.dll",
+    "steam_api64.dll",
+    "tobii_gameintegration_x64.dll",
+    "vulkan-1.dll",
+    "bcrypt.dll",
+    "swresample_64-0.dll",
+    "IPHLPAPI.DLL"
+  ],
+  "selected_exports": {
+    "CanSetPlayerCameraCinematicView": {
+      "rva": "0x001775e0",
+      "first_16_bytes": "48 8b 05 19 23 ba 03 48 85 c0 74 09 48 83 78 38",
+      "stub": null
+    },
+    "ClearRendertarget": {
+      "rva": "0x00177e50",
+      "first_16_bytes": "48 83 ec 38 48 85 c9 75 10 48 8d 0d 28 cf 8c 02",
+      "stub": null
+    },
+    "GetActiveHeadTrackerAngleFactor": {
+      "rva": "0x0023a210",
+      "first_16_bytes": "48 8b 05 71 76 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerDeadzoneAngle": {
+      "rva": "0x0023a240",
+      "first_16_bytes": "48 8b 05 41 76 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerDeadzonePosition": {
+      "rva": "0x0023a270",
+      "first_16_bytes": "48 8b 05 11 76 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerGazeAngleFactor": {
+      "rva": "0x0023a2a0",
+      "first_16_bytes": "48 8b 05 e1 75 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerGazeDeadzone": {
+      "rva": "0x0023a2d0",
+      "first_16_bytes": "48 8b 05 b1 75 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerGazeFilterStrength": {
+      "rva": "0x0023a300",
+      "first_16_bytes": "48 8b 05 81 75 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerHeadFilterStrength": {
+      "rva": "0x0023a320",
+      "first_16_bytes": "48 8b 05 61 75 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerHeadPositionFactor": {
+      "rva": "0x0023a340",
+      "first_16_bytes": "48 8b 05 41 75 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "GetActiveHeadTrackerMode": {
+      "rva": "0x0023a370",
+      "first_16_bytes": "48 83 ec 28 48 8b 05 0d 75 ab 06 48 8b 88 b8 03",
+      "stub": null
+    },
+    "GetActiveHeadTrackerName": {
+      "rva": "0x0023a3b0",
+      "first_16_bytes": "40 55 48 8d 6c 24 a9 48 81 ec 90 00 00 00 65 48",
+      "stub": null
+    },
+    "GetCameraRotation": {
+      "rva": "0x00afc0f0",
+      "first_16_bytes": "48 8b c4 53 48 81 ec 90 00 00 00 0f 28 0d ee 40",
+      "stub": null
+    },
+    "GetCockpitCameraScaleOption": {
+      "rva": "0x0023b650",
+      "first_16_bytes": "f3 0f 10 05 70 03 d1 02 c3 cc cc cc cc cc cc cc",
+      "stub": null
+    },
+    "GetFollowCameraBasePos": {
+      "rva": "0x0018f060",
+      "first_16_bytes": "33 c0 48 89 01 89 41 08 48 8b 05 89 a8 b8 03 48",
+      "stub": null
+    },
+    "GetMapRenderedComponents": {
+      "rva": "0x0022daf0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48",
+      "stub": null
+    },
+    "GetMouseVRSensitivityPitch": {
+      "rva": "0x0023d960",
+      "first_16_bytes": "f3 0f 10 05 c8 0a a8 02 c3 cc cc cc cc cc cc cc",
+      "stub": null
+    },
+    "GetMouseVRSensitivityYaw": {
+      "rva": "0x0023d960",
+      "first_16_bytes": "f3 0f 10 05 c8 0a a8 02 c3 cc cc cc cc cc cc cc",
+      "stub": null
+    },
+    "GetNumMapRenderedComponents": {
+      "rva": "0x0022e490",
+      "first_16_bytes": "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b d1",
+      "stub": null
+    },
+    "GetRenderResolutionOption": {
+      "rva": "0x001901b0",
+      "first_16_bytes": "8b 05 7e 00 95 06 89 44 24 08 8b 05 78 00 95 06",
+      "stub": null
+    },
+    "GetRenderTargetAlpha": {
+      "rva": "0x00267a60",
+      "first_16_bytes": "40 53 48 83 ec 30 8b d9 8b d1 48 8b 0d 07 9d a8",
+      "stub": null
+    },
+    "GetRenderTargetFrameBorderID": {
+      "rva": "0x00267ac0",
+      "first_16_bytes": "40 53 48 83 ec 30 8b d9 8b d1 48 8b 0d a7 9c a8",
+      "stub": null
+    },
+    "GetVRControllerAutoHide": {
+      "rva": "0x000b3d60",
+      "first_16_bytes": "33 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "GetVRVivePointerHand": {
+      "rva": "0x0014f6b0",
+      "first_16_bytes": "b8 01 00 00 00 c3 cc cc cc cc cc cc cc cc cc cc",
+      "stub": null
+    },
+    "GetVRViveTouchpadLockTime": {
+      "rva": "0x00099ff0",
+      "first_16_bytes": "0f 57 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": null
+    },
+    "GetVRWindowMode": {
+      "rva": "0x000b3d60",
+      "first_16_bytes": "33 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "HasFollowCameraBasePosChanged": {
+      "rva": "0x001b0430",
+      "first_16_bytes": "48 8b 05 c1 94 b6 03 48 85 c0 74 14 48 8b 88 d0",
+      "stub": null
+    },
+    "HasRenderTargetStartNoise": {
+      "rva": "0x0026a260",
+      "first_16_bytes": "40 53 48 83 ec 30 8b d9 8b d1 48 8b 0d 07 75 a8",
+      "stub": null
+    },
+    "IsActiveHeadTrackerAvailable": {
+      "rva": "0x0023ff80",
+      "first_16_bytes": "48 8b 05 01 19 ab 06 48 8b 88 b8 03 00 00 48 85",
+      "stub": null
+    },
+    "IsActiveHeadTrackerSettingSupported": {
+      "rva": "0x0023ffa0",
+      "first_16_bytes": "41 57 48 83 ec 50 4c 8b f9 48 85 c9 75 1c 48 8d",
+      "stub": null
+    },
+    "IsHeadTrackingActive": {
+      "rva": "0x00affb00",
+      "first_16_bytes": "48 83 ec 28 48 8b 05 7d 1d 1f 06 48 85 c0 74 20",
+      "stub": null
+    },
+    "IsMouseVRPointerAllowed": {
+      "rva": "0x000b38c0",
+      "first_16_bytes": "32 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "IsPlayerCameraTargetViewPossible": {
+      "rva": "0x001b3750",
+      "first_16_bytes": "40 53 48 83 ec 30 0f b6 da 41 b8 04 00 00 00 48",
+      "stub": null
+    },
+    "IsVRMode": {
+      "rva": "0x000b38c0",
+      "first_16_bytes": "32 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "IsVROculusTouchActive": {
+      "rva": "0x000b38c0",
+      "first_16_bytes": "32 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "IsVRPointerActive": {
+      "rva": "0x000b38c0",
+      "first_16_bytes": "32 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "IsVRVersion": {
+      "rva": "0x000b38c0",
+      "first_16_bytes": "32 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "IsVRViveControllerActive": {
+      "rva": "0x000b38c0",
+      "first_16_bytes": "32 c0 c3 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_zero"
+    },
+    "ResetFollowCameraBasePos": {
+      "rva": "0x001b6ed0",
+      "first_16_bytes": "48 8b 05 21 2a b6 03 48 85 c0 74 10 48 8b 88 d0",
+      "stub": null
+    },
+    "ResetFollowCameraBasePosOverride": {
+      "rva": "0x001b6ef0",
+      "first_16_bytes": "48 8b 05 01 2a b6 03 48 85 c0 74 10 48 8b 88 d0",
+      "stub": null
+    },
+    "SaveFollowCameraBasePos": {
+      "rva": "0x001b6f20",
+      "first_16_bytes": "48 8b 05 d1 29 b6 03 48 85 c0 74 10 48 8b 88 d0",
+      "stub": null
+    },
+    "SetActiveHeadTrackerAngleFactor": {
+      "rva": "0x00247f70",
+      "first_16_bytes": "4c 8b dc 53 48 83 ec 70 48 8b 05 09 99 aa 06 0f",
+      "stub": null
+    },
+    "SetActiveHeadTrackerDeadzoneAngle": {
+      "rva": "0x002480d0",
+      "first_16_bytes": "4c 8b dc 53 48 83 ec 70 48 8b 05 a9 97 aa 06 0f",
+      "stub": null
+    },
+    "SetActiveHeadTrackerDeadzonePosition": {
+      "rva": "0x00248230",
+      "first_16_bytes": "4c 8b dc 53 48 83 ec 70 48 8b 05 49 96 aa 06 0f",
+      "stub": null
+    },
+    "SetActiveHeadTrackerGazeAngleFactor": {
+      "rva": "0x00248390",
+      "first_16_bytes": "4c 8b dc 53 48 83 ec 70 48 8b 05 e9 94 aa 06 0f",
+      "stub": null
+    },
+    "SetActiveHeadTrackerGazeDeadzone": {
+      "rva": "0x002484f0",
+      "first_16_bytes": "4c 8b dc 53 48 83 ec 70 48 8b 05 89 93 aa 06 0f",
+      "stub": null
+    },
+    "SetActiveHeadTrackerGazeFilterStrength": {
+      "rva": "0x00248650",
+      "first_16_bytes": "48 89 5c 24 10 56 48 83 ec 60 48 8b 05 27 92 aa",
+      "stub": null
+    },
+    "SetActiveHeadTrackerHeadFilterStrength": {
+      "rva": "0x002487a0",
+      "first_16_bytes": "48 89 5c 24 10 56 48 83 ec 60 48 8b 05 d7 90 aa",
+      "stub": null
+    },
+    "SetActiveHeadTrackerHeadPositionFactor": {
+      "rva": "0x002488f0",
+      "first_16_bytes": "4c 8b dc 53 48 83 ec 70 48 8b 05 89 8f aa 06 0f",
+      "stub": null
+    },
+    "SetActiveHeadTrackerMode": {
+      "rva": "0x00248a50",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20 55",
+      "stub": null
+    },
+    "SetCockpitCameraScaleOption": {
+      "rva": "0x0024a930",
+      "first_16_bytes": "48 89 5c 24 08 48 89 6c 24 18 56 57 41 54 41 56",
+      "stub": null
+    },
+    "SetConstructionMapRenderSectorBackground": {
+      "rva": "0x002321d0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetConstructionMapRenderTransformGizmo": {
+      "rva": "0x00232280",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetEditingFollowCameraSettings": {
+      "rva": "0x001b78e0",
+      "first_16_bytes": "48 8b 05 11 20 b6 03 48 85 c0 74 12 48 8b 80 d0",
+      "stub": null
+    },
+    "SetFollowCameraBasePos": {
+      "rva": "0x001b8080",
+      "first_16_bytes": "48 8b 05 71 18 b6 03 48 85 c0 74 30 48 8b 80 d0",
+      "stub": null
+    },
+    "SetMapRenderAllAllyOrderQueues": {
+      "rva": "0x00233df0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderAllGateConnections": {
+      "rva": "0x00233ea0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderAllOrderQueues": {
+      "rva": "0x00233f50",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderCargoContents": {
+      "rva": "0x00234000",
+      "first_16_bytes": "40 53 48 83 ec 20 48 8b d9 48 8b d1 48 8b 0d ed",
+      "stub": null
+    },
+    "SetMapRenderCivilianShips": {
+      "rva": "0x00234070",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderCrewInfo": {
+      "rva": "0x002345e0",
+      "first_16_bytes": "40 53 48 83 ec 20 48 8b d9 48 8b d1 48 8b 0d 0d",
+      "stub": null
+    },
+    "SetMapRenderDockedShipInfos": {
+      "rva": "0x00234650",
+      "first_16_bytes": "40 53 48 83 ec 20 48 8b d9 48 8b d1 48 8b 0d 9d",
+      "stub": null
+    },
+    "SetMapRenderEclipticLines": {
+      "rva": "0x002346c0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderMissionGuidance": {
+      "rva": "0x00234770",
+      "first_16_bytes": "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48",
+      "stub": null
+    },
+    "SetMapRenderMissionOffers": {
+      "rva": "0x002348d0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderResourceInfo": {
+      "rva": "0x00234980",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderResourceProbeRange": {
+      "rva": "0x00234a30",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderSatelliteRadarRange": {
+      "rva": "0x00234ae0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderSelectionLines": {
+      "rva": "0x00234b90",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderTradeOffers": {
+      "rva": "0x00234c40",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapRenderWorkForceInfo": {
+      "rva": "0x00234120",
+      "first_16_bytes": "40 53 48 83 ec 20 48 8b d9 48 8b d1 48 8b 0d cd",
+      "stub": null
+    },
+    "SetMapRenderWrecks": {
+      "rva": "0x00234190",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapToInitialCameraDistance": {
+      "rva": "0x00235240",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 0f",
+      "stub": null
+    },
+    "SetMapToMaxCameraDistance": {
+      "rva": "0x002352f0",
+      "first_16_bytes": "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 40 0f",
+      "stub": null
+    },
+    "SetMonitorRenderState": {
+      "rva": "0x00b0a800",
+      "first_16_bytes": "88 0d d3 0e 44 02 e9 15 b7 db ff cc cc cc cc cc",
+      "stub": null
+    },
+    "SetMouseVRPointerAllowed": {
+      "rva": "0x000963b0",
+      "first_16_bytes": "c2 00 00 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_immediately"
+    },
+    "SetMouseVRSensitivityPitch": {
+      "rva": "0x000963b0",
+      "first_16_bytes": "c2 00 00 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_immediately"
+    },
+    "SetMouseVRSensitivityYaw": {
+      "rva": "0x000963b0",
+      "first_16_bytes": "c2 00 00 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_immediately"
+    },
+    "SetPlayerCameraCinematicView": {
+      "rva": "0x001b91c0",
+      "first_16_bytes": "40 53 48 83 ec 20 48 8b d9 48 8b d1 48 8b 0d 2d",
+      "stub": null
+    },
+    "SetPlayerCameraCockpitView": {
+      "rva": "0x001b9210",
+      "first_16_bytes": "41 b0 01 0f b6 d1 e9 c5 0d 84 00 cc cc cc cc cc",
+      "stub": null
+    },
+    "SetPlayerCameraExternalView": {
+      "rva": "0x001b9220",
+      "first_16_bytes": "0f b6 d1 e9 c8 11 84 00 cc cc cc cc cc cc cc cc",
+      "stub": null
+    },
+    "SetPlayerCameraFloatingView": {
+      "rva": "0x001b9270",
+      "first_16_bytes": "0f b6 d1 e9 a8 1e 84 00 cc cc cc cc cc cc cc cc",
+      "stub": null
+    },
+    "SetPlayerCameraTargetView": {
+      "rva": "0x001b9230",
+      "first_16_bytes": "40 53 48 83 ec 30 0f b6 da 41 b8 04 00 00 00 48",
+      "stub": null
+    },
+    "SetRadarRenderTarget": {
+      "rva": "0x00b013f0",
+      "first_16_bytes": "48 89 6c 24 20 56 48 83 ec 50 41 0f b6 e8 48 8b",
+      "stub": null
+    },
+    "SetRadarRenderTarget2": {
+      "rva": "0x00b0abb0",
+      "first_16_bytes": "48 89 6c 24 20 56 48 83 ec 50 49 8b e8 48 8b f2",
+      "stub": null
+    },
+    "SetRadarRenderTargetOnTarget": {
+      "rva": "0x00b015f0",
+      "first_16_bytes": "40 55 57 41 56 48 83 ec 40 45 0f b6 f1 49 8b e8",
+      "stub": null
+    },
+    "SetRadarRenderTargetOnTarget2": {
+      "rva": "0x00b0adb0",
+      "first_16_bytes": "40 55 57 41 56 48 83 ec 40 4d 8b f1 49 8b e8 48",
+      "stub": null
+    },
+    "SetSceneCameraActive": {
+      "rva": "0x001ba030",
+      "first_16_bytes": "48 8b 05 c1 f8 b5 03 48 85 c0 74 1c 48 8b 90 c8",
+      "stub": null
+    },
+    "SetVRControllerAutoHide": {
+      "rva": "0x000963b0",
+      "first_16_bytes": "c2 00 00 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_immediately"
+    },
+    "SetVRVivePointerHand": {
+      "rva": "0x000963b0",
+      "first_16_bytes": "c2 00 00 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_immediately"
+    },
+    "SetVRViveTouchpadLockTime": {
+      "rva": "0x000963b0",
+      "first_16_bytes": "c2 00 00 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_immediately"
+    },
+    "SetVRWindowMode": {
+      "rva": "0x000963b0",
+      "first_16_bytes": "c2 00 00 cc cc cc cc cc cc cc cc cc cc cc cc cc",
+      "stub": "returns_immediately"
+    },
+    "ShouldRenderTargetBeCleared": {
+      "rva": "0x0026fae0",
+      "first_16_bytes": "40 53 48 83 ec 30 8b d9 8b d1 48 8b 0d 87 1c a8",
+      "stub": null
+    },
+    "UnsetRadarRenderTarget": {
+      "rva": "0x00b01aa0",
+      "first_16_bytes": "ba 02 00 00 00 e9 16 72 ef ff cc cc cc cc cc cc",
+      "stub": null
+    }
+  },
+  "openvr_literal_strings": [],
+  "limitations": "Static evidence only. Absence of imports/strings does not rule out every dynamic path. Stub classifications inspect entry bytes, not callers."
+}

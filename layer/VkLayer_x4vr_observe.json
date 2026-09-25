@@ -1,0 +1,14 @@
+{
+  "file_format_version": "1.2.0",
+  "layer": {
+    "name": "VK_LAYER_X4VR_observe",
+    "type": "GLOBAL",
+    "library_path": ".\\x4vr_observe.dll",
+    "api_version": "1.4.0",
+    "implementation_version": "1",
+    "description": "Local X4 renderer observation for OpenVR development; does not modify rendering",
+    "functions": {
+      "vkNegotiateLoaderLayerInterfaceVersion": "x4vrNegotiateLoaderLayerInterfaceVersion"
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "capture": "D:\\Steam\\steamapps\\common\\X4 Foundations\\vr-dev\\reports\\captures\\process-47156-134345816853702662",
+  "event_counts": {
+    "capture_started": 1,
+    "instance_created": 1,
+    "device_created": 1,
+    "shader_module": 1,
+    "descriptor_layout": 1,
+    "pipeline_layout": 1,
+    "compute_pipeline": 1,
+    "uniform_descriptor_write": 1,
+    "bind_descriptor_sets": 1,
+    "device_destroyed": 1,
+    "instance_destroyed": 1
+  },
+  "applications": [
+    {
+      "event": "instance_created",
+      "application": "x4vr-vulkan-smoke",
+      "api_version": 4198400,
+      "extensions": []
+    }
+  ],
+  "devices": [
+    {
+      "event": "device_created",
+      "device": 2978563752144,
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "extensions": [
+        "VK_KHR_external_memory_win32"
+      ]
+    }
+  ],
+  "swapchains": [],
+  "last_present": null,
+  "reflected_modules": 1,
+  "unique_modules": 1,
+  "named_camera_world_layouts": [],
+  "graphics_pipelines_by_named_block": {},
+  "errors": [],
+  "limitations": "Observed modules and sampled descriptor calls only. No camera-buffer contents, engine function addresses, stereo rendering, or headset submission are proven. Names may be stripped. Extension overrides and runtime shader variants are represented only if observed."
+}
