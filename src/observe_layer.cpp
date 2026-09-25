@@ -467,6 +467,9 @@ struct Presenter {
     VkOffset3D offset{};
     float span_x{}, span_y{};
     std::unique_ptr<x4vr::EyeTargets> targets;
+    // Replaced on swapchain resize but never freed: OpenVR may still read the last
+    // submitted textures and in-flight copies may reference them.
+    std::vector<std::unique_ptr<x4vr::EyeTargets>> retired;
     VkCommandPool pool{};
     std::array<VkCommandBuffer, 3> commands{};
     std::array<VkFence, 3> fences{};
@@ -541,6 +544,8 @@ void presenter_initialize(const Device& d, uint32_t family) {
     p.eye_extent = {uint32_t(std::ceil(p.extent.width*p.span_x/tan_x)), uint32_t(std::ceil(p.extent.height*p.span_y/tan_y))};
     p.offset = {int32_t(p.eye_extent.width-p.extent.width)/2, int32_t(p.eye_extent.height-p.extent.height)/2, 0};
     p.targets = x4vr::EyeTargets::create({d.device, d.physical, d.gdpa, memory, image_properties}, p.eye_extent, p.format);
+    p.filled = {};
+    if (!p.pool) {
     VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; pool.queueFamilyIndex = family;
     check(d.CreateCommandPool(d.device, &pool, nullptr, &p.pool), "vkCreateCommandPool");
@@ -556,6 +561,7 @@ void presenter_initialize(const Device& d, uint32_t family) {
         check(d.CreateSemaphore(d.device, &semaphore, nullptr, &p.copied[i]), "vkCreateSemaphore");
     }
     p.output_physical = d.runtime->output_device(d.instance);
+    }
     log([&](auto& s) {
         s << "{\"event\":\"vr_presenter_ready\",\"width\":" << p.extent.width << ",\"height\":" << p.extent.height
           << ",\"format\":" << p.format << ",\"tangents\":[";
@@ -685,9 +691,11 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, cons
         auto& p = presenter();
         std::lock_guard lock(p.mutex);
         if (p.ready && (ci->imageExtent.width != p.extent.width || ci->imageExtent.height != p.extent.height || ci->imageFormat != p.format)) {
-            p.failed = true; // ponytail: no eye-target rebuild on resize; restart X4 after changing resolution
-            OutputDebugStringA("X4VR presenter: swapchain size changed; VR submission stopped\n");
-            return;
+            // ponytail: old targets are retired (leaked) per resize; fine for occasional resolution changes
+            p.retired.push_back(std::move(p.targets));
+            p.dump_buffer = VK_NULL_HANDLE; p.dump_memory = VK_NULL_HANDLE;
+            p.ready = false;
+            OutputDebugStringA("X4VR presenter: swapchain size changed; eye targets will be rebuilt\n");
         }
         uint32_t count{};
         data->GetSwapchainImagesKHR(device, *output, &count, nullptr);

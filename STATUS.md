@@ -54,8 +54,14 @@ Verified numerically against live camera records and eye-texture dumps:
 3. Copy `config/stereo.txt` to `reports/captures/stereo.txt`. It is re-read every 500 ms.
 4. `./scripts/observe.ps1 -Target Game -OpenVRBootstrap -CrashWatch -BuildDirectory build -GameArgs "-skipintro -nocputhrottle"`
 5. In X4: Settings → head tracking → FreeTrack (once; persisted). FOV slider max (1.3333).
-   `game_tan_y` must match: 0.8675 at FOV 1.3333.
-6. Load the save. Sit straight, then bump `recenter=` in `stereo.txt` to recentre.
+   `game_tan_y` must match: 0.8675 at FOV 1.3333 (vertical FOV; independent of resolution).
+6. Resolution: the eyes receive X4's swapchain image, so render big. NVIDIA DSR factor
+   4.00x on the 1920×1080 monitor, then X4 **fullscreen 3840×2160**
+   (`config.xml`: `<fullscreen>true`, `res_width 3840`, `res_height 2160`). This gives
+   ~1245 px/tan (Aero native ≈ 1440). It held a steady 90 fps on the RTX 3090 with DLSS off
+   and AA none. DLSS off avoids temporal history mixing the eyes. Windowed sizes larger
+   than the screen are clamped by X4. Resolution changes in-game rebuild the eye textures.
+7. Load the save. Sit straight, then bump `recenter=` in `stereo.txt` to recentre.
 
 Calibration tools (X4 running, cockpit loaded): `tools/vr_calibrate.py --pid <pid>`
 (translation, rotation, FOV, latency), `tools/orient_check.py <pid>`, `tools/star_fov.py <pid>`.
@@ -66,8 +72,8 @@ Eye dump: create `reports/captures/dump.txt`, which writes `eye-0.raw`, `eye-1.r
 
 - AFR gives 45 Hz per eye, and stale-eye parallax is not reprojected. Temporal AA/DLSS history
   crosses eyes.
-- Eye images come from the monitor swapchain (1904×993). Resolution is low compared with
-  the Aero's native per-eye resolution. HUD is part of the image.
+- Eye images come from the swapchain. At 4K via DSR they reach ~86% of the Aero's native
+  pixel density; each eye uses ~70% of the frame width. HUD is part of the image.
 - X4's max FOV (tan 0.8675 vertical) leaves a black band at the bottom (the Aero needs 1.116).
 - Needs the launcher (PATH to `build/Release`, Vulkan layer env). A normal Steam launch
   would fail to load `x4_openvr.dll` dependencies.
