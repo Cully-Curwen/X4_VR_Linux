@@ -29,8 +29,9 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
   renders one eye.
 - An NVIDIA GPU is recommended, because the setup below uses DSR for a high render resolution.
   AMD users can try Virtual Super Resolution (untested).
-- Visual Studio 2022 with the *Desktop development with C++* workload (it includes CMake), and
-  Git. Python 3 is optional and only runs extra self-tests.
+- Only to build from source instead of using the download: Visual Studio 2022 with the
+  *Desktop development with C++* workload (it includes CMake), and Git. Python 3 is optional
+  and only runs extra self-tests.
 
 It was developed and tested with X4 9.00 from Steam, a Varjo Aero (Varjo Base + SteamVR), an
 NVIDIA RTX 3090 holding a steady 90 fps at 3840×2160, and Windows 11. Other SteamVR headsets
@@ -40,7 +41,23 @@ back to safer behavior (see [Limitations](#limitations)).
 
 ## Setup
 
-### 1. Download and build
+### 1. Install
+
+Download the newest `X4_VR-<version>.zip` from the
+[Releases page](https://github.com/ToffelsKater/X4_VR/releases). Extract it into your X4
+installation folder, the one that contains `X4.exe`, so that you end up with
+`X4 Foundations\X4_VR\X4VRLauncher.exe`. Nothing else needs installing.
+
+Windows may show "Windows protected your PC" the first time you start the launcher, because the
+program isn't signed. Click *More info* and then *Run anyway*.
+
+On its first start the launcher points X4's head-tracker setting, the per-user registry value
+`HKCU\Software\FreeTrack\FreeTrackClient\Path`, at `X4_VR\build\Release`. That is where X4 looks
+for a FreeTrack head tracker. If you already use opentrack or TrackIR, the launcher leaves that
+value alone, and you switch it with the launcher's *Fix head-tracking path* button. The old value
+is backed up, and the uninstaller restores it.
+
+#### Building from source
 
 Clone the repository into your X4 installation folder, the one that contains `X4.exe`:
 
@@ -175,7 +192,9 @@ Keep X4 focused on the desktop. Clicking into another window can throttle the ga
 
 ## Updating
 
-Close X4 and the launcher, then run this in the X4 installation folder:
+Close X4 and the launcher first. If you installed the download, extract the new zip into the X4
+folder and let it replace the files in `X4_VR`. If you built from source, run this in the X4
+installation folder:
 
 ```bat
 cd X4_VR
@@ -261,15 +280,15 @@ before you attach it. Creating the issue needs a GitHub account.
 
 ## Uninstall
 
-Remove the HUD extension first: press *Remove* in the launcher's HUD distance box, or delete
-`extensions\x4vr_hud` in your X4 folder. Then run:
+Close X4 and the launcher, then run this in the X4 installation folder:
 
 ```bat
 powershell -ExecutionPolicy Bypass -File X4_VR\scripts\uninstall.ps1
 ```
 
-This restores or removes the FreeTrack registry value. Then delete the `X4_VR` folder. If you
-like, set OpenTrack Support back to Off and restore your display settings.
+This restores or removes the FreeTrack registry value and removes the HUD distance extension.
+Then delete the `X4_VR` folder. If you like, set OpenTrack Support back to Off and restore your
+display settings.
 
 ## License
 
