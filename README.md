@@ -4,6 +4,22 @@ Native stereoscopic VR with 6DOF head tracking for X4: Foundations, on any Steam
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Egosoft.
 
+## What works
+
+- Flying from the cockpit in stereo with full head tracking. The world, the cockpit and the HUD
+  all follow your head, including leaning.
+- The HUD can be moved further away. Out of the box X4 places it about 15 cm in front of your
+  eyes, which is uncomfortable in VR. The launcher builds a small X4 extension from your own
+  game files that pushes it back while keeping its apparent size.
+- The main menu and fullscreen menus (map, inventory, trading and so on) appear on a flat
+  virtual screen in front of you, with the mouse cursor on it.
+- Walking on foot, in stereo with head tracking. Turning with the mouse is compensated so both
+  eyes stay aligned during the turn.
+- Ctrl+F11 switches to the flat screen at any time. Use it for anything that doesn't work in VR
+  yet.
+- A launcher with profiles, a live status panel, a check of X4's graphics settings and a
+  *Report a bug* button.
+
 ## What you need
 
 - Windows 10 or 11 (64-bit), Steam, and X4: Foundations 9.00.
@@ -19,8 +35,8 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
 It was developed and tested with X4 9.00 from Steam, a Varjo Aero (Varjo Base + SteamVR), an
 NVIDIA RTX 3090 holding a steady 90 fps at 3840×2160, and Windows 11. Other SteamVR headsets
 (Index, Vive, Quest through Link or Virtual Desktop in SteamVR mode, and so on) should work but
-haven't been tested. The calibration is specific to X4 9.00: on other versions head tracking
-still works, but leaning backwards may be blocked (see [Limitations](#limitations)).
+haven't been tested. The calibration is specific to X4 9.00; on other versions some parts fall
+back to safer behavior (see [Limitations](#limitations)).
 
 ## Setup
 
@@ -30,29 +46,32 @@ Clone the repository into your X4 installation folder, the one that contains `X4
 
 ```bat
 cd "C:\Program Files (x86)\Steam\steamapps\common\X4 Foundations"
-git clone https://github.com/ToffelsKater/X4_Rebirth.git
+git clone https://github.com/ToffelsKater/X4_VR.git
 ```
 
 Then run the installer from PowerShell:
 
 ```bat
-powershell -ExecutionPolicy Bypass -File X4_Rebirth\scripts\install.ps1
+powershell -ExecutionPolicy Bypass -File X4_VR\scripts\install.ps1
 ```
 
 The installer downloads the pinned dependencies (OpenVR SDK, Vulkan headers, MinHook), builds
 everything and runs the self-tests; add `-SkipTests` to skip the tests. It then points the
 per-user registry value `HKCU\Software\FreeTrack\FreeTrackClient\Path` at
-`X4_Rebirth\build\Release`, which is where X4 looks for a FreeTrack head tracker. If a
-different FreeTrack or opentrack path was set, it is backed up, and the uninstaller restores
-it. Finally it creates the settings file `reports\captures\stereo.txt`. When it's done, the
-launcher `X4VRLauncher.exe` sits directly in the `X4_Rebirth` folder.
+`X4_VR\build\Release`, which is where X4 looks for a FreeTrack head tracker. If a different
+FreeTrack or opentrack path was set, it is backed up, and the uninstaller restores it. Finally
+it creates the settings file `reports\captures\stereo.txt`. When it's done, the launcher
+`X4VRLauncher.exe` sits directly in the `X4_VR` folder.
+
+The project used to be called X4_Rebirth. An existing `X4_Rebirth` folder keeps working, and
+`git pull` in it still reaches the renamed repository.
 
 ### 2. Raise the render resolution with NVIDIA DSR
 
 The headset gets the image X4 renders. At monitor resolution (1920×1080) that looks blurry in
 VR, so let the game render at a higher resolution:
 
-1. Open NVIDIA Control Panel → 3D Settings → Manage 3D settings → Global Settings.
+1. Open NVIDIA Control Panel > 3D Settings > Manage 3D settings > Global Settings.
 2. Under DSR - Factors, tick 4.00x (native resolution), which turns 1920×1080 into 3840×2160.
    You can also tick DL 2.25x. With a 1440p monitor, 2.25x (3840×2160) is the sensible choice;
    4x (5120×2880) is very heavy.
@@ -64,16 +83,16 @@ VR, so let the game render at a higher resolution:
 
 Set these once in X4's Options menu; X4 saves them.
 
-Options → Controls → Head Tracking Support:
+Options > Controls > Head Tracking Support:
 
 | Setting | Value | Note |
 | --- | --- | --- |
 | OpenTrack Support | On | Enables X4's FreeTrack support, which the mod uses. "Waiting for OpenTrack connection" is normal. |
-| FreeTrack → Head Rotation Factor | 100 % | Required: the mod expects 1:1. |
-| FreeTrack → Head Position Factor | 100 % | Required. |
-| FreeTrack → Head Motion Smoothing | any | The mod turns smoothing off internally, which the slider cannot do. |
+| FreeTrack > Head Rotation Factor | 100 % | Required: the mod expects 1:1. |
+| FreeTrack > Head Position Factor | 100 % | Required. |
+| FreeTrack > Head Motion Smoothing | any | The mod turns smoothing off internally, which the slider cannot do. |
 
-Options → Display Settings:
+Options > Display Settings:
 
 | Setting | Value | Note |
 | --- | --- | --- |
@@ -86,7 +105,7 @@ Options → Display Settings:
 | Frame Rate Limit | 90 FPS (your headset's refresh rate) or higher | |
 | FOV | maximum (120°) | Required. The eye mapping is calibrated for it (see `game_tan_y` below). |
 
-Options → Graphics Settings:
+Options > Graphics Settings:
 
 | Setting | Value |
 | --- | --- |
@@ -94,26 +113,55 @@ Options → Graphics Settings:
 | Distortion | Off (recommended in VR) |
 | Everything else | Whatever still holds a steady 90 fps |
 
-You don't have to check the display and graphics settings by hand. The launcher in the next
-step reads X4's `config.xml` and lists anything that doesn't match. Its *Fix X4 settings*
-button corrects them after backing up `config.xml`, and only works while X4 is closed. The
-head-tracking factors aren't stored in that file, so set those in the game.
+You don't have to check the display and graphics settings by hand. The launcher reads X4's
+`config.xml` and lists anything that doesn't match. Its *Fix X4 settings* button corrects them
+after backing up `config.xml`, and only works while X4 is closed. The head-tracking factors
+aren't stored in that file, so set those in the game.
 
-### 4. First launch
+### 4. Move the HUD back
+
+Start `X4VRLauncher.exe` in the `X4_VR` folder while X4 is closed. In the *HUD distance* box,
+enter a factor and press *Apply*. At 2.5 the HUD sits 2.5 times further away and looks the same
+size; any value from 1 to 6 works. *Remove* takes the HUD back to X4's default.
+
+This writes the extension `extensions\x4vr_hud` in your X4 folder. It is generated from your
+own game files, so nothing from Egosoft is part of this repository, and savegames don't depend
+on it. When a game update changes those files, the launcher rebuilds the extension the next time
+you press *Play X4 in VR*. If the new files no longer look as expected, it removes the extension
+and tells you.
+
+### 5. First launch
 
 1. Start your headset software and SteamVR. Steam must be running too.
-2. Start `X4VRLauncher.exe` in the `X4_Rebirth` folder. Don't start X4 from the Steam library;
-   launched that way the game runs flat.
+2. Start `X4VRLauncher.exe`. Don't start X4 from the Steam library; launched that way the game
+   runs flat.
 3. Check the launcher's Status box: SteamVR should be running, and the head-tracking DLL path
    and the build should both read "ok". The X4 settings box should say that all settings
    match.
-4. Press **Play X4 in VR**.
-5. Load your game. Sit comfortably, look straight ahead and press Ctrl+F12 to recenter. The view
-   also recenters on its own when head tracking starts.
+4. Press *Play X4 in VR*.
+5. The main menu appears on the virtual screen. Load your game, sit comfortably, look straight
+   ahead and press Ctrl+F12 to recenter. The view also recenters on its own when head tracking
+   starts.
 
 Quit X4 normally when you're done.
 
 ## Playing
+
+| Key | Action |
+| --- | --- |
+| Ctrl+F12 | Recenter the view. Also moves the virtual screen in front of you. |
+| Ctrl+F11 | Switch to the flat virtual screen and back. |
+
+Always recenter with Ctrl+F12. X4's own *Reset Head Tracking* key breaks the calibration. After
+a SteamVR *Reset seated position*, press Ctrl+F12 again.
+
+The game switches between the stereo view and the virtual screen by itself. Fullscreen menus
+and cutscenes go to the screen, and flying and walking stay in stereo. The screen stands 2 m in
+front of you and is 2.2 m wide. In the stereo view the mouse cursor floats 5 m ahead, in the
+direction the game points it.
+
+Ctrl+F11 is the way out of anything that doesn't work in VR yet, such as an unusual camera or a
+menu that is hard to read in 3D. Press it again to return to VR.
 
 The launcher stays open while you play. Changes you make in it apply within half a second, and
 it shows the frame rate the headset is getting. It keeps profiles with your VR mode, world
@@ -121,18 +169,27 @@ scale, prediction, stutter protection and the X4 resolution you want: type a nam
 *Save*. It comes with two, *Default* and *Pair 90 Hz (experimental)*.
 
 You can also start the game without the launcher:
-`powershell -ExecutionPolicy Bypass -File X4_Rebirth\scripts\play.ps1`
-
-Always recenter with Ctrl+F12. X4's own *Reset Head Tracking* key breaks the calibration. After
-a SteamVR *Reset seated position*, press Ctrl+F12 again.
+`powershell -ExecutionPolicy Bypass -File X4_VR\scripts\play.ps1`
 
 Keep X4 focused on the desktop. Clicking into another window can throttle the game.
 
+## Updating
+
+Close X4 and the launcher, then run this in the X4 installation folder:
+
+```bat
+cd X4_VR
+git pull
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+Your settings, saved profiles and HUD extension stay as they are.
+
 ## Fine-tuning (optional)
 
-`X4_Rebirth\reports\captures\stereo.txt` is re-read every half second while you play. The
-launcher writes `stereo`, `pair`, `ipd_scale`, `predict` and `async_submit` for you; the other
-values are calibrated for X4 9.00.
+`X4_VR\reports\captures\stereo.txt` is re-read every half second while you play. The launcher
+writes `stereo`, `pair`, `ipd_scale`, `predict` and `async_submit` for you. The other values
+are calibrated for X4 9.00; keys you leave out use their defaults.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -146,15 +203,22 @@ values are calibrated for X4 9.00.
 | `recenter` | 0 | Changing this number also recenters. |
 | `async_submit` | 1 | Frames go to SteamVR from a separate thread, so a game stutter repeats the last image instead of flashing. 0 = old behaviour. |
 | `pair` | 0 | Experimental: render both eyes back to back for 90 Hz per eye. Needs the game at 180 fps. |
+| `theater` | 1 | Virtual screen: 1 = for fullscreen menus and cutscenes, 0 = never, 2 = always. |
+| `theater_distance`, `theater_width` | 2, 2.2 | Distance and width of the virtual screen in metres. |
+| `cursor`, `cursor_distance` | 1, 5 | Mouse cursor on (1) or off (0), and how far it floats in the stereo view, in metres. |
+| `turn_comp` | 1 | Mouse-turn compensation: 1 = on foot, 0 = off, 2 = also in the cockpit (there it keeps the world aligned during ship turns but shifts the cockpit interior instead). |
 
 ## Limitations
 
 Each eye gets 45 Hz, because frames alternate between the eyes. SteamVR reprojection keeps
-rotation smooth, but fast head movement shows some parallax judder on nearby objects. The
-experimental `pair=1` mode gives 90 Hz per eye but needs about twice the GPU power, and if the
-game can't hold 180 fps it shows dark flashes.
+head rotation smooth, but fast head movement shows some parallax judder on nearby objects. On
+foot, fast mouse turns can still look slightly soft. The experimental `pair=1` mode gives 90 Hz
+per eye but needs about twice the GPU power, and if the game can't hold 180 fps it shows dark
+flashes.
 
-The HUD and menus are part of the rendered image, so they don't float on their own VR layer.
+The HUD is drawn into the rendered image, so it has no VR layer of its own. The HUD distance
+extension moves the cockpit HUD, but small popup menus in the cockpit, such as the interaction
+menu, stay at X4's original close distance.
 
 On wide-FOV headsets there is a small black band at the very bottom of the view, because X4's
 maximum FOV is a bit smaller than the Varjo Aero's.
@@ -162,14 +226,14 @@ maximum FOV is a bit smaller than the Varjo Aero's.
 VR only works when X4 is started through the launcher or `play.ps1`. A normal Steam launch runs
 the game flat.
 
-Only X4 9.00 is fully supported. X4 normally blocks leaning backwards, and the mod removes that
-restriction in memory at runtime. On other versions it checks the exact code bytes, skips the
-patch, and backward head movement stays blocked.
+Only X4 9.00 is fully supported. The mod changes three spots in X4's code in memory at runtime:
+one allows leaning backwards, and two allow head tracking on foot. Before each change it checks
+the exact code bytes. On other versions it skips the changes, so leaning backwards stays blocked
+and walking is shown on the virtual screen.
 
 ## Troubleshooting
 
-Logs are written to `X4_Rebirth\reports\captures\debug-*\debug-events.log`; search for
-`X4VR`.
+Logs are written to `X4_VR\reports\captures\debug-*\debug-events.log`; search for `X4VR`.
 
 | Problem | Check |
 | --- | --- |
@@ -179,16 +243,33 @@ Logs are written to `X4_Rebirth\reports\captures\debug-*\debug-events.log`; sear
 | Low frame rate or judder | Use a smaller DSR factor (e.g. 2560×1440) or lower graphics settings; 90 fps is needed. |
 | World too big or too small | Adjust World scale in the launcher (`ipd_scale` in `stereo.txt`). |
 | View off-center | Look straight ahead and press Ctrl+F12. |
+| HUD too close or too far | Change the factor in the launcher's HUD distance box (X4 closed) and press *Apply*. |
+| A view or menu doesn't work in VR | Press Ctrl+F11 for the virtual screen, and Ctrl+F11 again to return. |
+| Walking shows the virtual screen instead of stereo | The log should show `on-foot head-pose zeroing patched` and `on-foot camera offset patched`. A `signature mismatch` means your X4 version isn't supported for walking yet. |
 | Game froze at startup (rare) | Close it and launch again. Disabling overlay hooks (Overwolf, OBS game capture) can help. |
+
+## Reporting a bug
+
+Press *Report a bug* in the launcher. It asks first, then packs your VR settings, the recent
+logs, the newest crash dump, X4's `config.xml` and a short system summary (Windows version, GPU,
+X4 version, SteamVR, installed extensions) into `reports\captures\bug-report-<date>.zip`. It
+shows the zip in Explorer and opens a new GitHub issue with the system summary already filled
+in. Describe what happened and drag the zip into the issue.
+
+The files contain paths from your PC, including your Windows user name, so look through the zip
+before you attach it. Creating the issue needs a GitHub account.
 
 ## Uninstall
 
+Remove the HUD extension first: press *Remove* in the launcher's HUD distance box, or delete
+`extensions\x4vr_hud` in your X4 folder. Then run:
+
 ```bat
-powershell -ExecutionPolicy Bypass -File X4_Rebirth\scripts\uninstall.ps1
+powershell -ExecutionPolicy Bypass -File X4_VR\scripts\uninstall.ps1
 ```
 
-This restores or removes the FreeTrack registry value. Then delete the `X4_Rebirth` folder.
-If you like, set OpenTrack Support back to Off and restore your display settings.
+This restores or removes the FreeTrack registry value. Then delete the `X4_VR` folder. If you
+like, set OpenTrack Support back to Off and restore your display settings.
 
 ## License
 
