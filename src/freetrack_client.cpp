@@ -3,6 +3,7 @@
 // object transforms and lighting all follow (unlike patching downstream camera copies).
 #include <x4vr/runtime_bootstrap.hpp>
 #include <windows.h>
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace {
 struct FreeTrackData {
@@ -44,25 +46,57 @@ x4vr::Matrix synthetic_pose(const float v[6]) {
     pose.m[0][3] = v[0]; pose.m[1][3] = v[1]; pose.m[2][3] = v[2];
     return pose;
 }
+// Writes `patch` into X4's code at rva+at if the bytes at rva are exactly `expected` (X4 9.00);
+// true if patched now or earlier. Anything else is left unchanged.
+bool patch_code(const char* what, uintptr_t rva, std::vector<unsigned char> expected, size_t at, const std::vector<unsigned char>& patch) {
+    auto* site = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr))+rva;
+    auto patched = expected;
+    std::copy(patch.begin(), patch.end(), patched.begin()+at);
+    if (!std::memcmp(site, patched.data(), patched.size())) return true;
+    DWORD previous{};
+    if (std::memcmp(site, expected.data(), expected.size()) || !VirtualProtect(site+at, patch.size(), PAGE_EXECUTE_READWRITE, &previous)) {
+        OutputDebugStringA(("X4VR freetrack: "+std::string(what)+" signature mismatch; left unchanged\n").c_str());
+        return false;
+    }
+    std::memcpy(site+at, patch.data(), patch.size());
+    VirtualProtect(site+at, patch.size(), previous, &previous);
+    FlushInstructionCache(GetCurrentProcess(), site+at, patch.size());
+    OutputDebugStringA(("X4VR freetrack: "+std::string(what)+" patched\n").c_str());
+    return true;
+}
 // X4's head-tracker camera bridge zeroes backward head position (z > 0) at
 // 0x9fdb4f, so leaning back or the rear eye while looking sideways got pinned,
-// distorting parallax. Turn its guarding `jae` into `jmp` (exact bytes verified).
+// distorting parallax. Turn its guarding `jae` into `jmp`.
 void unclamp_backward_position() {
-    static constexpr unsigned char expected[] = {0x83,0xf8,0x07,0x74,0x15,0xf3,0x0f,0x10,0x45,0x67,0x0f,0x57,
-        0x05,0x26,0x4f,0x2c,0x02,0x0f,0x2f,0xc6,0x73,0x04,0x44,0x89,0x65,0x67};
-    auto* site = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr))+0x9fdb39;
-    if (site[20] == 0xeb) return;
-    if (std::memcmp(site, expected, sizeof(expected))) {
-        OutputDebugStringA("X4VR freetrack: backward-position clamp signature mismatch; left unchanged\n");
-        return;
-    }
-    DWORD previous{};
-    if (!VirtualProtect(site+20, 1, PAGE_EXECUTE_READWRITE, &previous)) return;
-    site[20] = 0xeb;
-    VirtualProtect(site+20, 1, previous, &previous);
-    FlushInstructionCache(GetCurrentProcess(), site+20, 1);
-    OutputDebugStringA("X4VR freetrack: backward head-position clamp disabled\n");
+    patch_code("backward head-position clamp", 0x9fdb39, {0x83,0xf8,0x07,0x74,0x15,0xf3,0x0f,0x10,0x45,0x67,0x0f,0x57,
+        0x05,0x26,0x4f,0x2c,0x02,0x0f,0x2f,0xc6,0x73,0x04,0x44,0x89,0x65,0x67}, 20, {0xeb});
 }
+// Head tracking on foot. X4 blocks it twice: the tracker bridge (0x9fd870) sends a zero pose
+// while the player has no ship ([player+0x6ab8] invalid) unless the tracker is an eye tracker,
+// and Camera::GetOffset (0x97a300) composes the head offset (Camera+0x590) only through a
+// camera movement controller (Camera+0x20), which on foot is null. Jump past the zeroing, and
+// let a controller-less camera still apply its offset (0x97a5a8 instead of the exit 0x97a694).
+bool enable_on_foot_tracking() {
+    const bool bridge = patch_code("on-foot head-pose zeroing", 0x9fd9ae, {0x48,0x8b,0x0d,0x43,0xbf,0x31,0x03,0x48,0x85,0xc9,
+        0x74,0x19,0x48,0x8b,0x81,0xd0,0x03,0x00,0x00,0x48,0x85,0xc0,0x74,0x0d,0x44,0x39,0xa0,0x68,0x08,0x00,0x00,0x0f,0x85,
+        0xbb,0x00,0x00,0x00,0xf7,0x05,0x1f,0x20,0x0e,0x06,0x00,0x04,0x00,0x00,0x0f,0x85,0xab,0x00,0x00,0x00,0x48,0x85,0xc9,
+        0x48,0x8d,0x81,0x30,0x02,0x00,0x00,0x75,0x07,0x48,0x8d,0x05,0xe2,0xbc,0x31,0x03,0x48,0x8b,0x10,0x48,0x85,0xd2,0x0f,
+        0x84,0x8c,0x00,0x00,0x00,0x8b,0x05,0xc8,0x39,0x31,0x06,0x39,0x82,0xb8,0x6a,0x00,0x00,0x0f,0x94,0xc0,0x84,0xc0,0x74,
+        0x79}, 101, {0xeb});
+    return bridge && patch_code("on-foot camera offset", 0x97a413, {0x48,0x83,0x7e,0x20,0x00,0x0f,0x84,0x76,0x02,0x00,0x00,
+        0x48,0x8b,0x0d,0xd3,0xf4,0x39,0x03,0x48,0x8d,0x91,0x30,0x02,0x00,0x00,0x48,0x85,0xc9,0x75,0x07,0x48,0x8d,0x15,0xa0,
+        0xf2,0x39,0x03,0x48,0x8b,0x86,0x70,0x07,0x00,0x00,0x48,0x39,0x02,0x74,0x15,0x48,0x85,0xc9,0x74,0x09,0x48,0x8b,0x81,
+        0xd0,0x03,0x00,0x00}, 7, {0x8a,0x01,0x00,0x00});
+}
+// The rendered camera ([[0x3d198f8]+0x3d0], the global both signatures above reference) in
+// mode 0 (+0x868) without a movement controller (+0x20): the player walking.
+bool camera_on_foot() {
+    const auto base = reinterpret_cast<const unsigned char*>(GetModuleHandleW(nullptr));
+    const auto manager = *reinterpret_cast<const unsigned char* const*>(base+0x3d198f8);
+    const auto camera = manager ? *reinterpret_cast<const unsigned char* const*>(manager+0x3d0) : nullptr;
+    return camera && !*reinterpret_cast<const void* const*>(camera+0x20) && !*reinterpret_cast<const int32_t*>(camera+0x868);
+}
+bool on_foot_tracking = false;
 // Tunables via environment (sign/scale calibration without rebuilding).
 float setting(const char* name, float fallback) {
     char text[64]{};
@@ -79,8 +113,13 @@ bool game_flag(const char* name) {
     const auto query = game_export<bool (*)()>(name);
     return query && query();
 }
-// On foot X4's camera ignores head tracking entirely (measured: no image change for any
-// synthetic pose), so walking goes to the theater screen until that camera is solved.
+// Ctrl+`key` went down since the last call. X4 binds F11/F12 only without Ctrl (debug keys).
+bool ctrl_pressed(int key, bool& was_down) {
+    const bool down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(key) & 0x8000);
+    const bool pressed = down && !was_down;
+    was_down = down;
+    return pressed;
+}
 bool at_ship_controls() {
     static const auto query = game_export<bool (*)()>("IsPlayerControllingShip");
     return !query || query();
@@ -95,6 +134,7 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         if (!runtime) {
             runtime = x4vr::acquire_runtime_bootstrap();
             unclamp_backward_position();
+            on_foot_tracking = enable_on_foot_tracking();
             // X4 smooths tracker input with alpha = 1/strength; its menu minimum is 5,
             // which lags rotation and averages alternating eye offsets away. The
             // exported setter accepts 1 (= no smoothing) and persists it.
@@ -109,20 +149,30 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         }
         const auto settings = x4vr::stereo_settings();
         static const auto eyes = runtime->eye_setup();
+        // On foot the camera takes the head pose one game frame later than in the cockpit
+        // (measured: every alternating synthetic axis arrived in the other eye), so this pose
+        // is for the next frame's eye, one frame further ahead.
+        // ponytail: one frame = 1/90 s (Aero), read the headset refresh if other rates matter.
+        const bool walking = on_foot_tracking && camera_on_foot();
         auto head = x4vr::Matrix::identity();
-        const bool tracked = runtime->predicted_tracking(head, settings.predict) == x4vr::FrameStatus::ready;
+        const bool tracked = runtime->predicted_tracking(head, settings.predict+(walking ? 1.f/90 : 0.f)) == x4vr::FrameStatus::ready;
         if (!tracked && !settings.synth) return FALSE;
         if (!tracked) head = x4vr::Matrix::identity();
-        const auto eye = x4vr::render_eye(); // one game frame renders one eye
-        // A fullscreen menu (map, inventory, ...) or walking goes to the theater screen, not the stereo view.
-        const bool flat = settings.theater == 2 || (settings.theater == 1 && (fullscreen_menu() || !at_ship_controls()));
-        if (!settings.synth || flat) x4vr::record_render_pose(head, eye, flat); // reprojection pose (tracking space)
-        // Recentre on Ctrl+F12 (edge-triggered; unbound in X4) or when stereo.txt's counter changes.
-        static bool keys_were_down = false;
-        const bool keys_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F12) & 0x8000);
-        const bool hotkey = keys_down && !keys_were_down;
-        keys_were_down = keys_down;
-        if (recentered != settings.recenter || hotkey) {
+        const auto eye = x4vr::render_eye()^uint32_t(walking); // one game frame renders one eye
+        // Ctrl+F11 toggles the theater screen by hand: the way out of anything VR gets wrong.
+        static bool theater_keys = false, forced_theater = false;
+        if (ctrl_pressed(VK_F11, theater_keys)) {
+            forced_theater = !forced_theater;
+            OutputDebugStringA(forced_theater ? "X4VR freetrack: theater forced on (Ctrl+F11)\n" : "X4VR freetrack: theater forced off (Ctrl+F11)\n");
+        }
+        // A fullscreen menu (map, inventory, ...) goes to the theater screen, and so does any other
+        // view without ship controls or head tracking (cutscenes, walking if the patches failed).
+        const bool flat = forced_theater || settings.theater == 2 ||
+                          (settings.theater == 1 && (fullscreen_menu() || !(walking || at_ship_controls())));
+        if (!settings.synth || flat) x4vr::record_render_pose(head, eye, flat, walking); // reprojection pose (tracking space)
+        // Recentre on Ctrl+F12 or when stereo.txt's counter changes.
+        static bool recenter_keys = false;
+        if (recentered != settings.recenter || ctrl_pressed(VK_F12, recenter_keys)) {
             recentered = settings.recenter;
             const auto origin = x4vr::seated_origin(head);
             origin_inverse = x4vr::inverse_rigid(origin);
@@ -140,7 +190,7 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
             if (settings.synth_rate != ramp_rate) { ramp_rate = settings.synth_rate; ramp_start = x4vr::frame_tag(); }
             v[3] += static_cast<float>(ramp_rate*double(x4vr::frame_tag()-ramp_start));
             head = synthetic_pose(v);
-            x4vr::record_render_pose(head, eye); // calibration: dumps carry the synthetic pose
+            x4vr::record_render_pose(head, eye, false, walking); // calibration: dumps carry the synthetic pose
         } else if (settings.stereo) {
             // Alternate-eye rendering: this game frame renders one eye; the Vulkan
             // layer submits the presented image to the same eye (shared counter).
@@ -179,8 +229,8 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
                 // Game state trace, one line per change. Only exports that null-check their game
                 // objects (IsHUDActive crashes at the main menu).
                 char state[128];
-                std::snprintf(state, sizeof(state), "flat=%d menu=%d headtracking=%d ship=%d cutscene=%d", flat, fullscreen_menu(),
-                              game_flag("IsHeadTrackingActive"), game_flag("IsPlayerControllingShip"), game_flag("IsFullscreenCutsceneActive"));
+                std::snprintf(state, sizeof(state), "flat=%d menu=%d headtracking=%d ship=%d cutscene=%d walking=%d", flat, fullscreen_menu(),
+                              game_flag("IsHeadTrackingActive"), game_flag("IsPlayerControllingShip"), game_flag("IsFullscreenCutsceneActive"), walking);
                 static std::string last;
                 if (last != state && !fopen_s(&file, (std::string(root)+"/state.txt").c_str(), "a") && file) {
                     last = state;

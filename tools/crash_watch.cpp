@@ -75,11 +75,14 @@ struct Watch {
     }
 };
 // Optional execution breakpoints, read when the game starts from %X4VR_CAPTURE_DIR%/trace_rvas.txt
-// (one "0x<rva>" per line, max 4, relative to the game image). Each hit logs RAX and the thread's
-// last Win32 error (first 3 hits per address), then lets the instruction run.
+// (one "0x<rva>" per line, max 4, relative to the game image). The first 3 hits per address log RAX
+// and the thread's last Win32 error; after that, every 2 s one line per address that ran: hit
+// count and the RCX object's vtable RVA (for methods: which class), so game modes can be compared.
 struct Trace {
     std::array<uintptr_t, 4> address{};
-    std::array<unsigned, 4> hits{};
+    std::array<unsigned, 4> hits{}, recent{};
+    std::array<uintptr_t, 4> vtable{};
+    ULONGLONG reported{};
     uintptr_t base{};
     bool armed{};
     void load(const void* image) {
@@ -118,6 +121,17 @@ struct Trace {
                 ReadProcessMemory(process, static_cast<const char*>(basic.teb)+0x68, &last_error, sizeof(last_error), nullptr);
             log << "trace rva=0x" << std::hex << address[i]-base << " tid=" << std::dec << event.dwThreadId << " rax=0x" << std::hex
                 << context.Rax << std::dec << " last_error=" << last_error << '\n';
+        }
+        ++recent[i];
+        uintptr_t table{};
+        if (ReadProcessMemory(process, reinterpret_cast<const void*>(context.Rcx), &table, sizeof(table), nullptr)) vtable[i] = table;
+        if (GetTickCount64()-reported > 2000) {
+            reported = GetTickCount64();
+            for (int k = 0; k < 4; ++k) if (recent[k]) {
+                log << "trace t=" << reported << " rva=0x" << std::hex << address[k]-base << " hits=" << std::dec << recent[k]
+                    << " vtable=0x" << std::hex << (vtable[k] >= base ? vtable[k]-base : vtable[k]) << std::dec << '\n';
+                recent[k] = 0;
+            }
         }
         context.EFlags |= 0x10000; // resume flag: execute the instruction instead of trapping again
         context.Dr6 = 0;

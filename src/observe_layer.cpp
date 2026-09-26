@@ -187,8 +187,32 @@ void executable_stack(std::ostream& s) {
     }
     s << ']';
 }
+// The game's main camera as last bound (camera set 1: view matrix at byte 0, projection at
+// byte 64, column-major). Shadow, probe and monitor cameras have other projections; the main
+// one has the game's vertical field of view. The next present shows the frame it rendered.
+struct MainView {
+    std::mutex mutex; x4vr::Matrix view; uint64_t binds{};
+    // diagnostics for turn.txt: set-1 binds, unreadable ones (last status), other projections (last tan)
+    uint64_t seen{}, unread{}, other{}; const char* status = ""; float other_tan{}, other_33{};
+};
+MainView& main_view() { static MainView v; return v; }
+void track_camera(const Device& device, VkDescriptorSet set) {
+    const auto s = device.memory->snapshot(set);
+    auto& v = main_view();
+    float m[32]{};
+    if (s.size >= 128) std::memcpy(m, s.bytes.data(), sizeof(m));
+    const float* projection = m+16;
+    const float tan_y = 1/std::fabs(projection[5]);
+    const bool main = s.size >= 128 && projection[15] == 0 && std::fabs(tan_y-x4vr::stereo_settings().game_tan_y) < 0.01f;
+    std::lock_guard lock(v.mutex);
+    ++v.seen;
+    if (s.size < 128) { ++v.unread; v.status = s.status; return; }
+    if (!main) { ++v.other; v.other_tan = tan_y; v.other_33 = projection[15]; return; }
+    for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) v.view.m[r][c] = m[c*4+r];
+    ++v.binds;
+}
 void sample_uniform(const Device& device, VkCommandBuffer command, VkPipelineLayout layout, uint32_t slot, VkDescriptorSet set) {
-    if (!device.memory || (slot != 1 && slot != 3)) return;
+    if (!device.memory || !memory_enabled() || (slot != 1 && slot != 3)) return;
     auto& counter = slot == 1 ? camera_sample_count : world_sample_count;
     auto& previous_epoch = slot == 1 ? camera_epoch : world_epoch;
     const auto present = present_count.load();
@@ -383,7 +407,8 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical, 
             reinterpret_cast<const VkLayerDeviceCreateInfo*>(next)->function == VK_LOADER_DATA_CALLBACK)
             data.set_loader_data = reinterpret_cast<const VkLayerDeviceCreateInfo*>(next)->u.pfnSetDeviceLoaderData;
     reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(parent->gipa(parent->instance, "vkGetPhysicalDeviceMemoryProperties"))(physical, &data.memory_properties);
-    if (memory_enabled()) observe([&] { data.memory = std::make_shared<x4vr::observe::MemoryTracker>(); });
+    // Mapped-memory tracking: turn compensation reads the camera uniform, memory_enabled() logs samples.
+    observe([&] { data.memory = std::make_shared<x4vr::observe::MemoryTracker>(); });
 #define RESOLVE(name) data.name = reinterpret_cast<PFN_vk##name>(gdpa(*output, "vk" #name));
     DEVICE_FUNCTIONS(RESOLVE)
     PRESENTER_FUNCTIONS(RESOLVE)
@@ -517,6 +542,11 @@ struct Presenter {
     std::array<std::array<x4vr::Matrix, ring_size>, 2> slot_pose{};
     std::array<std::array<bool, ring_size>, 2> held{};
     std::array<std::array<uint64_t, ring_size>, 2> slot_seq{}; // copy order, to find the newest finished image
+    // Turn compensation: the game camera's view matrix each image was rendered with, and whether
+    // it applies (StereoSettings::turn_comp).
+    std::array<std::array<x4vr::Matrix, ring_size>, 2> slot_view{};
+    std::array<std::array<bool, ring_size>, 2> slot_turn{};
+    uint64_t view_binds{}; // main_view().binds at the last present
     uint64_t copies{};
     uint64_t generation{}; // bumped when the ring images are rebuilt
     bool async_frame{}; // the frame just copied is submitted by the thread, not inline
@@ -709,8 +739,16 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     p.last_number = number;
     uint32_t eye{};
     auto rendered = x4vr::Matrix::identity();
-    bool flat{};
-    const bool posed = x4vr::presented_frame(number, eye, rendered, flat);
+    bool flat{}, walking{};
+    const bool posed = x4vr::presented_frame(number, eye, rendered, flat, walking);
+    x4vr::Matrix view; // main camera of this frame, if it bound one since the last present
+    bool viewed{};
+    {
+        auto& v = main_view();
+        std::lock_guard lock(v.mutex);
+        viewed = v.binds != p.view_binds; p.view_binds = v.binds; view = v.view;
+    }
+    const bool turn = viewed && (settings.turn_comp == 2 || (settings.turn_comp == 1 && walking));
     if (!update_theater(p, settings, posed, flat)) return VK_NULL_HANDLE; // skip frame
     if (!settings.stereo || p.theater) eye = 0;
     p.last_eye = eye;
@@ -766,6 +804,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
         p.current[target] = next;
         p.slot_seq[target][next] = ++p.copies;
         p.poses[target] = p.slot_pose[target][next] = rendered;
+        p.slot_view[target][next] = view; p.slot_turn[target][next] = turn;
     }
     if (!p.probe_buffer) readback_prepare(d, VkDeviceSize(Presenter::probe_frame_bytes)*p.probe_frames.size(), p.probe_buffer, p.probe_memory);
     constexpr uint32_t grid = Presenter::probe_grid, patch = Presenter::probe_patch;
@@ -1054,6 +1093,32 @@ void update_cursor(const Device& d, Cursor& c, const x4vr::StereoSettings& s, co
 // reprojection off (Varjo driver default), every late frame showed as a dark/grey flash.
 // In theater mode it shows eye 0's newest (flat) image on the virtual screen instead and
 // submits black eyes.
+// Every 2 s: turn.txt = tick, compensated submits, mean and max correction (degrees), main
+// camera binds per present (1+ means the main camera is found).
+void turn_stats(bool compensated, double degrees) {
+    static uint64_t count{}, submits{}, binds{}, presents{};
+    static double sum{}, max{};
+    static auto start = std::chrono::steady_clock::now();
+    ++submits;
+    if (compensated) { ++count; sum += degrees; max = std::fmax(max, degrees); }
+    const auto now = std::chrono::steady_clock::now();
+    if (now-start < std::chrono::seconds(2)) return;
+    static uint64_t seen{}, unread{}, other{};
+    uint64_t total_binds, total_seen, total_unread, total_other; const char* status; float other_tan, other_33;
+    {
+        auto& v = main_view(); std::lock_guard lock(v.mutex);
+        total_binds = v.binds; total_seen = v.seen; total_unread = v.unread; total_other = v.other;
+        status = v.status; other_tan = v.other_tan; other_33 = v.other_33;
+    }
+    const auto total_presents = x4vr::frame_tag();
+    const double frames = double(std::max<uint64_t>(total_presents-presents, 1));
+    std::ofstream out(capture_root()/"turn.txt");
+    out << GetTickCount64() << ' ' << count << '/' << submits << ' ' << std::fixed << std::setprecision(3) << (count ? sum/count : 0) << ' ' << max
+        << ' ' << double(total_binds-binds)/frames << " | set1 " << double(total_seen-seen)/frames << " unread " << double(total_unread-unread)/frames
+        << ' ' << status << " other " << double(total_other-other)/frames << " tan " << other_tan << " p33 " << other_33 << '\n';
+    count = submits = 0; sum = max = 0; binds = total_binds; presents = total_presents; start = now;
+    seen = total_seen; unread = total_unread; other = total_other;
+}
 void compositor_loop(Device d) {
     auto& p = presenter();
     VkFence read{}; // signals once OpenVR's copies of the submitted images completed
@@ -1090,7 +1155,9 @@ void compositor_loop(Device d) {
         std::array<uint64_t, 2> newest_seq{}, older_seq{};
         std::array<VkImage, 2> images{}, fallback{};
         std::array<VkFence, 2> fences{};
-        std::array<x4vr::Matrix, 2> poses{}, fallback_poses{};
+        std::array<x4vr::Matrix, 2> poses{}, fallback_poses{}, views{}, fallback_views{};
+        std::array<bool, 2> turn{}, fallback_turn{};
+        x4vr::RuntimeBootstrap::EyeSetup eye_setup{};
         std::array<vr::VRTextureBounds_t, 2> bounds{};
         std::array<vr::VRVulkanTextureData_t, 2> textures{};
         const uint32_t eyes = theater ? 1 : 2; // theater: eye 0's ring holds the flat image
@@ -1103,12 +1170,13 @@ void compositor_loop(Device d) {
             if (p.generation != generation) { generation = p.generation; shown = {UINT32_MAX, UINT32_MAX}; }
             const auto width = float(p.eye_extent.width), height = float(p.eye_extent.height);
             crop = {p.offset.x/width, p.offset.y/height, (p.offset.x+p.extent.width)/width, (p.offset.y+p.extent.height)/height};
-            format = p.format; eye_extent = p.eye_extent;
+            format = p.format; eye_extent = p.eye_extent; eye_setup = p.eyes;
             for (uint32_t e = 0; e < eyes; ++e) {
                 for (auto& h : p.held[e]) h = false;
                 newest[e] = p.current[e];
                 p.held[e][newest[e]] = true;
                 images[e] = p.image(e, newest[e]); fences[e] = p.written[e][newest[e]]; poses[e] = p.slot_pose[e][newest[e]];
+                views[e] = p.slot_view[e][newest[e]]; turn[e] = p.slot_turn[e][newest[e]];
                 newest_seq[e] = p.slot_seq[e][newest[e]];
                 // Fallback: the newest finished image other than the newest one. When the GPU runs
                 // behind, every newest image is still in flight at submit time; the one that was late
@@ -1120,6 +1188,7 @@ void compositor_loop(Device d) {
                 if (older[e] != UINT32_MAX) {
                     p.held[e][older[e]] = true;
                     fallback[e] = p.image(e, older[e]); fallback_poses[e] = p.slot_pose[e][older[e]];
+                    fallback_views[e] = p.slot_view[e][older[e]]; fallback_turn[e] = p.slot_turn[e][older[e]];
                     older_seq[e] = p.slot_seq[e][older[e]];
                 }
                 textures[e] = eye_texture(d, p, VK_NULL_HANDLE, d.vr_queue, d.vr_family);
@@ -1138,8 +1207,19 @@ void compositor_loop(Device d) {
             shown_seq[e] = seq;
             shown[e] = use_newest ? newest[e] : older[e];
             textures[e].m_nImage = reinterpret_cast<uint64_t>(use_newest ? images[e] : fallback[e]);
-            if (!use_newest) poses[e] = fallback_poses[e];
+            if (!use_newest) { poses[e] = fallback_poses[e]; views[e] = fallback_views[e]; turn[e] = fallback_turn[e]; }
         }
+        // Turn compensation: the older eye image is shown at the newest image's camera heading.
+        const bool compensate = !theater && turn[0] && turn[1] && shown_seq[0] != shown_seq[1];
+        double correction = 0;
+        if (compensate) {
+            const uint32_t ref = shown_seq[1] > shown_seq[0], other = 1-ref;
+            const auto turned = x4vr::turned_pose(poses[ref], eye_setup.head_from_eye[ref], views[ref],
+                                            poses[other], eye_setup.head_from_eye[other], views[other]);
+            correction = x4vr::rotation_degrees(turned, poses[other]);
+            poses[other] = turned;
+        }
+        turn_stats(compensate, correction);
         const auto waited = std::chrono::duration<double>(std::chrono::steady_clock::now()-frame_start).count();
         const auto submitted_at = std::chrono::steady_clock::now();
         if (theater) {
@@ -1317,7 +1397,10 @@ EXPORT VKAPI_ATTR void VKAPI_CALL vkCmdBindDescriptorSets(VkCommandBuffer cmd, V
     const auto data = device_for(cmd); if (!data) return;
     data->CmdBindDescriptorSets(cmd, point, layout, first, count, sets, dynamic_count, dynamic_offsets);
     if (data->memory) observe([&] {
-        for (uint32_t i = 0; i < count; ++i) sample_uniform(*data, cmd, layout, first+i, sets[i]);
+        for (uint32_t i = 0; i < count; ++i) {
+            if (first+i == 1) track_camera(*data, sets[i]);
+            sample_uniform(*data, cmd, layout, first+i, sets[i]);
+        }
     });
     if (bind_count.fetch_add(1) >= 2048) return;
     log([&](auto& s) {

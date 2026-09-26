@@ -73,14 +73,20 @@ struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float i
     // menu or sends no head poses, 2 always. Screen distance and width in metres.
     int theater = 1; float theater_distance = 2.f, theater_width = 2.2f;
     // Mouse cursor overlay (1 on, 0 off); over the stereo view it sits cursor_distance metres ahead.
-    int cursor = 1; float cursor_distance = 5.f; };
+    int cursor = 1; float cursor_distance = 5.f;
+    // Turn compensation: eye images are rendered one game frame apart, so a mouse or body turn
+    // between them splits the eyes. Submit each eye's pose rotated by the game camera's turn
+    // since the newest image (SteamVR then aligns both). 0 off, 1 on foot, 2 always (in the
+    // cockpit it misaligns the interior during ship turns instead).
+    int turn_comp = 1; };
 StereoSettings stereo_settings();
 // Pose source (may be called several times per game frame): eye the frame being
 // simulated now will be presented to, and the head pose it was rendered with.
 uint32_t render_eye();
 uint64_t frame_tag();   // present count when the game samples its pose
 // flat: the frame shows a fullscreen menu (or theater mode is forced); it goes to the virtual screen.
-void record_render_pose(const Matrix& head, uint32_t eye, bool flat = false);
+// walking: the player is on foot (turn compensation applies).
+void record_render_pose(const Matrix& head, uint32_t eye, bool flat = false, bool walking = false);
 // Recentred seated origin (position + yaw), published by the pose source; false until set.
 void publish_view_origin(const Matrix& origin);
 bool view_origin(Matrix& origin);
@@ -88,8 +94,8 @@ int frame_half(); // X4 9.00 per-frame double-buffer half (0/1), -1 if unavailab
 // Layer: once per present. Returns the present number; pose lookup by number.
 void trace_event(char kind, uint64_t value); // diagnostics: create trace.request to dump
 uint64_t next_present();
-// Eye, head pose and flat flag of the frame being presented now (false: no pose known).
-bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat);
+// Eye, head pose, flat and walking flags of the frame being presented now (false: no pose known).
+bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat, bool& walking);
 // Avoid recursively bootstrapping if runtime initialization itself uses Vulkan.
 bool is_runtime_bootstrap_thread();
 std::shared_ptr<RuntimeBootstrap> acquire_runtime_bootstrap();

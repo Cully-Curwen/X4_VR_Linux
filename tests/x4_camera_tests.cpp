@@ -1,4 +1,5 @@
 #include <x4vr/x4_camera.hpp>
+#include <x4vr/math.hpp>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -44,8 +45,38 @@ x4vr::EyeView eye(float x) {
     result.projection = x4vr::vulkan_projection(-1.2f, 0.8f, -0.9f, 1.1f, 0.1f, 1000);
     return result;
 }
+// Turn compensation: yaw about +Y, and OpenVR <-> X4 camera axes (z back <-> z forward).
+Matrix yawed(float degrees, float x = 0) {
+    auto r = Matrix::identity();
+    const float a = degrees*3.14159265f/180;
+    r.m[0][0] = r.m[2][2] = std::cos(a); r.m[0][2] = std::sin(a); r.m[2][0] = -std::sin(a); r.m[0][3] = x;
+    return r;
+}
+Matrix flip_z(Matrix m) { for (int i = 0; i < 2; ++i) { m.m[i][2] = -m.m[i][2]; m.m[2][i] = -m.m[2][i]; } return m; }
+// X4 view matrix for body rotation `body` (X4 axes) and eye pose `eye` (OpenVR tracking space).
+Matrix x4_view(const Matrix& body, const Matrix& eye) {
+    auto camera = x4vr::multiply(body, flip_z(eye)); camera.m[0][3] = camera.m[1][3] = camera.m[2][3] = 0;
+    auto view = Matrix::identity();
+    for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) view.m[i][j] = camera.m[j][i];
+    view.m[0][3] = 7; // translation plays no part
+    return view;
+}
+void turn_compensation_checks() {
+    const auto left = yawed(0, -0.032f), right = yawed(0, 0.032f);
+    const auto head_l = yawed(4, 0.1f), head_r = yawed(-6, 0.2f); // head turned between the frames
+    const auto eye_l = x4vr::multiply(head_l, left), eye_r = x4vr::multiply(head_r, right);
+    // Head motion only: each image keeps its own pose.
+    auto same = x4vr::turned_pose(head_r, right, x4_view(yawed(30), eye_r), head_l, left, x4_view(yawed(30), eye_l));
+    require(x4vr::rotation_degrees(same, head_l) < 0.05); // float rounding near acos(1)
+    near(same.m[0][3], 0.1f);
+    // Body turned 5 degrees between the frames: the older image is shown 5 degrees turned.
+    auto turned = x4vr::turned_pose(head_r, right, x4_view(yawed(30), eye_r), head_l, left, x4_view(yawed(25), eye_l));
+    const auto expected = x4vr::multiply(flip_z(yawed(-5)), head_l);
+    require(x4vr::rotation_degrees(turned, expected) < 0.05 && std::abs(x4vr::rotation_degrees(turned, head_l)-5) < 0.05);
+}
 int main(int argc, char** argv) {
     try {
+        turn_compensation_checks();
         auto bytes = fixture();
         const auto unchanged = bytes;
         const auto left = x4vr::make_x4_eye_camera(bytes, eye(-0.032f), 1);

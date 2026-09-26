@@ -196,7 +196,7 @@ void RuntimeBootstrap::hide_theater() {
 }
 namespace {
 std::atomic_uint64_t present_frames{};
-struct TaggedPose { uint64_t tag = ~0ull; Matrix head; uint32_t eye = 0; bool flat = false; };
+struct TaggedPose { uint64_t tag = ~0ull; Matrix head; uint32_t eye = 0; bool flat = false, walking = false; };
 std::mutex poses_mutex;
 std::array<TaggedPose, 16> poses;
 Matrix published_origin;
@@ -244,6 +244,7 @@ StereoSettings stereo_settings() {
         else if (key == "theater_width") next.theater_width = static_cast<float>(value);
         else if (key == "cursor") next.cursor = static_cast<int>(value);
         else if (key == "cursor_distance") next.cursor_distance = static_cast<float>(value);
+        else if (key == "turn_comp") next.turn_comp = static_cast<int>(value);
         else if (key == "half_xor_render") next.half_xor_render = static_cast<int>(value);
         else if (key == "half_xor_present") next.half_xor_present = static_cast<int>(value);
         else if (key == "valve_bounds") next.valve_bounds = value != 0;
@@ -278,10 +279,10 @@ uint32_t render_eye() {
     if (half >= 0) return static_cast<uint32_t>((half ^ s.half_xor_render) & 1);
     return static_cast<uint32_t>((present_frames.load()+s.delay) & 1);
 }
-void record_render_pose(const Matrix& head, uint32_t eye, bool flat) {
+void record_render_pose(const Matrix& head, uint32_t eye, bool flat, bool walking) {
     const auto tag = present_frames.load();
     std::lock_guard lock(poses_mutex);
-    poses[tag % poses.size()] = {tag, head, eye, flat}; // several calls per frame: last one wins
+    poses[tag % poses.size()] = {tag, head, eye, flat, walking}; // several calls per frame: last one wins
 }
 void publish_view_origin(const Matrix& origin) {
     std::lock_guard lock(poses_mutex);
@@ -317,7 +318,7 @@ void trace_event(char kind, uint64_t value) {
 }
 uint64_t next_present() { const auto n = present_frames++; trace_event('P', n); return n; }
 uint64_t frame_tag() { return present_frames.load(); }
-bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat) {
+bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat, bool& walking) {
     const auto s = stereo_settings();
     const int half = s.eye_from_half ? frame_half() : -1;
     std::lock_guard lock(poses_mutex);
@@ -328,7 +329,7 @@ bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat) 
         const uint64_t start = s.delay > 1 ? uint64_t(s.delay-1) : 0;
         for (uint64_t back = start; back < poses.size() && back <= present; ++back) {
             const auto& entry = poses[(present-back) % poses.size()];
-            if (entry.tag == present-back && entry.eye == eye) { head = entry.head; flat = entry.flat; return true; }
+            if (entry.tag == present-back && entry.eye == eye) { head = entry.head; flat = entry.flat; walking = entry.walking; return true; }
         }
         return false;
     }
@@ -336,7 +337,7 @@ bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat) 
     const auto& entry = poses[tag % poses.size()];
     if (entry.tag != tag) return false;
     eye = static_cast<uint32_t>(present & 1);
-    head = entry.head; flat = entry.flat;
+    head = entry.head; flat = entry.flat; walking = entry.walking;
     return true;
 }
 }

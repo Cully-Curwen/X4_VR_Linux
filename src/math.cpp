@@ -1,4 +1,5 @@
 #include <x4vr/math.hpp>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -73,5 +74,27 @@ Matrix vulkan_projection(float l, float r, float t, float b, float n, float f, b
     p.m[2][3] = reverse ? f*n / (f-n) : -f*n / (f-n);
     p.m[3][2] = -1.f;
     return p;
+}
+namespace {
+Matrix rotation(Matrix m) { m.m[0][3] = m.m[1][3] = m.m[2][3] = 0; return m; }
+Matrix transposed_rotation(const Matrix& m) {
+    auto r = Matrix::identity();
+    for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) r.m[i][j] = m.m[j][i];
+    return r;
+}
+}
+Matrix turned_pose(const Matrix& newest, const Matrix& newest_eye, const Matrix& newest_view,
+                   const Matrix& own, const Matrix& own_eye, const Matrix& view) {
+    auto turn = multiply(rotation(newest_view), transposed_rotation(view)); // own camera -> newest camera
+    for (int i = 0; i < 2; ++i) { turn.m[i][2] = -turn.m[i][2]; turn.m[2][i] = -turn.m[2][i]; } // z forward -> z back
+    auto pose = multiply(multiply(multiply(rotation(newest), rotation(newest_eye)), turn), transposed_rotation(own_eye));
+    for (int r = 0; r < 3; ++r) pose.m[r][3] = own.m[r][3];
+    pose.m[3][3] = 1;
+    return pose;
+}
+double rotation_degrees(const Matrix& a, const Matrix& b) {
+    double trace = 0;
+    for (int i = 0; i < 3; ++i) for (int k = 0; k < 3; ++k) trace += double(a.m[k][i])*b.m[k][i];
+    return std::acos(std::clamp((trace-1)/2, -1.0, 1.0))*180/3.14159265358979323846;
 }
 }
