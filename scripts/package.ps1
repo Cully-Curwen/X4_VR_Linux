@@ -1,12 +1,12 @@
-# Ready-to-play download: dist\X4_VR-<commit>.zip. Players extract it into the X4 folder (next to
-# X4.exe) and start X4_VR\X4VRLauncher.exe; no Visual Studio or Git needed.
+# Ready-to-play download: dist\X4_VR-<version>.zip. Players extract it into the X4 folder (next to
+# X4.exe) and start X4_VR\X4VRLauncher.exe; no Visual Studio or Git needed. The version is the
+# release tag on HEAD (v0.1.0), else tag-count-commit, with -modified for uncommitted changes.
 param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 if (-not $SkipBuild) { & (Join-Path $PSScriptRoot 'build.ps1') -BuildDirectory build }
 
-$version = (git -C $projectRoot rev-parse --short=12 HEAD).Trim()
-if (git -C $projectRoot status --porcelain --untracked-files=no) { $version += '-modified' }
+$version = (git -C $projectRoot describe --tags --always --dirty=-modified).Trim()
 $dist = Join-Path $projectRoot 'dist'
 $stage = Join-Path $dist 'X4_VR'
 if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
