@@ -68,6 +68,23 @@ float setting(const char* name, float fallback) {
     char text[64]{};
     return GetEnvironmentVariableA(name, text, sizeof(text)) ? static_cast<float>(std::atof(text)) : fallback;
 }
+// X4's exported UI queries (its Lua API). FTGetData runs on the game thread, so they are
+// safe to call here. Each returns false if the export is missing.
+template<class F> F game_export(const char* name) { return reinterpret_cast<F>(GetProcAddress(GetModuleHandleW(nullptr), name)); }
+bool fullscreen_menu() { // X4 9.00: first argument true = any fullscreen menu, name ignored
+    static const auto query = game_export<bool (*)(bool, const char*)>("IsFullscreenMenuDisplayed");
+    return query && query(true, nullptr);
+}
+bool game_flag(const char* name) {
+    const auto query = game_export<bool (*)()>(name);
+    return query && query();
+}
+// On foot X4's camera ignores head tracking entirely (measured: no image change for any
+// synthetic pose), so walking goes to the theater screen until that camera is solved.
+bool at_ship_controls() {
+    static const auto query = game_export<bool (*)()>("IsPlayerControllingShip");
+    return !query || query();
+}
 }
 
 extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
@@ -97,7 +114,9 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         if (!tracked && !settings.synth) return FALSE;
         if (!tracked) head = x4vr::Matrix::identity();
         const auto eye = x4vr::render_eye(); // one game frame renders one eye
-        if (!settings.synth) x4vr::record_render_pose(head, eye); // reprojection pose (tracking space)
+        // A fullscreen menu (map, inventory, ...) or walking goes to the theater screen, not the stereo view.
+        const bool flat = settings.theater == 2 || (settings.theater == 1 && (fullscreen_menu() || !at_ship_controls()));
+        if (!settings.synth || flat) x4vr::record_render_pose(head, eye, flat); // reprojection pose (tracking space)
         // Recentre on Ctrl+F12 (edge-triggered; unbound in X4) or when stereo.txt's counter changes.
         static bool keys_were_down = false;
         const bool keys_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F12) & 0x8000);
@@ -105,11 +124,14 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         keys_were_down = keys_down;
         if (recentered != settings.recenter || hotkey) {
             recentered = settings.recenter;
-            origin_inverse = x4vr::inverse_rigid(x4vr::seated_origin(head));
+            const auto origin = x4vr::seated_origin(head);
+            origin_inverse = x4vr::inverse_rigid(origin);
+            x4vr::publish_view_origin(origin); // the theater screen is placed in front of it
             OutputDebugStringA("X4VR freetrack: head position/yaw recentred\n");
         }
         head = x4vr::multiply(origin_inverse, head);
-        if (settings.synth) {
+        if (flat) head = x4vr::Matrix::identity(); // steady, centred view for the virtual screen
+        else if (settings.synth) {
             const float sign = eye ? 1.f : -1.f;
             float v[6];
             for (int i = 0; i < 6; ++i) v[i] = settings.synth_base[i] + sign*settings.synth_alt[i];
@@ -152,6 +174,17 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
                 FILE* file{};
                 if (!fopen_s(&file, (std::string(root)+"/head.txt").c_str(), "w") && file) {
                     std::fprintf(file, "%llu %f %f %f %f %f %f\n", reported, yaw, pitch, roll, m[0][3], m[1][3], m[2][3]);
+                    std::fclose(file);
+                }
+                // Game state trace, one line per change. Only exports that null-check their game
+                // objects (IsHUDActive crashes at the main menu).
+                char state[128];
+                std::snprintf(state, sizeof(state), "flat=%d menu=%d headtracking=%d ship=%d cutscene=%d", flat, fullscreen_menu(),
+                              game_flag("IsHeadTrackingActive"), game_flag("IsPlayerControllingShip"), game_flag("IsFullscreenCutsceneActive"));
+                static std::string last;
+                if (last != state && !fopen_s(&file, (std::string(root)+"/state.txt").c_str(), "a") && file) {
+                    last = state;
+                    std::fprintf(file, "%llu %s\n", reported, state);
                     std::fclose(file);
                 }
             }

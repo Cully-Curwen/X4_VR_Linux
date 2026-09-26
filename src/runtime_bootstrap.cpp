@@ -139,11 +139,68 @@ std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureD
     session_.compositor_->PostPresentHandoff();
     return {};
 }
+std::string RuntimeBootstrap::show_theater(const vr::VRVulkanTextureData_t* image, const vr::VRTextureBounds_t& bounds,
+                                           const Matrix& seated_from_screen, float width) {
+    std::lock_guard lock(mutex_);
+    RuntimeCall call;
+    session_.adopt_bootstrap_thread();
+    auto* overlay = vr::VROverlay();
+    if (!overlay) return "OpenVR overlay interface unavailable";
+    if (theater_ == vr::k_ulOverlayHandleInvalid) {
+        const auto error = overlay->CreateOverlay("x4vr.theater", "X4 VR theater", &theater_);
+        if (error != vr::VROverlayError_None) { theater_ = vr::k_ulOverlayHandleInvalid; return "CreateOverlay failed: OpenVR overlay error " + std::to_string(error); }
+    }
+    vr::HmdMatrix34_t transform{};
+    for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) transform.m[r][c] = seated_from_screen.m[r][c];
+    overlay->SetOverlayWidthInMeters(theater_, width);
+    overlay->SetOverlayTransformAbsolute(theater_, vr::TrackingUniverseSeated, &transform);
+    overlay->SetOverlayTextureBounds(theater_, &bounds);
+    if (image) {
+        auto data = *image;
+        vr::Texture_t texture{&data, vr::TextureType_Vulkan, vr::ColorSpace_Auto};
+        const auto error = overlay->SetOverlayTexture(theater_, &texture);
+        if (error != vr::VROverlayError_None) return "SetOverlayTexture failed: OpenVR overlay error " + std::to_string(error);
+    }
+    overlay->ShowOverlay(theater_);
+    return {};
+}
+std::string RuntimeBootstrap::show_cursor(const uint8_t* rgba, uint32_t width, uint32_t height, bool on_screen,
+                                          const Matrix& placement, float width_m) {
+    std::lock_guard lock(mutex_);
+    auto* overlay = vr::VROverlay();
+    if (!overlay) return "OpenVR overlay interface unavailable";
+    if (cursor_ == vr::k_ulOverlayHandleInvalid) {
+        const auto error = overlay->CreateOverlay("x4vr.cursor", "X4 VR cursor", &cursor_);
+        if (error != vr::VROverlayError_None) { cursor_ = vr::k_ulOverlayHandleInvalid; return "CreateOverlay (cursor) failed: OpenVR overlay error " + std::to_string(error); }
+        overlay->SetOverlaySortOrder(cursor_, 1); // above the theater screen
+    }
+    if (rgba) {
+        const auto error = overlay->SetOverlayRaw(cursor_, const_cast<uint8_t*>(rgba), width, height, 4);
+        if (error != vr::VROverlayError_None) return "SetOverlayRaw failed: OpenVR overlay error " + std::to_string(error);
+    }
+    vr::HmdMatrix34_t transform{};
+    for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) transform.m[r][c] = placement.m[r][c];
+    overlay->SetOverlayWidthInMeters(cursor_, width_m);
+    if (on_screen) overlay->SetOverlayTransformAbsolute(cursor_, vr::TrackingUniverseSeated, &transform);
+    else overlay->SetOverlayTransformTrackedDeviceRelative(cursor_, vr::k_unTrackedDeviceIndex_Hmd, &transform);
+    overlay->ShowOverlay(cursor_);
+    return {};
+}
+void RuntimeBootstrap::hide_cursor() {
+    std::lock_guard lock(mutex_);
+    if (auto* overlay = vr::VROverlay(); overlay && cursor_ != vr::k_ulOverlayHandleInvalid) overlay->HideOverlay(cursor_);
+}
+void RuntimeBootstrap::hide_theater() {
+    std::lock_guard lock(mutex_);
+    if (auto* overlay = vr::VROverlay(); overlay && theater_ != vr::k_ulOverlayHandleInvalid) overlay->HideOverlay(theater_);
+}
 namespace {
 std::atomic_uint64_t present_frames{};
-struct TaggedPose { uint64_t tag = ~0ull; Matrix head; uint32_t eye = 0; };
+struct TaggedPose { uint64_t tag = ~0ull; Matrix head; uint32_t eye = 0; bool flat = false; };
 std::mutex poses_mutex;
 std::array<TaggedPose, 16> poses;
+Matrix published_origin;
+bool origin_known = false;
 std::mutex settings_mutex;
 StereoSettings cached;
 std::chrono::steady_clock::time_point checked{};
@@ -180,7 +237,13 @@ StereoSettings stereo_settings() {
         else if (key == "async_submit") next.async_submit = value != 0;
         else if (key == "submit_budget_ms") next.submit_budget_ms = static_cast<float>(value);
         else if (key == "hitch_ms") next.hitch_ms = static_cast<float>(value);
-        else if (key == "hitch_every") next.hitch_every = static_cast<int>(value);        else if (key == "eye_from_half") next.eye_from_half = value != 0;
+        else if (key == "hitch_every") next.hitch_every = static_cast<int>(value);
+        else if (key == "eye_from_half") next.eye_from_half = value != 0;
+        else if (key == "theater") next.theater = static_cast<int>(value);
+        else if (key == "theater_distance") next.theater_distance = static_cast<float>(value);
+        else if (key == "theater_width") next.theater_width = static_cast<float>(value);
+        else if (key == "cursor") next.cursor = static_cast<int>(value);
+        else if (key == "cursor_distance") next.cursor_distance = static_cast<float>(value);
         else if (key == "half_xor_render") next.half_xor_render = static_cast<int>(value);
         else if (key == "half_xor_present") next.half_xor_present = static_cast<int>(value);
         else if (key == "valve_bounds") next.valve_bounds = value != 0;
@@ -215,10 +278,19 @@ uint32_t render_eye() {
     if (half >= 0) return static_cast<uint32_t>((half ^ s.half_xor_render) & 1);
     return static_cast<uint32_t>((present_frames.load()+s.delay) & 1);
 }
-void record_render_pose(const Matrix& head, uint32_t eye) {
+void record_render_pose(const Matrix& head, uint32_t eye, bool flat) {
     const auto tag = present_frames.load();
     std::lock_guard lock(poses_mutex);
-    poses[tag % poses.size()] = {tag, head, eye}; // several calls per frame: last one wins
+    poses[tag % poses.size()] = {tag, head, eye, flat}; // several calls per frame: last one wins
+}
+void publish_view_origin(const Matrix& origin) {
+    std::lock_guard lock(poses_mutex);
+    published_origin = origin; origin_known = true;
+}
+bool view_origin(Matrix& origin) {
+    std::lock_guard lock(poses_mutex);
+    if (origin_known) origin = published_origin;
+    return origin_known;
 }
 namespace {
 struct TraceEntry { uint64_t tick; uint64_t value; int half; char kind; };
@@ -245,7 +317,7 @@ void trace_event(char kind, uint64_t value) {
 }
 uint64_t next_present() { const auto n = present_frames++; trace_event('P', n); return n; }
 uint64_t frame_tag() { return present_frames.load(); }
-bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head) {
+bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat) {
     const auto s = stereo_settings();
     const int half = s.eye_from_half ? frame_half() : -1;
     std::lock_guard lock(poses_mutex);
@@ -256,7 +328,7 @@ bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head) {
         const uint64_t start = s.delay > 1 ? uint64_t(s.delay-1) : 0;
         for (uint64_t back = start; back < poses.size() && back <= present; ++back) {
             const auto& entry = poses[(present-back) % poses.size()];
-            if (entry.tag == present-back && entry.eye == eye) { head = entry.head; return true; }
+            if (entry.tag == present-back && entry.eye == eye) { head = entry.head; flat = entry.flat; return true; }
         }
         return false;
     }
@@ -264,7 +336,7 @@ bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head) {
     const auto& entry = poses[tag % poses.size()];
     if (entry.tag != tag) return false;
     eye = static_cast<uint32_t>(present & 1);
-    head = entry.head;
+    head = entry.head; flat = entry.flat;
     return true;
 }
 }

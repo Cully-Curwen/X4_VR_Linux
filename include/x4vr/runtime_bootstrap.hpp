@@ -35,6 +35,19 @@ public:
     std::string submit_frame(const std::array<vr::VRVulkanTextureData_t, 2>& images,
                              const std::array<vr::VRTextureBounds_t, 2>& bounds,
                              const std::array<Matrix, 2>& poses, bool with_pose = true);
+    // Theater mode: the flat game image on a world-fixed virtual screen (an OpenVR overlay),
+    // `width` metres wide, centred at seated_from_screen. A null image keeps the last one.
+    std::string show_theater(const vr::VRVulkanTextureData_t* image, const vr::VRTextureBounds_t& bounds,
+                             const Matrix& seated_from_screen, float width);
+    void hide_theater();
+    // Mouse cursor overlay (X4 uses the Windows cursor, which never reaches the swapchain).
+    // rgba: new image (null keeps the last). placement: cursor centre in seated space
+    // (on_screen, on the theater screen) or relative to the headset; width in metres.
+    std::string show_cursor(const uint8_t* rgba, uint32_t width, uint32_t height, bool on_screen,
+                            const Matrix& placement, float width_m);
+    void hide_cursor();
+private:
+    vr::VROverlayHandle_t theater_{vr::k_ulOverlayHandleInvalid}, cursor_{vr::k_ulOverlayHandleInvalid};
 };
 // Alternate-eye bookkeeping shared by the FreeTrack pose source and the Vulkan layer.
 // Tunables are re-read from %X4VR_CAPTURE_DIR%/stereo.txt ("key=value" per line).
@@ -55,19 +68,28 @@ struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float i
     // Diagnostics: stall the game's render thread for hitch_ms once every hitch_every presents.
     float hitch_ms = 0; int hitch_every = 90;
     // Eye association by X4's per-frame render-data half instead of present counting.
-    bool eye_from_half = false; int half_xor_render = 0, half_xor_present = 0; float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{}; };
+    bool eye_from_half = false; int half_xor_render = 0, half_xor_present = 0; float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{};
+    // Theater mode (flat game image on a virtual screen): 0 off, 1 while X4 shows a fullscreen
+    // menu or sends no head poses, 2 always. Screen distance and width in metres.
+    int theater = 1; float theater_distance = 2.f, theater_width = 2.2f;
+    // Mouse cursor overlay (1 on, 0 off); over the stereo view it sits cursor_distance metres ahead.
+    int cursor = 1; float cursor_distance = 5.f; };
 StereoSettings stereo_settings();
 // Pose source (may be called several times per game frame): eye the frame being
 // simulated now will be presented to, and the head pose it was rendered with.
 uint32_t render_eye();
 uint64_t frame_tag();   // present count when the game samples its pose
-void record_render_pose(const Matrix& head, uint32_t eye);
+// flat: the frame shows a fullscreen menu (or theater mode is forced); it goes to the virtual screen.
+void record_render_pose(const Matrix& head, uint32_t eye, bool flat = false);
+// Recentred seated origin (position + yaw), published by the pose source; false until set.
+void publish_view_origin(const Matrix& origin);
+bool view_origin(Matrix& origin);
 int frame_half(); // X4 9.00 per-frame double-buffer half (0/1), -1 if unavailable
 // Layer: once per present. Returns the present number; pose lookup by number.
 void trace_event(char kind, uint64_t value); // diagnostics: create trace.request to dump
 uint64_t next_present();
-// Eye and head pose of the frame being presented now (false: unknown yet, skip it).
-bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head);
+// Eye, head pose and flat flag of the frame being presented now (false: no pose known).
+bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat);
 // Avoid recursively bootstrapping if runtime initialization itself uses Vulkan.
 bool is_runtime_bootstrap_thread();
 std::shared_ptr<RuntimeBootstrap> acquire_runtime_bootstrap();

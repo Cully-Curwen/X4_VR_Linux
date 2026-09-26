@@ -59,7 +59,7 @@ struct Device {
     F(CreateCommandPool) F(AllocateCommandBuffers) F(BeginCommandBuffer) F(EndCommandBuffer) \
     F(CmdPipelineBarrier) F(CmdCopyImage) F(QueueSubmit) F(CreateSemaphore) F(CreateFence) \
     F(WaitForFences) F(ResetFences) F(GetSwapchainImagesKHR) F(CmdClearColorImage) \
-    F(CmdCopyImageToBuffer) F(GetBufferMemoryRequirements) F(GetFenceStatus)
+    F(CmdCopyImageToBuffer) F(GetBufferMemoryRequirements) F(GetFenceStatus) F(DestroyFence) F(DestroyCommandPool)
 #define MEMBER(name) PFN_vk##name name{};
     DEVICE_FUNCTIONS(MEMBER)
     PRESENTER_FUNCTIONS(MEMBER)
@@ -404,8 +404,10 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical, 
     });
     return result;
 }
+void stop_submission(VkDevice device);
 EXPORT VKAPI_ATTR void VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks* alloc) {
     const auto data = device_for(device); if (!data) return;
+    stop_submission(device); // it submits on this device's queue: X4 crashed on exit without this
     { std::lock_guard lock(state_mutex); devices.erase(key(device)); }
     data->DestroyDevice(device, alloc);
     log([&](auto& s) { s << "{\"event\":\"device_destroyed\",\"device\":" << handle(device) << '}'; });
@@ -514,8 +516,17 @@ struct Presenter {
     std::array<std::array<VkFence, ring_size>, 2> written{};
     std::array<std::array<x4vr::Matrix, ring_size>, 2> slot_pose{};
     std::array<std::array<bool, ring_size>, 2> held{};
+    std::array<std::array<uint64_t, ring_size>, 2> slot_seq{}; // copy order, to find the newest finished image
+    uint64_t copies{};
     uint64_t generation{}; // bumped when the ring images are rebuilt
     bool async_frame{}; // the frame just copied is submitted by the thread, not inline
+    // Theater mode: the flat game image goes to eye 0's ring and is shown on a virtual screen.
+    bool theater{};
+    uint32_t flat_run{}, stereo_run{}; // consecutive frames wanting the other mode
+    // The submission thread; vkDestroyDevice stops it before the device goes away.
+    std::thread thread;
+    VkDevice thread_device{};
+    std::atomic_bool stopping{};
     // Replaced on swapchain resize but never freed: OpenVR may still read the last
     // submitted textures and in-flight copies may reference them.
     std::vector<std::unique_ptr<x4vr::EyeTargets>> retired;
@@ -657,7 +668,8 @@ void presenter_initialize(const Device& d, uint32_t family) {
     p.ready = true;
     static std::once_flag started;
     if (d.vr_queue) std::call_once(started, [&] {
-        std::thread(compositor_loop, d).detach(); // ponytail: runs until process exit, like the pinned runtime
+        p.thread_device = d.device;
+        p.thread = std::thread(compositor_loop, d);
         OutputDebugStringA("X4VR presenter: asynchronous submission thread started\n");
     });
 }
@@ -670,6 +682,21 @@ void barrier(const Device& d, VkCommandBuffer command, VkImage image, VkImageLay
     d.CmdPipelineBarrier(command, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
                          0, nullptr, 0, nullptr, 1, &b);
 }
+// Theater mode: fullscreen menus and frames without a head pose (main menu, loading, modes that
+// don't poll the head tracker) go to a virtual screen. Switching takes 10 flat or 3 stereo frames
+// in a row, so one missing pose doesn't flash the screen. Returns whether this frame is shown;
+// frames that don't match the current mode are skipped.
+bool update_theater(Presenter& p, const x4vr::StereoSettings& s, bool posed, bool flat) {
+    const bool want = s.theater == 2 || (s.theater == 1 && (!posed || flat));
+    if (want == p.theater) p.flat_run = p.stereo_run = 0;
+    else if (++(want ? p.flat_run : p.stereo_run) < (want ? 10u : 3u)) return false;
+    else {
+        p.theater = want; p.flat_run = p.stereo_run = 0;
+        OutputDebugStringA(!want ? "X4VR theater: off\n" : !posed ? "X4VR theater: on (no head pose)\n"
+                           : flat ? "X4VR theater: on (fullscreen menu)\n" : "X4VR theater: on (forced)\n");
+    }
+    return p.theater || posed;
+}
 // Returns the semaphore the real present must wait on, or null to present unchanged.
 VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKHR* info) {
     auto& p = presenter();
@@ -681,9 +708,11 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     const auto number = x4vr::next_present();
     p.last_number = number;
     uint32_t eye{};
-    x4vr::Matrix rendered;
-    if (!x4vr::presented_frame(number, eye, rendered)) return VK_NULL_HANDLE; // unknown pose: skip frame
-    if (!settings.stereo) eye = 0;
+    auto rendered = x4vr::Matrix::identity();
+    bool flat{};
+    const bool posed = x4vr::presented_frame(number, eye, rendered, flat);
+    if (!update_theater(p, settings, posed, flat)) return VK_NULL_HANDLE; // skip frame
+    if (!settings.stereo || p.theater) eye = 0;
     p.last_eye = eye;
     std::error_code absent;
     if (p.probe_count && std::filesystem::remove(capture_root()/"frames.request", absent)) probe_write(d, p);
@@ -735,6 +764,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
         p.filled[target][next] = p.fresh[target] = true;
         p.current[target] = next;
+        p.slot_seq[target][next] = ++p.copies;
         p.poses[target] = p.slot_pose[target][next] = rendered;
     }
     if (!p.probe_buffer) readback_prepare(d, VkDeviceSize(Presenter::probe_frame_bytes)*p.probe_frames.size(), p.probe_buffer, p.probe_memory);
@@ -870,48 +900,227 @@ void wait_mid_frame() {
     while (std::chrono::steady_clock::now() < target-std::chrono::microseconds(1500)) Sleep(1);
     while (std::chrono::steady_clock::now() < target) YieldProcessor();
 }
+// The scene both eyes see behind the theater screen: black images, cleared once on the
+// submission queue. Same size as the eye textures: switching SteamVR to a tiny texture
+// lost the Vulkan device and made its compositor free-run.
+std::unique_ptr<x4vr::EyeTargets> make_black(const Device& d, VkExtent2D extent, VkFormat format) {
+    const auto memory = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(d.gipa(d.instance, "vkGetPhysicalDeviceMemoryProperties"));
+    const auto image_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties>(d.gipa(d.instance, "vkGetPhysicalDeviceImageFormatProperties"));
+    auto black = x4vr::EyeTargets::create({d.device, d.physical, d.gdpa, memory, image_properties}, extent, format);
+    VkCommandPoolCreateInfo info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    info.queueFamilyIndex = d.vr_family;
+    VkCommandPool pool{};
+    check(d.CreateCommandPool(d.device, &info, nullptr, &pool), "vkCreateCommandPool");
+    VkFence done{};
+    try {
+        VkCommandBufferAllocateInfo allocate{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocate.commandPool = pool; allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; allocate.commandBufferCount = 1;
+        VkCommandBuffer command{};
+        check(d.AllocateCommandBuffers(d.device, &allocate, &command), "vkAllocateCommandBuffers");
+        if (d.set_loader_data) check(d.set_loader_data(d.device, command), "vkSetDeviceLoaderData");
+        VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        check(d.CreateFence(d.device, &fence, nullptr, &done), "vkCreateFence");
+        VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        check(d.BeginCommandBuffer(command, &begin), "vkBeginCommandBuffer");
+        const VkClearColorValue color{};
+        const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        for (const auto& eye : black->eyes()) {
+            barrier(d, command, eye.color.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
+            d.CmdClearColorImage(command, eye.color.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &all);
+            barrier(d, command, eye.color.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        }
+        check(d.EndCommandBuffer(command), "vkEndCommandBuffer");
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit.commandBufferCount = 1; submit.pCommandBuffers = &command;
+        check(d.QueueSubmit(d.vr_queue, 1, &submit, done), "vkQueueSubmit");
+        check(d.WaitForFences(d.device, 1, &done, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+    } catch (...) {
+        if (done) d.DestroyFence(d.device, done, nullptr);
+        d.DestroyCommandPool(d.device, pool, nullptr);
+        throw;
+    }
+    d.DestroyFence(d.device, done, nullptr);
+    d.DestroyCommandPool(d.device, pool, nullptr);
+    return black;
+}
+// X4 draws the Windows mouse cursor, which never reaches the swapchain. The submission thread
+// shows it as a SteamVR overlay: on the theater screen, or head-locked over the stereo view in
+// the direction X4 would draw it.
+struct Cursor {
+    HCURSOR shape{};
+    std::vector<uint8_t> rgba;
+    uint32_t width{}, height{};
+    POINT hotspot{};
+    bool shown{};
+};
+BOOL CALLBACK largest_window(HWND window, LPARAM found) {
+    DWORD pid{};
+    GetWindowThreadProcessId(window, &pid);
+    RECT r{};
+    auto& best = *reinterpret_cast<std::pair<HWND, LONG>*>(found);
+    if (pid == GetCurrentProcessId() && IsWindowVisible(window) && GetClientRect(window, &r) && r.right*r.bottom > best.second)
+        best = {window, r.right*r.bottom};
+    return TRUE;
+}
+HWND game_window() {
+    static HWND cached{};
+    if (!cached || !IsWindow(cached)) {
+        std::pair<HWND, LONG> best{};
+        EnumWindows(largest_window, reinterpret_cast<LPARAM>(&best));
+        cached = best.first;
+    }
+    return cached;
+}
+// Draws the cursor over black and over white; the difference is its alpha. Works for
+// monochrome, colour and alpha cursors alike. Output RGBA, straight alpha.
+bool cursor_image(HCURSOR shape, Cursor& c) {
+    ICONINFO info{};
+    if (!GetIconInfo(shape, &info)) return false;
+    BITMAP bm{};
+    GetObject(info.hbmColor ? info.hbmColor : info.hbmMask, sizeof(bm), &bm);
+    const LONG w = bm.bmWidth, h = info.hbmColor ? bm.bmHeight : bm.bmHeight/2;
+    const POINT hotspot{LONG(info.xHotspot), LONG(info.yHotspot)};
+    if (info.hbmColor) DeleteObject(info.hbmColor);
+    if (info.hbmMask) DeleteObject(info.hbmMask);
+    if (w <= 0 || h <= 0 || w > 256 || h > 256) return false;
+    BITMAPINFO bi{};
+    bi.bmiHeader = {sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB};
+    const auto pixels = size_t(w)*size_t(h);
+    std::array<std::vector<uint8_t>, 2> drawn;
+    const HDC dc = CreateCompatibleDC(nullptr);
+    for (int white = 0; white < 2; ++white) {
+        void* bits{};
+        const HBITMAP dib = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!dib) { DeleteDC(dc); return false; }
+        const auto old = SelectObject(dc, dib);
+        std::memset(bits, white ? 0xff : 0, pixels*4);
+        DrawIconEx(dc, 0, 0, shape, w, h, 0, nullptr, DI_NORMAL);
+        GdiFlush();
+        drawn[white].assign(static_cast<uint8_t*>(bits), static_cast<uint8_t*>(bits)+pixels*4);
+        SelectObject(dc, old);
+        DeleteObject(dib);
+    }
+    DeleteDC(dc);
+    c.rgba.resize(pixels*4);
+    for (size_t i = 0; i < pixels; ++i) {
+        const uint8_t* black = &drawn[0][i*4]; // BGRA
+        const int alpha = std::clamp(255-(int(drawn[1][i*4+1])-int(black[1])), 0, 255);
+        for (int k = 0; k < 3; ++k) c.rgba[i*4+2-k] = uint8_t(alpha ? std::min(255, black[k]*255/alpha) : 0);
+        c.rgba[i*4+3] = uint8_t(alpha);
+    }
+    c.shape = shape; c.width = uint32_t(w); c.height = uint32_t(h); c.hotspot = hotspot;
+    return true;
+}
+// theater: seated_from_screen of the visible theater screen, null over the stereo view.
+void update_cursor(const Device& d, Cursor& c, const x4vr::StereoSettings& s, const x4vr::Matrix* theater) {
+    CURSORINFO info{sizeof(info)};
+    const HWND window = game_window();
+    RECT client{};
+    POINT at{};
+    const bool visible = s.cursor && GetCursorInfo(&info) && (info.flags & CURSOR_SHOWING) && info.hCursor && window &&
+        GetForegroundWindow() == window && GetClientRect(window, &client) && client.right > 0 && client.bottom > 0 &&
+        ((at = info.ptScreenPos), ScreenToClient(window, &at)) && at.x >= 0 && at.y >= 0 && at.x < client.right && at.y < client.bottom;
+    const bool changed = visible && info.hCursor != c.shape && cursor_image(info.hCursor, c);
+    if (!visible || !c.width) {
+        if (c.shown) d.runtime->hide_cursor();
+        c.shown = false;
+        return;
+    }
+    const float u = (at.x+0.5f)/float(client.right), v = (at.y+0.5f)/float(client.bottom);
+    auto placement = x4vr::Matrix::identity();
+    float per_pixel{}; // metres per cursor pixel: the cursor keeps its size relative to the game image
+    if (theater) { // screen-relative: origin at the screen centre, +y up, slightly in front
+        const float width = s.theater_width, height = width*float(client.bottom)/float(client.right);
+        per_pixel = width/float(client.right);
+        placement.m[0][3] = (u-0.5f)*width; placement.m[1][3] = (0.5f-v)*height; placement.m[2][3] = 0.002f;
+    } else { // head-relative, on a plane cursor_distance ahead, along the game camera's ray
+        const float distance = s.cursor_distance, tan_y = s.game_tan_y, tan_x = tan_y*float(client.right)/float(client.bottom);
+        per_pixel = 2*distance*tan_y/float(client.bottom);
+        placement.m[0][3] = (2*u-1)*tan_x*distance; placement.m[1][3] = (1-2*v)*tan_y*distance; placement.m[2][3] = -distance;
+    }
+    placement.m[0][3] += (float(c.width)/2-float(c.hotspot.x))*per_pixel; // overlay centre, not the hotspot
+    placement.m[1][3] -= (float(c.height)/2-float(c.hotspot.y))*per_pixel;
+    if (theater) placement = x4vr::multiply(*theater, placement);
+    const auto error = d.runtime->show_cursor(changed || !c.shown ? c.rgba.data() : nullptr, c.width, c.height, theater != nullptr,
+                                              placement, float(c.width)*per_pixel);
+    c.shown = error.empty();
+    report_submit(error);
+}
 // Asynchronous submission thread: every compositor frame, submit each eye's newest image
 // on the layer's private queue, waiting at most submit_budget_ms for its copy to finish,
 // else the previous image. The game never makes SteamVR miss a frame: with SteamVR's own
 // reprojection off (Varjo driver default), every late frame showed as a dark/grey flash.
+// In theater mode it shows eye 0's newest (flat) image on the virtual screen instead and
+// submits black eyes.
 void compositor_loop(Device d) {
     auto& p = presenter();
     VkFence read{}; // signals once OpenVR's copies of the submitted images completed
     VkFenceCreateInfo signalled{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; signalled.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     if (d.CreateFence(d.device, &signalled, nullptr, &read) != VK_SUCCESS) return;
     std::array<uint32_t, 2> shown{UINT32_MAX, UINT32_MAX}; // slot submitted last per eye
+    std::array<uint64_t, 2> shown_seq{}; // and the copy it held then
     uint64_t generation{};
-    for (;;) try {
+    std::unique_ptr<x4vr::EyeTargets> black;
+    Cursor cursor;
+    bool screen_visible{}, keys_were_down{};
+    auto screen_origin = x4vr::Matrix::identity(), screen = screen_origin; // seated_from_screen
+    while (!p.stopping) try {
         const auto s = x4vr::stereo_settings();
         if (!s.async_submit || !s.pace) { Sleep(5); continue; }
-        bool ready{};
-        { std::lock_guard lock(p.mutex); ready = p.ready && p.async_frame && p.has_image(0) && p.has_image(1); }
+        bool ready{}, theater{};
+        {
+            std::lock_guard lock(p.mutex);
+            theater = p.theater;
+            ready = p.ready && p.async_frame && p.has_image(0) && (theater || p.has_image(1));
+        }
         if (!ready) { Sleep(1); continue; }
+        if (screen_visible && !theater) { d.runtime->hide_theater(); screen_visible = false; }
         const auto called = std::chrono::steady_clock::now();
         auto error = d.runtime->wait_frame();
         const auto interval = ticks().tick();
         const auto frame_start = std::chrono::steady_clock::now();
         const auto blocked = std::chrono::duration<double>(frame_start-called).count();
-        const auto deadline = frame_start + std::chrono::microseconds(int64_t(s.submit_budget_ms*1000));
+        // Theater mode never waits: its screen isn't latency-critical, and a prompt submit keeps pacing.
+        const auto deadline = frame_start + std::chrono::microseconds(theater ? 0 : int64_t(s.submit_budget_ms*1000));
         if (!error.empty()) { report_submit(error); Sleep(5); continue; }
         check(d.WaitForFences(d.device, 1, &read, VK_TRUE, UINT64_MAX), "vkWaitForFences"); // last frame's reads done
-        std::array<uint32_t, 2> newest{};
+        std::array<uint32_t, 2> newest{}, older{};
+        std::array<uint64_t, 2> newest_seq{}, older_seq{};
         std::array<VkImage, 2> images{}, fallback{};
         std::array<VkFence, 2> fences{};
         std::array<x4vr::Matrix, 2> poses{}, fallback_poses{};
         std::array<vr::VRTextureBounds_t, 2> bounds{};
         std::array<vr::VRVulkanTextureData_t, 2> textures{};
+        const uint32_t eyes = theater ? 1 : 2; // theater: eye 0's ring holds the flat image
+        vr::VRTextureBounds_t crop{}; // the game image inside the padded texture
+        VkFormat format{};
+        VkExtent2D eye_extent{};
         {
             std::lock_guard lock(p.mutex);
+            if (!p.ready) continue; // swapchain resized meanwhile
             if (p.generation != generation) { generation = p.generation; shown = {UINT32_MAX, UINT32_MAX}; }
-            for (uint32_t e = 0; e < 2; ++e) {
+            const auto width = float(p.eye_extent.width), height = float(p.eye_extent.height);
+            crop = {p.offset.x/width, p.offset.y/height, (p.offset.x+p.extent.width)/width, (p.offset.y+p.extent.height)/height};
+            format = p.format; eye_extent = p.eye_extent;
+            for (uint32_t e = 0; e < eyes; ++e) {
                 for (auto& h : p.held[e]) h = false;
                 newest[e] = p.current[e];
                 p.held[e][newest[e]] = true;
                 images[e] = p.image(e, newest[e]); fences[e] = p.written[e][newest[e]]; poses[e] = p.slot_pose[e][newest[e]];
-                if (shown[e] != UINT32_MAX) {
-                    p.held[e][shown[e]] = true;
-                    fallback[e] = p.image(e, shown[e]); fallback_poses[e] = p.slot_pose[e][shown[e]];
+                newest_seq[e] = p.slot_seq[e][newest[e]];
+                // Fallback: the newest finished image other than the newest one. When the GPU runs
+                // behind, every newest image is still in flight at submit time; the one that was late
+                // last tick is shown now instead of repeating the same image forever.
+                older[e] = UINT32_MAX;
+                for (uint32_t k = 0; k < Presenter::ring_size; ++k)
+                    if (k != newest[e] && p.filled[e][k] && (older[e] == UINT32_MAX || p.slot_seq[e][k] > p.slot_seq[e][older[e]]) &&
+                        d.GetFenceStatus(d.device, p.written[e][k]) == VK_SUCCESS) older[e] = k;
+                if (older[e] != UINT32_MAX) {
+                    p.held[e][older[e]] = true;
+                    fallback[e] = p.image(e, older[e]); fallback_poses[e] = p.slot_pose[e][older[e]];
+                    older_seq[e] = p.slot_seq[e][older[e]];
                 }
                 textures[e] = eye_texture(d, p, VK_NULL_HANDLE, d.vr_queue, d.vr_family);
             }
@@ -919,25 +1128,60 @@ void compositor_loop(Device d) {
         }
         uint32_t fallbacks = 0;
         std::array<bool, 2> fresh{};
-        for (uint32_t e = 0; e < 2; ++e) {
+        for (uint32_t e = 0; e < eyes; ++e) {
             const auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline-std::chrono::steady_clock::now()).count();
             const bool done = d.WaitForFences(d.device, 1, &fences[e], VK_TRUE, fallback[e] ? uint64_t(std::max<int64_t>(left, 0)) : UINT64_MAX) == VK_SUCCESS;
             const bool use_newest = done || !fallback[e];
             fallbacks += !use_newest;
-            fresh[e] = use_newest && newest[e] != shown[e];
+            const auto seq = use_newest ? newest_seq[e] : older_seq[e];
+            fresh[e] = seq != shown_seq[e];
+            shown_seq[e] = seq;
+            shown[e] = use_newest ? newest[e] : older[e];
             textures[e].m_nImage = reinterpret_cast<uint64_t>(use_newest ? images[e] : fallback[e]);
             if (!use_newest) poses[e] = fallback_poses[e];
-            if (use_newest) shown[e] = newest[e];
         }
         const auto waited = std::chrono::duration<double>(std::chrono::steady_clock::now()-frame_start).count();
         const auto submitted_at = std::chrono::steady_clock::now();
-        error = d.runtime->submit_frame(textures, bounds, poses, s.submit_pose != 0);
+        if (theater) {
+            if (!black || black->extent().width != eye_extent.width || black->extent().height != eye_extent.height ||
+                black->color_format() != format) {
+                black.reset(); // after the read fence: OpenVR is done with it
+                black = make_black(d, eye_extent, format);
+            }
+            // The screen stands theater_distance ahead of the recentred origin (else the current
+            // head), placed when theater mode starts and again on Ctrl+F12.
+            const bool keys_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F12) & 0x8000);
+            const bool hotkey = keys_down && !keys_were_down;
+            keys_were_down = keys_down;
+            if (!screen_visible || hotkey) {
+                x4vr::Matrix head;
+                if (hotkey || !x4vr::view_origin(screen_origin))
+                    screen_origin = d.runtime->predicted_tracking(head, 0) == x4vr::FrameStatus::ready ? x4vr::seated_origin(head) : x4vr::Matrix::identity();
+            }
+            auto ahead = x4vr::Matrix::identity();
+            ahead.m[2][3] = -s.theater_distance;
+            screen = x4vr::multiply(screen_origin, ahead);
+            error = d.runtime->show_theater(fresh[0] || !screen_visible ? &textures[0] : nullptr, crop, screen, s.theater_width);
+            screen_visible = true;
+            auto dark = textures;
+            for (uint32_t e = 0; e < 2; ++e) {
+                dark[e] = textures[0];
+                dark[e].m_nImage = reinterpret_cast<uint64_t>(black->eyes()[e].color.image);
+            }
+            if (error.empty()) error = d.runtime->submit_frame(dark, {{{0, 0, 1, 1}, {0, 0, 1, 1}}}, poses, false);
+        } else {
+            error = d.runtime->submit_frame(textures, bounds, poses, s.submit_pose != 0);
+        }
+        update_cursor(d, cursor, s, theater && screen_visible ? &screen : nullptr);
         const auto submitting = std::chrono::duration<double>(std::chrono::steady_clock::now()-submitted_at).count();
         check(d.ResetFences(d.device, 1, &read), "vkResetFences");
         check(d.QueueSubmit(d.vr_queue, 0, nullptr, read), "vkQueueSubmit");
         {
             std::lock_guard lock(p.mutex); // keep only the images now on screen
-            if (p.generation == generation) for (uint32_t e = 0; e < 2; ++e) { for (auto& h : p.held[e]) h = false; p.held[e][shown[e]] = true; }
+            if (p.generation == generation) for (uint32_t e = 0; e < eyes; ++e) {
+                for (auto& h : p.held[e]) h = false;
+                if (shown[e] != UINT32_MAX) p.held[e][shown[e]] = true;
+            }
         }
         pair_stats(s, fresh, blocked, interval, !error.empty(), fallbacks, waited, submitting);
         report_submit(error);
@@ -945,6 +1189,17 @@ void compositor_loop(Device d) {
         OutputDebugStringA(("X4VR submission thread: "+std::string(error.what())+"\n").c_str());
         Sleep(100);
     }
+    if (screen_visible) d.runtime->hide_theater();
+    if (cursor.shown) d.runtime->hide_cursor();
+    d.WaitForFences(d.device, 1, &read, VK_TRUE, UINT64_MAX); // OpenVR's last copies
+    d.DestroyFence(d.device, read, nullptr);
+}
+void stop_submission(VkDevice device) {
+    auto& p = presenter();
+    if (device != p.thread_device || !p.thread.joinable()) return;
+    p.stopping = true;
+    p.thread.join();
+    OutputDebugStringA("X4VR presenter: submission thread stopped\n");
 }
 // After the game's present: hold the render thread to the compositor clock (what WaitGetPoses
 // did when submission was inline). Pair mode releases the first eye mid-frame.
