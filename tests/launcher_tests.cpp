@@ -1,5 +1,7 @@
-// Launcher logic: profile merge into stereo.txt, X4 config.xml checks and fixes, stats parse.
+// Launcher logic: profile merge into stereo.txt, X4 config.xml checks and fixes, stats parse,
+// HUD distance mod rewriting.
 #include "../tools/launcher/launcher_settings.hpp"
+#include "../tools/launcher/hud_mod.hpp"
 #include <cstdio>
 #include <cstdlib>
 
@@ -42,5 +44,29 @@ int main() {
     CHECK(parse_stats_line("29994546 180 94 93 2 0 5 0.21 0.29 11.64 0.00 11.41 | 1 0 1 0 1", stats));
     CHECK(stats.fps == 90 && stats.late == 2 && stats.repeated == 5);
     CHECK(!parse_stats_line("# tick_ms submits", stats));
+
+    // HUD mod: HUD anchors move k times out, menu anchors and non-anchor connections stay.
+    const std::string anchors =
+        "<connection name=\"con_crosshair\" tags=\"uianchor_crosshair\">\n<offset>\n<position x=\"0\" y=\"-0.1\" z=\"0.2906321\"/>\n"
+        "<quaternion qx=\"0\" qy=\"0\" qz=\"0\" qw=\"-1\"/>\n</offset>\n</connection>\n"
+        "<connection name=\"con_menu_front\" tags=\"uianchor_front \">\n<offset>\n<position x=\"0\" y=\"0\" z=\"0.3469819\"/>\n</offset>\n</connection>\n"
+        "<connection name=\"con_ticker\" tags=\"uianchor_messageticker_plain \">\n<offset>\n<position x=\"-0.2\" y=\"-0.166\" z=\"4.587704E-02\"/>\n</offset>\n</connection>\n"
+        "<connection name=\"part\" tags=\"part nocollision\">\n<offset>\n<position x=\"1\" y=\"1\" z=\"1\"/>\n</offset>\n</connection>\n";
+    int moved = 0;
+    const auto scaled = scale_anchor_positions(anchors, 2.5, moved);
+    CHECK(moved == 2);
+    CHECK(scaled.find("<position x=\"0\" y=\"-0.25\" z=\"0.726580") != std::string::npos);
+    CHECK(scaled.find("<position x=\"0\" y=\"0\" z=\"0.3469819\"") != std::string::npos); // menu anchor unchanged
+    CHECK(scaled.find("<position x=\"-0.5\" y=\"-0.415\" z=\"0.1146926\"") != std::string::npos);
+    CHECK(scaled.find("<position x=\"1\" y=\"1\" z=\"1\"") != std::string::npos); // not a UI anchor
+    CHECK(scaled.find("qw=\"-1\"") != std::string::npos);
+    int factors = 0;
+    const auto lua = scale_presentation_factors("local config = {\n\tscalingFactor = 0.0004, -- note\n\tradarScaleFactor = 0.0002,\n}\n"
+        "if config.scalingFactor == 0.5 then end\nprivate.scalingFactor = private.scalingFactor * 2\n", 2.5, factors);
+    CHECK(factors == 2);
+    CHECK(lua.find("scalingFactor = 0.001, -- note") != std::string::npos && lua.find("radarScaleFactor = 0.0005,") != std::string::npos);
+    CHECK(lua.find("== 0.5") != std::string::npos);
+    std::string error;
+    CHECK(hud_files({}, 2.5, error).empty() && !error.empty()); // missing game files: nothing half-built
     std::printf("launcher logic ok\n");
 }
