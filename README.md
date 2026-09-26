@@ -1,4 +1,4 @@
-# X4 Rebirth
+# X4 VR
 
 Native stereoscopic VR with 6DOF head tracking for X4: Foundations, on any SteamVR (OpenVR) headset.
 
