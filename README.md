@@ -173,7 +173,7 @@ Logs are written to `X4_Rebirth\reports\captures\debug-*\debug-events.log`; sear
 
 | Problem | Check |
 | --- | --- |
-| No head tracking | OpenTrack Support is On, X4 was started with the launcher or `play.ps1`, and the registry path points to `build\Release`. The log should show `X4VR freetrack: first headset pose delivered`. |
+| No head tracking, or nothing in the headset | OpenTrack Support is On and X4 was started with the launcher or `play.ps1`. If the launcher's Status box says the head-tracking DLL path is not set, press *Fix head-tracking path* and start X4 again. The log should show `X4VR freetrack: first headset pose delivered`. |
 | Headset shows only SteamVR's grey room | SteamVR must be running before the launch. The log should show `X4VR presenter: first stereo pair submitted`. |
 | Blurry | Display Mode Fullscreen at 3840×2160 (DSR enabled). |
 | Low frame rate or judder | Use a smaller DSR factor (e.g. 2560×1440) or lower graphics settings; 90 fps is needed. |

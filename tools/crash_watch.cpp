@@ -74,6 +74,56 @@ struct Watch {
             log << "  dr" << key.first << " rip=0x" << std::hex << key.second << std::dec << " hits=" << count << "\n";
     }
 };
+// Optional execution breakpoints, read when the game starts from %X4VR_CAPTURE_DIR%/trace_rvas.txt
+// (one "0x<rva>" per line, max 4, relative to the game image). Each hit logs RAX and the thread's
+// last Win32 error (first 3 hits per address), then lets the instruction run.
+struct Trace {
+    std::array<uintptr_t, 4> address{};
+    std::array<unsigned, 4> hits{};
+    uintptr_t base{};
+    bool armed{};
+    void load(const void* image) {
+        base = reinterpret_cast<uintptr_t>(image);
+        wchar_t root[1024]{};
+        if (!GetEnvironmentVariableW(L"X4VR_CAPTURE_DIR", root, 1024)) return;
+        std::ifstream file(std::filesystem::path(root)/"trace_rvas.txt");
+        std::string line; int count = 0;
+        while (count < 4 && std::getline(file, line))
+            try { address[count] = base + std::stoull(line, nullptr, 16); ++count; } catch (...) {}
+        armed = count > 0;
+    }
+    void apply(HANDLE thread) const {
+        CONTEXT context{}; context.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        if (!GetThreadContext(thread, &context)) return;
+        context.Dr0 = address[0]; context.Dr1 = address[1]; context.Dr2 = address[2]; context.Dr3 = address[3];
+        context.Dr7 = 0;
+        for (int i = 0; i < 4; ++i) if (address[i]) context.Dr7 |= 1ull << (i*2); // execute, length 1
+        SetThreadContext(thread, &context);
+    }
+    int index(const void* at) const {
+        for (int i = 0; i < 4; ++i) if (address[i] && address[i] == reinterpret_cast<uintptr_t>(at)) return i;
+        return -1;
+    }
+    void hit(const DEBUG_EVENT& event, HANDLE process, std::ofstream& log) {
+        const int i = index(event.u.Exception.ExceptionRecord.ExceptionAddress);
+        Handle thread{OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, event.dwThreadId)};
+        CONTEXT context{}; context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_DEBUG_REGISTERS;
+        if (!thread.value || !GetThreadContext(thread.value, &context)) return;
+        if (hits[i]++ < 3) {
+            struct { LONG exit; PVOID teb; PVOID ids[2]; ULONG_PTR affinity; LONG priority[2]; } basic{};
+            using Query = LONG (NTAPI*)(HANDLE, int, PVOID, ULONG, PULONG);
+            static const auto query = reinterpret_cast<Query>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationThread"));
+            DWORD last_error = 0;
+            if (query && query(thread.value, 0, &basic, sizeof(basic), nullptr) == 0)
+                ReadProcessMemory(process, static_cast<const char*>(basic.teb)+0x68, &last_error, sizeof(last_error), nullptr);
+            log << "trace rva=0x" << std::hex << address[i]-base << " tid=" << std::dec << event.dwThreadId << " rax=0x" << std::hex
+                << context.Rax << std::dec << " last_error=" << last_error << '\n';
+        }
+        context.EFlags |= 0x10000; // resume flag: execute the instruction instead of trapping again
+        context.Dr6 = 0;
+        SetThreadContext(thread.value, &context);
+    }
+};
 int wmain(int argc, wchar_t** argv) {
     if (argc != 3 && !(argc == 5 && std::wstring(argv[3]) == L"--startup-module")) {
         std::cerr << "Usage: crash_watch.exe <executable> <new-report-directory> [--startup-module <dll>]\n"; return 2;
@@ -109,6 +159,7 @@ int wmain(int argc, wchar_t** argv) {
     std::cout << "Debug child PID: " << process.dwProcessId << std::endl;
     bool initial_breakpoint = true;
     Watch watch;
+    Trace trace;
     unsigned exceptions = 0;
     size_t debug_bytes = 0;
     try {
@@ -129,11 +180,18 @@ int wmain(int argc, wchar_t** argv) {
         DWORD exit_code = 0;
         if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
             watch.threads[event.dwThreadId] = event.u.CreateProcessInfo.hThread;
+            trace.load(event.u.CreateProcessInfo.lpBaseOfImage);
+            if (trace.armed) { trace.apply(event.u.CreateProcessInfo.hThread); log << "trace armed\n"; }
             if (startup_module) startup_module->process_created(event.u.CreateProcessInfo.lpBaseOfImage);
             module(log, "process", event.u.CreateProcessInfo.lpBaseOfImage, event.u.CreateProcessInfo.hFile);
         } else if (event.dwDebugEventCode == CREATE_THREAD_DEBUG_EVENT) {
             watch.threads[event.dwThreadId] = event.u.CreateThread.hThread;
             if (watch.armed) watch.apply(event.u.CreateThread.hThread);
+            else if (trace.armed) trace.apply(event.u.CreateThread.hThread);
+        } else if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT && trace.armed &&
+                   event.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP &&
+                   trace.index(event.u.Exception.ExceptionRecord.ExceptionAddress) >= 0) {
+            trace.hit(event, process_handle.value, log);
         } else if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT &&
                    event.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP &&
                    watch.threads.count(event.dwThreadId)) {

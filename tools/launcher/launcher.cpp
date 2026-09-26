@@ -22,7 +22,7 @@ using namespace x4vr::launcher;
 
 namespace {
 enum Id { ProfileBox = 100, SaveButton, DeleteButton, ModeAlternate, ModePair, ModeMono, ScaleBar, ScaleText,
-          PredictBar, PredictText, AsyncBox, RecenterButton, WidthEdit, HeightEdit, ChecksText, FixButton, StatusText, PlayButton };
+          PredictBar, PredictText, AsyncBox, RecenterButton, WidthEdit, HeightEdit, ChecksText, FixButton, StatusText, PlayButton, TrackerButton };
 
 struct App {
     fs::path root, bin, captures, profiles, x4_exe;
@@ -84,6 +84,21 @@ bool freetrack_path_ok() {
     wchar_t value[1024]{}; DWORD size = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\FreeTrack\\FreeTrackClient", L"Path", RRF_RT_REG_SZ, nullptr, value, &size)) return false;
     return lower(value) == lower(app.bin.wstring());
+}
+// Point X4's FreeTrack lookup at our DLL, as install.ps1 does: a different existing path (a
+// real FreeTrack/opentrack install) is kept in config\freetrack-path.backup for uninstall.ps1.
+void fix_freetrack_path() {
+    wchar_t previous[1024]{}; DWORD size = sizeof(previous);
+    if (!RegGetValueW(HKEY_CURRENT_USER, L"Software\\FreeTrack\\FreeTrackClient", L"Path", RRF_RT_REG_SZ, nullptr, previous, &size) &&
+        lower(previous) != lower(app.bin.wstring())) {
+        std::ofstream backup(app.root/L"config"/L"freetrack-path.backup", std::ios::binary);
+        backup << narrow(previous);
+    }
+    const auto path = app.bin.wstring();
+    const auto error = RegSetKeyValueW(HKEY_CURRENT_USER, L"Software\\FreeTrack\\FreeTrackClient", L"Path", REG_SZ,
+                                       path.c_str(), DWORD((path.size()+1)*sizeof(wchar_t)));
+    MessageBoxW(app.window, error ? L"Could not set the head-tracking path in the registry." :
+                (L"Head tracking now uses:\n"+path+L"\n\nStart X4 again if it is running.").c_str(), L"X4 VR", error ? MB_ICONERROR : MB_ICONINFORMATION);
 }
 // X4 keeps one config per Steam account under Documents\Egosoft\X4\<id>\; use the newest.
 fs::path x4_config() {
@@ -273,7 +288,8 @@ void refresh_status() {
     const bool x4 = running(L"X4.exe"), steamvr = running(L"vrserver.exe");
     const auto missing = missing_build_files();
     std::string status = std::string("SteamVR: ")+(steamvr ? "running" : "not running (start it before Play)")+"\r\n";
-    status += std::string("Head tracking DLL path: ")+(freetrack_path_ok() ? "ok" : "wrong (run scripts\\install.ps1)")+"\r\n";
+    const bool tracker = freetrack_path_ok();
+    status += std::string("Head tracking DLL path: ")+(tracker ? "ok" : "not set (press Fix head-tracking path)")+"\r\n";
     status += "Build: "+(missing.empty() ? std::string("ok") : "missing "+missing.front())+"\r\n";
     status += std::string("X4: ")+(x4 ? "running (changes above apply live)" : "not running")+"\r\n";
     std::error_code error;
@@ -303,6 +319,7 @@ void refresh_status() {
     SetWindowTextW(app.controls[ChecksText], widen(lines).c_str());
     EnableWindow(app.controls[FixButton], failing && !x4);
     EnableWindow(app.controls[PlayButton], !x4 && !app.game && missing.empty());
+    EnableWindow(app.controls[TrackerButton], !tracker);
 }
 
 // ---- window ----
@@ -340,9 +357,10 @@ void create_controls() {
     add(L"STATIC", L"", 0, 28, 316, 470, 80, ChecksText);
     add(L"BUTTON", L"Fix X4 settings", BS_PUSHBUTTON | WS_TABSTOP, 28, 400, 180, 26, FixButton);
     add(L"STATIC", L"Backs up config.xml; X4 must be closed", 0, 216, 404, 284, 20, 0);
-    add(L"BUTTON", L"Status", BS_GROUPBOX, 16, 442, 488, 112, 0);
+    add(L"BUTTON", L"Status", BS_GROUPBOX, 16, 442, 488, 142, 0);
     add(L"STATIC", L"", 0, 28, 462, 470, 86, StatusText);
-    add(L"BUTTON", L"Play X4 in VR", BS_DEFPUSHBUTTON | WS_TABSTOP, 16, 564, 488, 40, PlayButton);
+    add(L"BUTTON", L"Fix head-tracking path", BS_PUSHBUTTON | WS_TABSTOP, 28, 550, 180, 26, TrackerButton);
+    add(L"BUTTON", L"Play X4 in VR", BS_DEFPUSHBUTTON | WS_TABSTOP, 16, 594, 488, 40, PlayButton);
     SendMessageW(app.controls[ScaleBar], TBM_SETRANGE, TRUE, MAKELPARAM(50, 200));
     SendMessageW(app.controls[PredictBar], TBM_SETRANGE, TRUE, MAKELPARAM(0, 60));
 }
@@ -381,6 +399,8 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w, LPARAM l) {
             apply_live(1);
         } else if (id == FixButton) {
             fix_x4_settings(); refresh_status();
+        } else if (id == TrackerButton) {
+            fix_freetrack_path(); refresh_status();
         } else if (id == PlayButton) {
             play(); refresh_status();
         }
@@ -419,7 +439,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     type.hCursor = LoadCursorW(nullptr, IDC_ARROW); type.hbrBackground = HBRUSH(COLOR_BTNFACE+1);
     type.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     RegisterClassW(&type);
-    RECT size{0, 0, MulDiv(520, app.dpi, 96), MulDiv(620, app.dpi, 96)};
+    RECT size{0, 0, MulDiv(520, app.dpi, 96), MulDiv(650, app.dpi, 96)};
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     AdjustWindowRect(&size, style, FALSE);
     app.window = CreateWindowExW(0, type.lpszClassName, L"X4 Native VR", style, CW_USEDEFAULT, CW_USEDEFAULT,
