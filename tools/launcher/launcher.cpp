@@ -1,0 +1,445 @@
+// X4 Native VR launcher: pick a profile (VR mode, comfort), check X4's own display settings,
+// start the game with the VR layer, and stay open as a live panel. The layer re-reads
+// reports/captures/stereo.txt every 0.5 s, so profile changes apply while playing.
+#include "launcher_settings.hpp"
+#include <windows.h>
+#include <commctrl.h>
+#include <shlobj.h>
+#include <tlhelp32.h>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cwctype>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <sstream>
+
+#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
+namespace fs = std::filesystem;
+using namespace x4vr::launcher;
+
+namespace {
+enum Id { ProfileBox = 100, SaveButton, DeleteButton, ModeAlternate, ModePair, ModeMono, ScaleBar, ScaleText,
+          PredictBar, PredictText, AsyncBox, RecenterButton, WidthEdit, HeightEdit, ChecksText, FixButton, StatusText, PlayButton };
+
+struct App {
+    fs::path root, bin, captures, profiles, x4_exe;
+    Settings profile; // current profile values (saved only on Save)
+    HWND window{};
+    std::map<int, HWND> controls;
+    HFONT font{};
+    int dpi = 96;
+    HANDLE game{}; // crash_watch (which runs X4) when started from here
+    bool filling = false; // controls are being set from a profile: ignore change notifications
+} app;
+
+std::wstring widen(const std::string& text) {
+    std::wstring out(MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), nullptr, 0), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), out.data(), int(out.size()));
+    return out;
+}
+std::string narrow(const std::wstring& text) {
+    std::string out(WideCharToMultiByte(CP_UTF8, 0, text.data(), int(text.size()), nullptr, 0, nullptr, nullptr), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), int(text.size()), out.data(), int(out.size()), nullptr, nullptr);
+    return out;
+}
+std::string read_file(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream text; text << in.rdbuf();
+    return text.str();
+}
+// Replace in one step: the layer must never read a half-written stereo.txt.
+bool write_file(const fs::path& path, const std::string& text) {
+    const auto temp = fs::path(path).concat(L".tmp");
+    { std::ofstream out(temp, std::ios::binary); out << text; if (!out) return false; }
+    for (int attempt = 0; attempt < 20; ++attempt) { // the layer may have the file open for a moment
+        if (MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return true;
+        Sleep(10);
+    }
+    return false;
+}
+std::wstring text_of(HWND window) {
+    std::wstring text(size_t(GetWindowTextLengthW(window)), L'\0');
+    GetWindowTextW(window, text.data(), int(text.size())+1);
+    return text;
+}
+bool running(const wchar_t* exe) {
+    const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+    PROCESSENTRY32W entry{sizeof(entry)};
+    bool found = false;
+    for (auto ok = Process32FirstW(snapshot, &entry); ok && !found; ok = Process32NextW(snapshot, &entry))
+        found = !_wcsicmp(entry.szExeFile, exe);
+    CloseHandle(snapshot);
+    return found;
+}
+std::wstring lower(std::wstring text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return wchar_t(std::towlower(c)); });
+    while (!text.empty() && (text.back() == L'\\' || text.back() == L'/')) text.pop_back();
+    return text;
+}
+bool freetrack_path_ok() {
+    wchar_t value[1024]{}; DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\FreeTrack\\FreeTrackClient", L"Path", RRF_RT_REG_SZ, nullptr, value, &size)) return false;
+    return lower(value) == lower(app.bin.wstring());
+}
+// X4 keeps one config per Steam account under Documents\Egosoft\X4\<id>\; use the newest.
+fs::path x4_config() {
+    PWSTR documents{};
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents))) return {};
+    const fs::path base = fs::path(documents)/L"Egosoft"/L"X4";
+    CoTaskMemFree(documents);
+    fs::path newest; fs::file_time_type time{};
+    std::error_code error;
+    for (const auto& entry : fs::directory_iterator(base, error)) {
+        const auto config = entry.path()/L"config.xml";
+        const auto modified = fs::last_write_time(config, error);
+        if (!error && (newest.empty() || modified > time)) { newest = config; time = modified; }
+    }
+    return newest;
+}
+std::vector<std::string> missing_build_files() {
+    std::vector<std::string> missing;
+    for (const auto* name : {L"VkLayer_x4vr_observe.json", L"x4vr_observe.dll", L"x4_openvr.dll", L"FreeTrackClient64.dll", L"crash_watch.exe", L"openvr_api.dll"})
+        if (!fs::exists(app.bin/name)) missing.push_back(narrow(name));
+    if (!fs::exists(app.x4_exe)) missing.push_back("..\\X4.exe");
+    return missing;
+}
+
+// ---- profiles and the live stereo.txt ----
+std::vector<std::wstring> profile_names() {
+    std::vector<std::wstring> names;
+    std::error_code error;
+    for (const auto& entry : fs::directory_iterator(app.profiles, error))
+        if (entry.path().extension() == L".txt") names.push_back(entry.path().stem().wstring());
+    std::sort(names.begin(), names.end());
+    return names;
+}
+void apply_live(int recenter_step = 0) {
+    const auto defaults = parse_settings(read_file(app.root/L"config"/L"stereo.txt"));
+    const auto live_path = app.captures/L"stereo.txt";
+    const auto recenter = std::atoi(get(parse_settings(read_file(live_path)), "recenter", "0").c_str()) + recenter_step;
+    std::error_code error; fs::create_directories(app.captures, error);
+    write_file(live_path, format_settings(compose_live(defaults, app.profile, std::to_string(recenter))));
+}
+void fill_controls() {
+    app.filling = true;
+    const bool stereo = get(app.profile, "stereo", "1") != "0", pair = get(app.profile, "pair", "0") == "1";
+    CheckRadioButton(app.window, ModeAlternate, ModeMono, !stereo ? ModeMono : pair ? ModePair : ModeAlternate);
+    const auto scale = std::atof(get(app.profile, "ipd_scale", "1").c_str());
+    SendMessageW(app.controls[ScaleBar], TBM_SETPOS, TRUE, LPARAM(std::lround(scale*100)));
+    const auto predict = std::atof(get(app.profile, "predict", "0.035").c_str());
+    SendMessageW(app.controls[PredictBar], TBM_SETPOS, TRUE, LPARAM(std::lround(predict*1000)));
+    CheckDlgButton(app.window, AsyncBox, get(app.profile, "async_submit", "1") != "0" ? BST_CHECKED : BST_UNCHECKED);
+    SetWindowTextW(app.controls[WidthEdit], widen(get(app.profile, "x4_width", "0")).c_str());
+    SetWindowTextW(app.controls[HeightEdit], widen(get(app.profile, "x4_height", "0")).c_str());
+    app.filling = false;
+}
+void update_labels() {
+    wchar_t text[64];
+    swprintf_s(text, L"%.2f", double(SendMessageW(app.controls[ScaleBar], TBM_GETPOS, 0, 0))/100);
+    SetWindowTextW(app.controls[ScaleText], text);
+    swprintf_s(text, L"%d ms", int(SendMessageW(app.controls[PredictBar], TBM_GETPOS, 0, 0)));
+    SetWindowTextW(app.controls[PredictText], text);
+}
+// Controls -> profile -> live stereo.txt.
+void controls_changed() {
+    if (app.filling) return;
+    const bool mono = IsDlgButtonChecked(app.window, ModeMono), pair = IsDlgButtonChecked(app.window, ModePair);
+    set(app.profile, "stereo", mono ? "0" : "1");
+    set(app.profile, "pair", pair ? "1" : "0");
+    char value[32];
+    sprintf_s(value, "%.2f", double(SendMessageW(app.controls[ScaleBar], TBM_GETPOS, 0, 0))/100);
+    set(app.profile, "ipd_scale", value);
+    sprintf_s(value, "%.3f", double(SendMessageW(app.controls[PredictBar], TBM_GETPOS, 0, 0))/1000);
+    set(app.profile, "predict", value);
+    set(app.profile, "async_submit", IsDlgButtonChecked(app.window, AsyncBox) ? "1" : "0");
+    set(app.profile, "x4_width", std::to_string(_wtoi(text_of(app.controls[WidthEdit]).c_str())));
+    set(app.profile, "x4_height", std::to_string(_wtoi(text_of(app.controls[HeightEdit]).c_str())));
+    update_labels();
+    apply_live();
+}
+void remember_profile(const std::wstring& name) {
+    std::error_code error; fs::create_directories(app.captures, error);
+    write_file(app.captures/L"launcher-profile.txt", narrow(name));
+}
+void load_profile(const std::wstring& name) {
+    app.profile = profile_of(parse_settings(read_file(app.profiles/(name+L".txt"))));
+    remember_profile(name);
+    fill_controls();
+    update_labels();
+    apply_live();
+}
+void refresh_profiles(const std::wstring& select) {
+    const auto box = app.controls[ProfileBox];
+    SendMessageW(box, CB_RESETCONTENT, 0, 0);
+    const auto names = profile_names();
+    for (const auto& name : names) SendMessageW(box, CB_ADDSTRING, 0, LPARAM(name.c_str()));
+    const auto found = std::find(names.begin(), names.end(), select);
+    SendMessageW(box, CB_SETCURSEL, found == names.end() ? WPARAM(-1) : WPARAM(found-names.begin()), 0);
+    if (found == names.end()) SetWindowTextW(box, select.c_str());
+}
+std::wstring chosen_profile() {
+    auto name = text_of(app.controls[ProfileBox]);
+    name.erase(std::remove_if(name.begin(), name.end(), [](wchar_t c) { return wcschr(L"\\/:*?\"<>|", c) != nullptr; }), name.end());
+    return name;
+}
+
+// ---- X4 config.xml ----
+std::vector<Check> x4_checks(std::string& xml, fs::path& path) {
+    path = x4_config();
+    xml = path.empty() ? std::string() : read_file(path);
+    return xml.empty() ? std::vector<Check>{} : check_x4(xml, std::atoi(get(app.profile, "x4_width", "0").c_str()),
+                                                          std::atoi(get(app.profile, "x4_height", "0").c_str()));
+}
+void fix_x4_settings() {
+    if (running(L"X4.exe")) { MessageBoxW(app.window, L"Close X4 first: it rewrites config.xml when it exits.", L"X4 VR", MB_ICONWARNING); return; }
+    std::string xml; fs::path path;
+    const auto checks = x4_checks(xml, path);
+    if (xml.empty()) { MessageBoxW(app.window, L"X4's config.xml was not found under Documents\\Egosoft\\X4.", L"X4 VR", MB_ICONWARNING); return; }
+    SYSTEMTIME now; GetLocalTime(&now);
+    wchar_t stamp[32]; swprintf_s(stamp, L".bak-%04d%02d%02d-%02d%02d%02d", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
+    std::error_code error;
+    fs::copy_file(path, fs::path(path).concat(stamp), error);
+    if (error || !write_file(path, fix_x4(xml, checks))) { MessageBoxW(app.window, L"Could not update config.xml.", L"X4 VR", MB_ICONERROR); return; }
+    MessageBoxW(app.window, (L"X4 settings updated.\nBackup: "+fs::path(path).concat(stamp).wstring()).c_str(), L"X4 VR", MB_ICONINFORMATION);
+}
+
+// ---- launch: same child environment as scripts/observe.ps1 -Target Game -OpenVRBootstrap -CrashWatch ----
+struct CaseInsensitive { bool operator()(const std::wstring& a, const std::wstring& b) const { return _wcsicmp(a.c_str(), b.c_str()) < 0; } };
+std::wstring environment_block() {
+    std::map<std::wstring, std::wstring, CaseInsensitive> variables;
+    const auto strings = GetEnvironmentStringsW();
+    for (auto p = strings; *p; p += wcslen(p)+1) {
+        const std::wstring entry(p);
+        const auto split = entry.find(L'=', 1); // entries like "=C:=C:\" start with '='
+        if (split != std::wstring::npos) variables[entry.substr(0, split)] = entry.substr(split+1);
+    }
+    FreeEnvironmentStringsW(strings);
+    const auto prepend = [&](const wchar_t* name, const std::wstring& value) {
+        auto& current = variables[name];
+        current = current.empty() ? value : value+L';'+current;
+    };
+    const auto bin = app.bin.wstring();
+    prepend(L"PATH", bin); // the layer's dependencies live beside it, not in the game folder
+    prepend(L"VK_ADD_LAYER_PATH", bin);
+    prepend(L"VK_INSTANCE_LAYERS", L"VK_LAYER_X4VR_observe");
+    variables[L"SteamAppId"] = variables[L"SteamGameId"] = L"392160"; // launch directly under Steam's app context
+    variables[L"X4VR_CAPTURE_DIR"] = app.captures.wstring();
+    variables[L"X4VR_OPENVR_BOOTSTRAP"] = L"1";
+    for (const auto* off : {L"X4VR_CAPTURE_MEMORY", L"X4VR_CAPTURE_NATIVE_CAMERA", L"X4VR_CAPTURE_STACK", L"X4VR_HEAD_LOOK", L"X4VR_SCENE_COPY"})
+        variables[off] = L"0";
+    variables[L"X4VR_GAME_ARGS"] = L"-skipintro -nocputhrottle";
+    std::wstring block;
+    for (const auto& [name, value] : variables) block += name+L'='+value+L'\0';
+    return block+L'\0';
+}
+void play() {
+    if (const auto missing = missing_build_files(); !missing.empty()) {
+        std::string list; for (const auto& m : missing) list += "\n  "+m;
+        MessageBoxW(app.window, widen("Build files missing (run scripts\\install.ps1):"+list).c_str(), L"X4 VR", MB_ICONERROR);
+        return;
+    }
+    if (running(L"X4.exe")) return;
+    if (!running(L"vrserver.exe") && MessageBoxW(app.window, L"SteamVR does not seem to be running. Start it (and your headset software) first.\n\nLaunch anyway?",
+                                                 L"X4 VR", MB_ICONWARNING | MB_YESNO) != IDYES) return;
+    apply_live();
+    const auto stamp = std::to_wstring(GetTickCount64());
+    const auto debug = app.captures/(L"debug-launcher-"+stamp);
+    SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
+    const auto log = [&](const wchar_t* suffix) {
+        return CreateFileW((app.captures/(L"launcher-"+stamp+suffix)).c_str(), GENERIC_WRITE, FILE_SHARE_READ, &inherit, CREATE_ALWAYS, 0, nullptr);
+    };
+    STARTUPINFOW startup{sizeof(startup)};
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdOutput = log(L".stdout.log"); startup.hStdError = log(L".stderr.log");
+    const auto watcher = (app.bin/L"crash_watch.exe").wstring();
+    auto command = L'"'+watcher+L"\" \""+app.x4_exe.wstring()+L"\" \""+debug.wstring()+L'"';
+    auto environment = environment_block();
+    PROCESS_INFORMATION process{};
+    const bool started = CreateProcessW(watcher.c_str(), command.data(), nullptr, nullptr, TRUE, CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+                                        environment.data(), app.x4_exe.parent_path().c_str(), &startup, &process);
+    CloseHandle(startup.hStdOutput); CloseHandle(startup.hStdError);
+    if (!started) { MessageBoxW(app.window, L"Could not start the game (crash_watch.exe).", L"X4 VR", MB_ICONERROR); return; }
+    CloseHandle(process.hThread);
+    app.game = process.hProcess;
+}
+
+// ---- status panel (every second) ----
+void refresh_status() {
+    if (app.game && WaitForSingleObject(app.game, 0) == WAIT_OBJECT_0) { CloseHandle(app.game); app.game = nullptr; }
+    const bool x4 = running(L"X4.exe"), steamvr = running(L"vrserver.exe");
+    const auto missing = missing_build_files();
+    std::string status = std::string("SteamVR: ")+(steamvr ? "running" : "not running (start it before Play)")+"\r\n";
+    status += std::string("Head tracking DLL path: ")+(freetrack_path_ok() ? "ok" : "wrong (run scripts\\install.ps1)")+"\r\n";
+    status += "Build: "+(missing.empty() ? std::string("ok") : "missing "+missing.front())+"\r\n";
+    status += std::string("X4: ")+(x4 ? "running (changes above apply live)" : "not running")+"\r\n";
+    std::error_code error;
+    const auto stats_path = app.captures/L"pair_stats.txt";
+    const auto age = fs::file_time_type::clock::now()-fs::last_write_time(stats_path, error);
+    if (x4 && !error && age < std::chrono::seconds(5)) {
+        const auto text = read_file(stats_path);
+        const auto end = text.find_last_not_of("\r\n");
+        const auto start = end == std::string::npos ? std::string::npos : text.rfind('\n', end);
+        Stats stats{};
+        if (end != std::string::npos && parse_stats_line(text.substr(start == std::string::npos ? 0 : start+1), stats))
+            status += "Headset: "+std::to_string(stats.fps)+" frames/s, late "+std::to_string(stats.late)+", repeated eye images "+std::to_string(stats.repeated);
+    }
+    SetWindowTextW(app.controls[StatusText], widen(status).c_str());
+
+    std::string xml; fs::path path;
+    const auto checks = x4_checks(xml, path);
+    std::string lines; int failing = 0;
+    for (const auto& check : checks) {
+        if (check.ok) continue;
+        if (++failing <= 5) lines += std::string(check.required ? "\xE2\x9C\x97 " : "\xE2\x80\xA2 ")+check.label+" (now: "+check.current+")"
+                                     +(check.required ? "" : ", recommended")+"\r\n";
+    }
+    if (failing > 5) lines += "+ "+std::to_string(failing-5)+" more\r\n";
+    if (xml.empty()) lines = "X4 config.xml not found (start X4 once).";
+    else if (!failing) lines = "\xE2\x9C\x93 All X4 settings match VR requirements.";
+    SetWindowTextW(app.controls[ChecksText], widen(lines).c_str());
+    EnableWindow(app.controls[FixButton], failing && !x4);
+    EnableWindow(app.controls[PlayButton], !x4 && !app.game && missing.empty());
+}
+
+// ---- window ----
+HWND add(const wchar_t* type, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id) {
+    const auto scale = [](int v) { return MulDiv(v, app.dpi, 96); };
+    const auto control = CreateWindowExW(0, type, text, WS_CHILD | WS_VISIBLE | style, scale(x), scale(y), scale(w), scale(h),
+                                         app.window, HMENU(INT_PTR(id)), GetModuleHandleW(nullptr), nullptr);
+    SendMessageW(control, WM_SETFONT, WPARAM(app.font), TRUE);
+    if (id) app.controls[id] = control;
+    return control;
+}
+void create_controls() {
+    add(L"STATIC", L"Profile", 0, 16, 18, 60, 20, 0);
+    add(L"COMBOBOX", L"", CBS_DROPDOWN | CBS_SORT | WS_VSCROLL | WS_TABSTOP, 80, 14, 244, 200, ProfileBox);
+    add(L"BUTTON", L"Save", BS_PUSHBUTTON | WS_TABSTOP, 332, 13, 80, 26, SaveButton);
+    add(L"BUTTON", L"Delete", BS_PUSHBUTTON | WS_TABSTOP, 418, 13, 86, 26, DeleteButton);
+    add(L"BUTTON", L"VR mode", BS_GROUPBOX, 16, 48, 488, 96, 0);
+    add(L"BUTTON", L"Alternate eyes: 45 Hz per eye, needs a steady 90 fps (recommended)", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 28, 68, 470, 22, ModeAlternate);
+    add(L"BUTTON", L"Pair: 90 Hz per eye, needs 180 fps (experimental)", BS_AUTORADIOBUTTON, 28, 92, 470, 22, ModePair);
+    add(L"BUTTON", L"Mono: same image in both eyes, no depth", BS_AUTORADIOBUTTON, 28, 116, 470, 22, ModeMono);
+    add(L"STATIC", L"World scale", 0, 16, 160, 110, 20, 0);
+    add(TRACKBAR_CLASSW, L"", TBS_NOTICKS | WS_TABSTOP, 124, 154, 300, 30, ScaleBar);
+    add(L"STATIC", L"", 0, 432, 160, 72, 20, ScaleText);
+    add(L"STATIC", L"Prediction", 0, 16, 196, 110, 20, 0);
+    add(TRACKBAR_CLASSW, L"", TBS_NOTICKS | WS_TABSTOP, 124, 190, 300, 30, PredictBar);
+    add(L"STATIC", L"", 0, 432, 196, 72, 20, PredictText);
+    add(L"BUTTON", L"Stutter protection (async submission)", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 230, 300, 22, AsyncBox);
+    add(L"BUTTON", L"Recenter view (Ctrl+F12)", BS_PUSHBUTTON | WS_TABSTOP, 330, 228, 174, 26, RecenterButton);
+    add(L"BUTTON", L"X4 settings", BS_GROUPBOX, 16, 264, 488, 170, 0);
+    add(L"STATIC", L"Resolution", 0, 28, 288, 80, 20, 0);
+    add(L"EDIT", L"", ES_NUMBER | WS_BORDER | WS_TABSTOP, 112, 285, 64, 24, WidthEdit);
+    add(L"STATIC", L"x", 0, 182, 288, 12, 20, 0);
+    add(L"EDIT", L"", ES_NUMBER | WS_BORDER | WS_TABSTOP, 196, 285, 64, 24, HeightEdit);
+    add(L"STATIC", L"(0 = don't check)", 0, 268, 288, 230, 20, 0);
+    add(L"STATIC", L"", 0, 28, 316, 470, 80, ChecksText);
+    add(L"BUTTON", L"Fix X4 settings", BS_PUSHBUTTON | WS_TABSTOP, 28, 400, 180, 26, FixButton);
+    add(L"STATIC", L"Backs up config.xml; X4 must be closed", 0, 216, 404, 284, 20, 0);
+    add(L"BUTTON", L"Status", BS_GROUPBOX, 16, 442, 488, 112, 0);
+    add(L"STATIC", L"", 0, 28, 462, 470, 86, StatusText);
+    add(L"BUTTON", L"Play X4 in VR", BS_DEFPUSHBUTTON | WS_TABSTOP, 16, 564, 488, 40, PlayButton);
+    SendMessageW(app.controls[ScaleBar], TBM_SETRANGE, TRUE, MAKELPARAM(50, 200));
+    SendMessageW(app.controls[PredictBar], TBM_SETRANGE, TRUE, MAKELPARAM(0, 60));
+}
+LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w, LPARAM l) {
+    switch (message) {
+    case WM_HSCROLL: controls_changed(); return 0;
+    case WM_TIMER: refresh_status(); return 0;
+    case WM_COMMAND: {
+        const int id = LOWORD(w), code = HIWORD(w);
+        if (id == ProfileBox && code == CBN_SELCHANGE) {
+            const auto box = app.controls[ProfileBox];
+            const auto index = SendMessageW(box, CB_GETCURSEL, 0, 0);
+            if (index >= 0) {
+                std::wstring name(size_t(SendMessageW(box, CB_GETLBTEXTLEN, index, 0)), L'\0');
+                SendMessageW(box, CB_GETLBTEXT, index, LPARAM(name.data()));
+                load_profile(name.c_str());
+            }
+        } else if (id == SaveButton) {
+            const auto name = chosen_profile();
+            if (name.empty()) { MessageBoxW(window, L"Type a profile name into the Profile box first.", L"X4 VR", MB_ICONINFORMATION); return 0; }
+            std::error_code error; fs::create_directories(app.profiles, error);
+            write_file(app.profiles/(name+L".txt"), format_settings(app.profile));
+            remember_profile(name);
+            refresh_profiles(name);
+        } else if (id == DeleteButton) {
+            const auto name = chosen_profile();
+            if (!name.empty() && MessageBoxW(window, (L"Delete profile \""+name+L"\"?").c_str(), L"X4 VR", MB_ICONQUESTION | MB_YESNO) == IDYES) {
+                std::error_code error; fs::remove(app.profiles/(name+L".txt"), error);
+                refresh_profiles(L"");
+            }
+        } else if ((id >= ModeAlternate && id <= ModeMono) || id == AsyncBox) {
+            if (code == BN_CLICKED) controls_changed();
+        } else if ((id == WidthEdit || id == HeightEdit) && code == EN_CHANGE) {
+            controls_changed();
+        } else if (id == RecenterButton) {
+            apply_live(1);
+        } else if (id == FixButton) {
+            fix_x4_settings(); refresh_status();
+        } else if (id == PlayButton) {
+            play(); refresh_status();
+        }
+        return 0;
+    }
+    case WM_DESTROY: PostQuitMessage(0); return 0;
+    }
+    return DefWindowProcW(window, message, w, l);
+}
+fs::path find_root() { // the exe normally sits in <root>\build\Release
+    wchar_t module[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, module, MAX_PATH);
+    for (auto dir = fs::path(module).parent_path(); !dir.empty() && dir != dir.parent_path(); dir = dir.parent_path())
+        if (fs::exists(dir/L"config"/L"stereo.txt") && fs::exists(dir/L"CMakeLists.txt")) return dir;
+    return {};
+}
+}
+
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
+    SetProcessDPIAware();
+    app.root = find_root();
+    if (app.root.empty()) { MessageBoxW(nullptr, L"Could not find the X4_Rebirth folder next to this program.", L"X4 VR", MB_ICONERROR); return 1; }
+    app.bin = app.root/L"build"/L"Release";
+    app.captures = app.root/L"reports"/L"captures";
+    app.profiles = app.root/L"config"/L"profiles";
+    app.x4_exe = app.root.parent_path()/L"X4.exe";
+    INITCOMMONCONTROLSEX common{sizeof(common), ICC_BAR_CLASSES | ICC_STANDARD_CLASSES};
+    InitCommonControlsEx(&common);
+    const auto screen = GetDC(nullptr); app.dpi = GetDeviceCaps(screen, LOGPIXELSY); ReleaseDC(nullptr, screen);
+    NONCLIENTMETRICSW metrics{sizeof(metrics)};
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0);
+    app.font = CreateFontIndirectW(&metrics.lfMessageFont);
+
+    WNDCLASSW type{};
+    type.lpfnWndProc = window_proc; type.hInstance = instance; type.lpszClassName = L"X4VRLauncher";
+    type.hCursor = LoadCursorW(nullptr, IDC_ARROW); type.hbrBackground = HBRUSH(COLOR_BTNFACE+1);
+    type.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    RegisterClassW(&type);
+    RECT size{0, 0, MulDiv(520, app.dpi, 96), MulDiv(620, app.dpi, 96)};
+    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    AdjustWindowRect(&size, style, FALSE);
+    app.window = CreateWindowExW(0, type.lpszClassName, L"X4 Native VR", style, CW_USEDEFAULT, CW_USEDEFAULT,
+                                 size.right-size.left, size.bottom-size.top, nullptr, nullptr, instance, nullptr);
+    create_controls();
+
+    auto last = widen(read_file(app.captures/L"launcher-profile.txt"));
+    const auto names = profile_names();
+    if (std::find(names.begin(), names.end(), last) == names.end()) last = names.empty() ? L"Default" : names.front();
+    refresh_profiles(last);
+    if (fs::exists(app.profiles/(last+L".txt"))) load_profile(last);
+    else { app.profile = profile_of(parse_settings(read_file(app.captures/L"stereo.txt"))); fill_controls(); update_labels(); }
+    refresh_status();
+    SetTimer(app.window, 1, 1000, nullptr);
+    ShowWindow(app.window, show);
+
+    MSG message;
+    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (IsDialogMessageW(app.window, &message)) continue;
+        TranslateMessage(&message); DispatchMessageW(&message);
+    }
+    return 0;
+}

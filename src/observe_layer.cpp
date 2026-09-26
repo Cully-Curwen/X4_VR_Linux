@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <vulkan/vk_layer.h>
+#include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -10,6 +12,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include "observe_memory.hpp"
 #include "native_camera.hpp"
@@ -18,6 +21,7 @@
 #include <x4vr/vulkan_extensions.hpp>
 #include <x4vr/eye_targets.hpp>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <vector>
 
@@ -55,7 +59,7 @@ struct Device {
     F(CreateCommandPool) F(AllocateCommandBuffers) F(BeginCommandBuffer) F(EndCommandBuffer) \
     F(CmdPipelineBarrier) F(CmdCopyImage) F(QueueSubmit) F(CreateSemaphore) F(CreateFence) \
     F(WaitForFences) F(ResetFences) F(GetSwapchainImagesKHR) F(CmdClearColorImage) \
-    F(CmdCopyImageToBuffer) F(GetBufferMemoryRequirements)
+    F(CmdCopyImageToBuffer) F(GetBufferMemoryRequirements) F(GetFenceStatus)
 #define MEMBER(name) PFN_vk##name name{};
     DEVICE_FUNCTIONS(MEMBER)
     PRESENTER_FUNCTIONS(MEMBER)
@@ -65,6 +69,8 @@ struct Device {
     PFN_vkSetDeviceLoaderData set_loader_data{};
     PFN_vkGetInstanceProcAddr gipa{};
     std::shared_ptr<x4vr::RuntimeBootstrap> runtime;
+    VkQueue vr_queue{}; // layer-private queue for OpenVR submission (null if unavailable)
+    uint32_t vr_family = UINT32_MAX;
 };
 std::mutex state_mutex;
 // Explicit vkDestroyInstance performs runtime shutdown. Never invoke VR_Shutdown
@@ -313,6 +319,29 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical, 
     std::optional<x4vr::VulkanExtensions> extensions;
     std::vector<const char*> names;
     auto augmented = *ci;
+    // One extra queue in the game's graphics family for the OpenVR submission thread, which
+    // must not share the game's queues (Vulkan queues need external synchronization).
+    std::vector<VkDeviceQueueCreateInfo> queues(ci->pQueueCreateInfos, ci->pQueueCreateInfos+ci->queueCreateInfoCount);
+    std::vector<float> priorities;
+    uint32_t vr_family = UINT32_MAX, vr_index = 0;
+    if (parent->runtime) {
+        const auto family_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
+            parent->gipa(parent->instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
+        uint32_t count{};
+        family_properties(physical, &count, nullptr);
+        std::vector<VkQueueFamilyProperties> families(count);
+        family_properties(physical, &count, families.data());
+        for (auto& q : queues) {
+            if (q.queueFamilyIndex >= count || !(families[q.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT) ||
+                q.flags || q.queueCount >= families[q.queueFamilyIndex].queueCount) continue;
+            priorities.assign(q.pQueuePriorities, q.pQueuePriorities+q.queueCount);
+            priorities.push_back(1.f);
+            vr_family = q.queueFamilyIndex; vr_index = q.queueCount;
+            q.queueCount += 1; q.pQueuePriorities = priorities.data();
+            augmented.pQueueCreateInfos = queues.data();
+            break;
+        }
+    }
     try {
         if (parent->runtime) {
             // GetOutputDevice returns a loader-facing physical handle; this hook
@@ -359,6 +388,11 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical, 
     DEVICE_FUNCTIONS(RESOLVE)
     PRESENTER_FUNCTIONS(RESOLVE)
 #undef RESOLVE
+    if (vr_family != UINT32_MAX && data.GetDeviceQueue) {
+        data.GetDeviceQueue(*output, vr_family, vr_index, &data.vr_queue);
+        if (data.vr_queue && data.set_loader_data && data.set_loader_data(*output, data.vr_queue) == VK_SUCCESS) data.vr_family = vr_family;
+        else data.vr_queue = VK_NULL_HANDLE;
+    }
     try { std::lock_guard lock(state_mutex); devices.emplace(key(*output), data); }
     catch (...) { data.DestroyDevice(*output, alloc); *output = VK_NULL_HANDLE; return VK_ERROR_OUT_OF_HOST_MEMORY; }
     VkPhysicalDeviceProperties properties{};
@@ -366,7 +400,7 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical, 
     log([&](auto& s) {
         s << "{\"event\":\"device_created\",\"device\":" << handle(*output) << ",\"gpu\":" << quote(properties.deviceName)
           << ",\"extensions\":"; extension_list(s, augmented.enabledExtensionCount, augmented.ppEnabledExtensionNames);
-        s << ",\"openvr_bootstrap\":" << (parent->runtime ? "true" : "false") << '}';
+        s << ",\"openvr_bootstrap\":" << (parent->runtime ? "true" : "false") << ",\"vr_queue\":" << (data.vr_queue ? "true" : "false") << '}';
     });
     return result;
 }
@@ -466,7 +500,22 @@ struct Presenter {
     VkExtent2D eye_extent{};
     VkOffset3D offset{};
     float span_x{}, span_y{};
-    std::unique_ptr<x4vr::EyeTargets> targets;
+    // Each eye rotates through a ring of texture objects, so the submission thread can keep
+    // showing one image while the game writes the next.
+    static constexpr uint32_t ring_size = 3;
+    std::array<std::unique_ptr<x4vr::EyeTargets>, ring_size> targets;
+    std::array<uint32_t, 2> current{}; // ring slot holding each eye's latest image
+    std::array<std::array<bool, ring_size>, 2> filled{}; // slot written at least once
+    VkImage image(uint32_t eye, uint32_t slot) const { return targets[slot]->eyes()[eye].color.image; }
+    bool has_image(uint32_t eye) const { return filled[eye][current[eye]]; }
+    // Asynchronous submission (compositor_loop): per ring image, a fence signalled once the
+    // copy into it completed and the pose it was rendered with. Images the submission thread
+    // holds (submitted last, or being submitted) are never overwritten.
+    std::array<std::array<VkFence, ring_size>, 2> written{};
+    std::array<std::array<x4vr::Matrix, ring_size>, 2> slot_pose{};
+    std::array<std::array<bool, ring_size>, 2> held{};
+    uint64_t generation{}; // bumped when the ring images are rebuilt
+    bool async_frame{}; // the frame just copied is submitted by the thread, not inline
     // Replaced on swapchain resize but never freed: OpenVR may still read the last
     // submitted textures and in-flight copies may reference them.
     std::vector<std::unique_ptr<x4vr::EyeTargets>> retired;
@@ -474,16 +523,25 @@ struct Presenter {
     std::array<VkCommandBuffer, 3> commands{};
     std::array<VkFence, 3> fences{};
     std::array<VkSemaphore, 3> copied{};
-    std::array<bool, 2> filled{};
+    std::array<bool, 2> fresh{}; // eye texture rewritten since the last OpenVR submission
     std::array<x4vr::Matrix, 2> poses{}; // head pose each eye texture was rendered with
     VkPhysicalDevice output_physical{};
     x4vr::RuntimeBootstrap::EyeSetup eyes{};
-    uint64_t frame{};
+    uint64_t frame{}, last_number{};
+    uint32_t last_eye{};
     bool failed{}, ready{};
     // Diagnostic readback of both eye textures, requested by creating dump.txt.
     VkBuffer dump_buffer{};
     VkDeviceMemory dump_memory{};
     bool dump_pending{};
+    // Diagnostic: an 8x8 grid of 8x8-pixel patches from every presented game frame, kept for
+    // the last 1024 frames; frames.request writes them to frames.raw / frames.txt.
+    static constexpr uint32_t probe_grid = 8, probe_patch = 8, probe_frame_bytes = probe_grid*probe_grid*probe_patch*probe_patch*4;
+    struct ProbeFrame { uint64_t number, qpc; uint32_t eye; };
+    std::array<ProbeFrame, 1024> probe_frames{};
+    uint64_t probe_count{};
+    VkBuffer probe_buffer{};
+    VkDeviceMemory probe_memory{};
 };
 void check(VkResult result, const char* what) {
     if (result != VK_SUCCESS) throw std::runtime_error(std::string(what)+" failed: "+std::to_string(result));
@@ -492,20 +550,40 @@ std::filesystem::path capture_root() {
     wchar_t root[4096]{};
     return GetEnvironmentVariableW(L"X4VR_CAPTURE_DIR", root, 4096) ? std::filesystem::path(root) : std::filesystem::path();
 }
-void dump_prepare(const Device& d, Presenter& p) {
-    const auto size = VkDeviceSize(p.eye_extent.width)*p.eye_extent.height*4*2;
+void readback_prepare(const Device& d, VkDeviceSize size, VkBuffer& buffer, VkDeviceMemory& memory) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = size; info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    check(d.CreateBuffer(d.device, &info, nullptr, &p.dump_buffer), "dump buffer");
+    check(d.CreateBuffer(d.device, &info, nullptr, &buffer), "readback buffer");
     VkMemoryRequirements need{};
-    d.GetBufferMemoryRequirements(d.device, p.dump_buffer, &need);
+    d.GetBufferMemoryRequirements(d.device, buffer, &need);
     VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocate.allocationSize = need.size;
     const auto wanted = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     for (uint32_t i = 0; i < d.memory_properties.memoryTypeCount; ++i)
         if ((need.memoryTypeBits & (1u << i)) && (d.memory_properties.memoryTypes[i].propertyFlags & wanted) == wanted) { allocate.memoryTypeIndex = i; break; }
-    check(d.AllocateMemory(d.device, &allocate, nullptr, &p.dump_memory), "dump memory");
-    check(d.BindBufferMemory(d.device, p.dump_buffer, p.dump_memory, 0), "dump bind");
+    check(d.AllocateMemory(d.device, &allocate, nullptr, &memory), "readback memory");
+    check(d.BindBufferMemory(d.device, buffer, memory, 0), "readback bind");
+}
+void dump_prepare(const Device& d, Presenter& p) {
+    readback_prepare(d, VkDeviceSize(p.eye_extent.width)*p.eye_extent.height*4*2, p.dump_buffer, p.dump_memory);
+}
+// Writes the frame probe ring, oldest first: frames.raw (per frame: 64 patches of 8x8 BGRA8)
+// and frames.txt ("present eye qpc_us" per frame).
+void probe_write(const Device& d, Presenter& p) {
+    check(d.WaitForFences(d.device, uint32_t(p.fences.size()), p.fences.data(), VK_TRUE, UINT64_MAX), "probe wait");
+    void* data{};
+    check(d.MapMemory(d.device, p.probe_memory, 0, VK_WHOLE_SIZE, 0, &data), "probe map");
+    const auto root = capture_root();
+    std::ofstream raw(root/"frames.raw", std::ios::binary), text(root/"frames.txt");
+    LARGE_INTEGER frequency{}; QueryPerformanceFrequency(&frequency);
+    const auto size = p.probe_frames.size();
+    for (auto i = p.probe_count > size ? p.probe_count-size : 0; i < p.probe_count; ++i) {
+        const auto& f = p.probe_frames[i % size];
+        raw.write(static_cast<const char*>(data)+(i % size)*Presenter::probe_frame_bytes, Presenter::probe_frame_bytes);
+        text << f.number << ' ' << f.eye << ' ' << std::fixed << std::setprecision(1) << double(f.qpc)*1e6/double(frequency.QuadPart) << '\n';
+    }
+    d.UnmapMemory(d.device, p.probe_memory);
+    OutputDebugStringA("X4VR presenter: frame probe written\n");
 }
 // Writes eye-0.raw / eye-1.raw (BGRA8, eye_extent) after the slot's fence signalled.
 void dump_write(const Device& d, Presenter& p, uint32_t slot) {
@@ -529,6 +607,7 @@ void dump_write(const Device& d, Presenter& p, uint32_t slot) {
     OutputDebugStringA("X4VR presenter: eye textures dumped\n");
 }
 Presenter& presenter() { static auto* value = new Presenter; return *value; }
+void compositor_loop(Device d);
 void presenter_initialize(const Device& d, uint32_t family) {
     auto& p = presenter();
     const auto memory = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(d.gipa(d.instance, "vkGetPhysicalDeviceMemoryProperties"));
@@ -543,8 +622,13 @@ void presenter_initialize(const Device& d, uint32_t family) {
     }
     p.eye_extent = {uint32_t(std::ceil(p.extent.width*p.span_x/tan_x)), uint32_t(std::ceil(p.extent.height*p.span_y/tan_y))};
     p.offset = {int32_t(p.eye_extent.width-p.extent.width)/2, int32_t(p.eye_extent.height-p.extent.height)/2, 0};
-    p.targets = x4vr::EyeTargets::create({d.device, d.physical, d.gdpa, memory, image_properties}, p.eye_extent, p.format);
-    p.filled = {};
+    // ponytail: EyeTargets also allocates an unused depth image per eye; fine for 3 slots
+    for (auto& set : p.targets) set = x4vr::EyeTargets::create({d.device, d.physical, d.gdpa, memory, image_properties}, p.eye_extent, p.format);
+    p.filled = {}; p.current = {}; p.held = {}; ++p.generation;
+    for (auto& eye : p.written) for (auto& fence : eye) if (!fence) {
+        VkFenceCreateInfo signalled{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; signalled.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        check(d.CreateFence(d.device, &signalled, nullptr, &fence), "vkCreateFence");
+    }
     if (!p.pool) {
     VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; pool.queueFamilyIndex = family;
@@ -571,6 +655,11 @@ void presenter_initialize(const Device& d, uint32_t family) {
     });
     OutputDebugStringA("X4VR presenter: eye targets ready; alternate-eye OpenVR submission active\n");
     p.ready = true;
+    static std::once_flag started;
+    if (d.vr_queue) std::call_once(started, [&] {
+        std::thread(compositor_loop, d).detach(); // ponytail: runs until process exit, like the pinned runtime
+        OutputDebugStringA("X4VR presenter: asynchronous submission thread started\n");
+    });
 }
 void barrier(const Device& d, VkCommandBuffer command, VkImage image, VkImageLayout from, VkImageLayout to,
              VkAccessFlags src, VkAccessFlags dst) {
@@ -590,9 +679,29 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     if (!p.ready) presenter_initialize(d, family->second);
     const auto settings = x4vr::stereo_settings();
     const auto number = x4vr::next_present();
-    const uint32_t eye = settings.stereo ? static_cast<uint32_t>(number & 1) : 0;
+    p.last_number = number;
+    uint32_t eye{};
     x4vr::Matrix rendered;
-    if (!x4vr::render_pose_for(number, rendered)) return VK_NULL_HANDLE; // unknown pose: skip frame
+    if (!x4vr::presented_frame(number, eye, rendered)) return VK_NULL_HANDLE; // unknown pose: skip frame
+    if (!settings.stereo) eye = 0;
+    p.last_eye = eye;
+    std::error_code absent;
+    if (p.probe_count && std::filesystem::remove(capture_root()/"frames.request", absent)) probe_write(d, p);
+    p.async_frame = settings.async_submit && settings.pace && d.vr_queue && d.vr_family == family->second;
+    constexpr auto ring = Presenter::ring_size;
+    std::array<uint32_t, 2> slot_of{UINT32_MAX, UINT32_MAX}; // ring image each written eye goes to
+    for (uint32_t target = 0; target < 2; ++target) {
+        if (settings.stereo && target != eye) continue; // mono mode fills both eyes
+        for (uint32_t step = 1; step <= ring && slot_of[target] == UINT32_MAX; ++step) {
+            const auto s = (p.current[target]+step) % ring; // never the newest image or one the thread holds
+            if (s != p.current[target] && !p.held[target][s]) slot_of[target] = s;
+        }
+        if (slot_of[target] == UINT32_MAX) return VK_NULL_HANDLE; // every image in use: drop this frame
+    }
+    for (uint32_t target = 0; target < 2; ++target) if (slot_of[target] != UINT32_MAX) {
+        check(d.WaitForFences(d.device, 1, &p.written[target][slot_of[target]], VK_TRUE, UINT64_MAX), "vkWaitForFences");
+        check(d.ResetFences(d.device, 1, &p.written[target][slot_of[target]]), "vkResetFences");
+    }
 
     const auto slot = p.frame++ % 3;
     check(d.WaitForFences(d.device, 1, &p.fences[slot], VK_TRUE, UINT64_MAX), "vkWaitForFences");
@@ -605,11 +714,12 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     barrier(d, command, source, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
     for (uint32_t target = 0; target < 2; ++target) {
-        if (settings.stereo && target != eye) continue; // mono mode fills both eyes
-        const auto image = p.targets->eyes()[target].color.image;
-        barrier(d, command, image, p.filled[target] ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+        if (slot_of[target] == UINT32_MAX) continue;
+        const auto next = slot_of[target];
+        const auto image = p.image(target, next);
+        barrier(d, command, image, p.filled[target][next] ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
-        if (!p.filled[target]) {
+        if (!p.filled[target][next]) {
             const VkClearColorValue black{};
             const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
             d.CmdClearColorImage(command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &all);
@@ -623,20 +733,37 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
         d.CmdCopyImage(command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         barrier(d, command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-        p.filled[target] = true;
-        p.poses[target] = rendered;
+        p.filled[target][next] = p.fresh[target] = true;
+        p.current[target] = next;
+        p.poses[target] = p.slot_pose[target][next] = rendered;
     }
+    if (!p.probe_buffer) readback_prepare(d, VkDeviceSize(Presenter::probe_frame_bytes)*p.probe_frames.size(), p.probe_buffer, p.probe_memory);
+    constexpr uint32_t grid = Presenter::probe_grid, patch = Presenter::probe_patch;
+    std::array<VkBufferImageCopy, grid*grid> patches{};
+    const auto at = p.probe_count % p.probe_frames.size();
+    for (uint32_t i = 0; i < patches.size(); ++i) {
+        auto& r = patches[i];
+        r.bufferOffset = at*Presenter::probe_frame_bytes + VkDeviceSize(i)*patch*patch*4;
+        r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        r.imageOffset = {int32_t(p.extent.width*(2*(i % grid)+1)/(2*grid) - patch/2), int32_t(p.extent.height*(2*(i / grid)+1)/(2*grid) - patch/2), 0};
+        r.imageExtent = {patch, patch, 1};
+    }
+    d.CmdCopyImageToBuffer(command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, p.probe_buffer, uint32_t(patches.size()), patches.data());
+    LARGE_INTEGER copied_at{}; QueryPerformanceCounter(&copied_at);
+    p.probe_frames[at] = {number, uint64_t(copied_at.QuadPart), eye};
+    ++p.probe_count;
     barrier(d, command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_ACCESS_TRANSFER_READ_BIT, 0);
     p.dump_pending = false;
-    if (p.filled[0] && p.filled[1] && std::filesystem::remove(capture_root()/"dump.txt")) {
+    std::error_code busy; // a request file still open by its writer must not disable the presenter
+    if (p.has_image(0) && p.has_image(1) && std::filesystem::remove(capture_root()/"dump.txt", busy)) {
         if (!p.dump_buffer) dump_prepare(d, p);
         for (uint32_t i = 0; i < 2; ++i) {
             VkBufferImageCopy region{};
             region.bufferOffset = VkDeviceSize(i)*p.eye_extent.width*p.eye_extent.height*4;
             region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
             region.imageExtent = {p.eye_extent.width, p.eye_extent.height, 1};
-            d.CmdCopyImageToBuffer(command, p.targets->eyes()[i].color.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, p.dump_buffer, 1, &region);
+            d.CmdCopyImageToBuffer(command, p.image(i, p.current[i]), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, p.dump_buffer, 1, &region);
         }
         p.dump_pending = true;
     }
@@ -648,36 +775,203 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     submit.commandBufferCount = 1; submit.pCommandBuffers = &command;
     submit.signalSemaphoreCount = 1; submit.pSignalSemaphores = &p.copied[slot];
     check(d.QueueSubmit(queue, 1, &submit, p.fences[slot]), "vkQueueSubmit");
+    for (uint32_t target = 0; target < 2; ++target) // signals once the copy above completed
+        if (slot_of[target] != UINT32_MAX) check(d.QueueSubmit(queue, 0, nullptr, p.written[target][slot_of[target]]), "vkQueueSubmit");
     if (p.dump_pending) dump_write(d, p, static_cast<uint32_t>(slot));
     return p.copied[slot];
 }
-void presenter_submit(const Device& d, VkQueue queue) {
-    auto& p = presenter();
-    if (!p.filled[0] || !p.filled[1]) return;
-    // The padded texture spans [-span, span] tangents symmetrically; crop each
-    // eye's asymmetric frustum out of it. Tangent convention: OpenVR top is negative.
+// Diagnostics, once per submission: every ~2 s one line is appended to pair_stats.txt.
+// stale = an eye submitted again without a new image; late = more than ~1.2 headset frames
+// since the previous submission (90 Hz); fallback = the newest image's copy missed the
+// submit budget, so the previous image was submitted; waited = time spent on that copy.
+void pair_stats(const x4vr::StereoSettings& s, std::array<bool, 2> fresh, double blocked, double interval, bool failed,
+                uint32_t fallbacks = 0, double waited = 0, double submitting = 0) {
+    struct Totals { uint32_t submits, stale[2], late, failed, fallbacks; double blocked, blocked_max, interval_max, waited_max, submit_max; };
+    static Totals t{};
+    static auto start = std::chrono::steady_clock::now();
+    static bool header{};
+    ++t.submits; t.failed += failed; t.fallbacks += fallbacks;
+    for (int i = 0; i < 2; ++i) t.stale[i] += !fresh[i];
+    t.late += interval > 0.0135;
+    t.blocked += blocked; t.blocked_max = std::fmax(t.blocked_max, blocked);
+    t.interval_max = std::fmax(t.interval_max, interval); t.waited_max = std::fmax(t.waited_max, waited);
+    t.submit_max = std::fmax(t.submit_max, submitting);
+    const auto now = std::chrono::steady_clock::now();
+    if (now-start < std::chrono::seconds(2)) return;
+    std::ofstream out(capture_root()/"pair_stats.txt", std::ios::app);
+    if (!header) { header = true; out << "# tick_ms submits stale_L stale_R late failed fallback blocked_avg_ms blocked_max_ms interval_max_ms waited_max_ms submit_max_ms | async pair pair_wait half_xor_render half_xor_present\n"; }
+    out << GetTickCount64() << ' ' << t.submits << ' ' << t.stale[0] << ' ' << t.stale[1] << ' ' << t.late << ' ' << t.failed << ' '
+        << t.fallbacks << ' ' << std::fixed << std::setprecision(2) << 1000*t.blocked/t.submits << ' ' << 1000*t.blocked_max << ' '
+        << 1000*t.interval_max << ' ' << 1000*t.waited_max << ' ' << 1000*t.submit_max << " | " << s.async_submit << ' ' << s.pair
+        << ' ' << s.pair_wait << ' ' << s.half_xor_render << ' ' << s.half_xor_present << '\n';
+    t = {}; start = now;
+}
+// The padded texture spans [-span, span] tangents symmetrically; crop each eye's asymmetric
+// frustum out of it. Tangent convention: OpenVR top is negative. GetProjectionRaw's top/bottom
+// are flipped relative to texture v (Valve's plugin: vMin = 0.5-0.5*bottom/tanY, vMax = 0.5-0.5*top/tanY).
+std::array<vr::VRTextureBounds_t, 2> eye_bounds(const Presenter& p, bool valve) {
     std::array<vr::VRTextureBounds_t, 2> bounds{};
-    std::array<vr::VRVulkanTextureData_t, 2> textures{};
     for (int i = 0; i < 2; ++i) {
         const auto& t = p.eyes.tangents[i];
-        // GetProjectionRaw's top/bottom are flipped relative to texture v (Valve's plugin:
-        // vMin = 0.5-0.5*bottom/tanY, vMax = 0.5-0.5*top/tanY).
-        if (x4vr::stereo_settings().valve_bounds)
-            bounds[i] = {0.5f+0.5f*t[0]/p.span_x, 0.5f-0.5f*t[3]/p.span_y, 0.5f+0.5f*t[1]/p.span_x, 0.5f-0.5f*t[2]/p.span_y};
-        else
-            bounds[i] = {0.5f+0.5f*t[0]/p.span_x, 0.5f+0.5f*t[2]/p.span_y, 0.5f+0.5f*t[1]/p.span_x, 0.5f+0.5f*t[3]/p.span_y};
-        auto& v = textures[i];
-        v.m_nImage = reinterpret_cast<uint64_t>(p.targets->eyes()[i].color.image);
-        v.m_pDevice = d.device; v.m_pPhysicalDevice = p.output_physical; v.m_pInstance = d.instance;
-        v.m_pQueue = queue; v.m_nQueueFamilyIndex = p.families[queue];
-        v.m_nWidth = p.eye_extent.width; v.m_nHeight = p.eye_extent.height; v.m_nFormat = p.format; v.m_nSampleCount = 1;
+        bounds[i] = valve ? vr::VRTextureBounds_t{0.5f+0.5f*t[0]/p.span_x, 0.5f-0.5f*t[3]/p.span_y, 0.5f+0.5f*t[1]/p.span_x, 0.5f-0.5f*t[2]/p.span_y}
+                          : vr::VRTextureBounds_t{0.5f+0.5f*t[0]/p.span_x, 0.5f+0.5f*t[2]/p.span_y, 0.5f+0.5f*t[1]/p.span_x, 0.5f+0.5f*t[3]/p.span_y};
     }
-    if (!x4vr::stereo_settings().pace) return; // calibration: no compositor pacing/submission
-    const auto error = d.runtime->submit_stereo(textures, bounds, p.poses);
+    return bounds;
+}
+vr::VRVulkanTextureData_t eye_texture(const Device& d, const Presenter& p, VkImage image, VkQueue queue, uint32_t family) {
+    vr::VRVulkanTextureData_t v{};
+    v.m_nImage = reinterpret_cast<uint64_t>(image);
+    v.m_pDevice = d.device; v.m_pPhysicalDevice = p.output_physical; v.m_pInstance = d.instance;
+    v.m_pQueue = queue; v.m_nQueueFamilyIndex = family;
+    v.m_nWidth = p.eye_extent.width; v.m_nHeight = p.eye_extent.height; v.m_nFormat = p.format; v.m_nSampleCount = 1;
+    return v;
+}
+void report_submit(const std::string& error) {
     static std::atomic_uint reported{};
     if (!error.empty() && reported++ < 8) OutputDebugStringA(("X4VR presenter: "+error+"\n").c_str());
     static std::atomic_bool first{};
     if (error.empty() && !first.exchange(true)) OutputDebugStringA("X4VR presenter: first stereo pair submitted to OpenVR\n");
+}
+// Compositor frame clock, published by whichever path calls WaitGetPoses; paces the game.
+struct Ticks {
+    std::mutex mutex;
+    std::condition_variable changed;
+    uint64_t count{};
+    std::chrono::steady_clock::time_point start{};
+    double period = 1.0/90;
+    double tick() { // WaitGetPoses just returned; returns the measured frame interval
+        const auto now = std::chrono::steady_clock::now();
+        double measured = 0;
+        {
+            std::lock_guard lock(mutex);
+            if (count) {
+                measured = std::chrono::duration<double>(now-start).count();
+                if (measured > 0.004 && measured < 0.2) period = 0.9*period+0.1*measured;
+            }
+            start = now; ++count;
+        }
+        changed.notify_all();
+        return measured;
+    }
+};
+Ticks& ticks() { static auto* value = new Ticks; return *value; }
+// Pair mode: both eyes are rendered back to back, then submitted together once per
+// compositor frame (90 Hz per eye when the game reaches 2x the headset rate). The first eye
+// of a pair is held until mid-way through the compositor frame, keeping presents evenly paced.
+void wait_mid_frame() {
+    auto& t = ticks();
+    std::chrono::steady_clock::time_point target;
+    {
+        std::lock_guard lock(t.mutex);
+        if (!t.count) return;
+        target = t.start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(t.period/2));
+    }
+    // ponytail: Sleep for the bulk, spin the last ~1.5 ms (Sleep granularity)
+    while (std::chrono::steady_clock::now() < target-std::chrono::microseconds(1500)) Sleep(1);
+    while (std::chrono::steady_clock::now() < target) YieldProcessor();
+}
+// Asynchronous submission thread: every compositor frame, submit each eye's newest image
+// on the layer's private queue, waiting at most submit_budget_ms for its copy to finish,
+// else the previous image. The game never makes SteamVR miss a frame: with SteamVR's own
+// reprojection off (Varjo driver default), every late frame showed as a dark/grey flash.
+void compositor_loop(Device d) {
+    auto& p = presenter();
+    VkFence read{}; // signals once OpenVR's copies of the submitted images completed
+    VkFenceCreateInfo signalled{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; signalled.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    if (d.CreateFence(d.device, &signalled, nullptr, &read) != VK_SUCCESS) return;
+    std::array<uint32_t, 2> shown{UINT32_MAX, UINT32_MAX}; // slot submitted last per eye
+    uint64_t generation{};
+    for (;;) try {
+        const auto s = x4vr::stereo_settings();
+        if (!s.async_submit || !s.pace) { Sleep(5); continue; }
+        bool ready{};
+        { std::lock_guard lock(p.mutex); ready = p.ready && p.async_frame && p.has_image(0) && p.has_image(1); }
+        if (!ready) { Sleep(1); continue; }
+        const auto called = std::chrono::steady_clock::now();
+        auto error = d.runtime->wait_frame();
+        const auto interval = ticks().tick();
+        const auto frame_start = std::chrono::steady_clock::now();
+        const auto blocked = std::chrono::duration<double>(frame_start-called).count();
+        const auto deadline = frame_start + std::chrono::microseconds(int64_t(s.submit_budget_ms*1000));
+        if (!error.empty()) { report_submit(error); Sleep(5); continue; }
+        check(d.WaitForFences(d.device, 1, &read, VK_TRUE, UINT64_MAX), "vkWaitForFences"); // last frame's reads done
+        std::array<uint32_t, 2> newest{};
+        std::array<VkImage, 2> images{}, fallback{};
+        std::array<VkFence, 2> fences{};
+        std::array<x4vr::Matrix, 2> poses{}, fallback_poses{};
+        std::array<vr::VRTextureBounds_t, 2> bounds{};
+        std::array<vr::VRVulkanTextureData_t, 2> textures{};
+        {
+            std::lock_guard lock(p.mutex);
+            if (p.generation != generation) { generation = p.generation; shown = {UINT32_MAX, UINT32_MAX}; }
+            for (uint32_t e = 0; e < 2; ++e) {
+                for (auto& h : p.held[e]) h = false;
+                newest[e] = p.current[e];
+                p.held[e][newest[e]] = true;
+                images[e] = p.image(e, newest[e]); fences[e] = p.written[e][newest[e]]; poses[e] = p.slot_pose[e][newest[e]];
+                if (shown[e] != UINT32_MAX) {
+                    p.held[e][shown[e]] = true;
+                    fallback[e] = p.image(e, shown[e]); fallback_poses[e] = p.slot_pose[e][shown[e]];
+                }
+                textures[e] = eye_texture(d, p, VK_NULL_HANDLE, d.vr_queue, d.vr_family);
+            }
+            bounds = eye_bounds(p, s.valve_bounds);
+        }
+        uint32_t fallbacks = 0;
+        std::array<bool, 2> fresh{};
+        for (uint32_t e = 0; e < 2; ++e) {
+            const auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline-std::chrono::steady_clock::now()).count();
+            const bool done = d.WaitForFences(d.device, 1, &fences[e], VK_TRUE, fallback[e] ? uint64_t(std::max<int64_t>(left, 0)) : UINT64_MAX) == VK_SUCCESS;
+            const bool use_newest = done || !fallback[e];
+            fallbacks += !use_newest;
+            fresh[e] = use_newest && newest[e] != shown[e];
+            textures[e].m_nImage = reinterpret_cast<uint64_t>(use_newest ? images[e] : fallback[e]);
+            if (!use_newest) poses[e] = fallback_poses[e];
+            if (use_newest) shown[e] = newest[e];
+        }
+        const auto waited = std::chrono::duration<double>(std::chrono::steady_clock::now()-frame_start).count();
+        const auto submitted_at = std::chrono::steady_clock::now();
+        error = d.runtime->submit_frame(textures, bounds, poses, s.submit_pose != 0);
+        const auto submitting = std::chrono::duration<double>(std::chrono::steady_clock::now()-submitted_at).count();
+        check(d.ResetFences(d.device, 1, &read), "vkResetFences");
+        check(d.QueueSubmit(d.vr_queue, 0, nullptr, read), "vkQueueSubmit");
+        {
+            std::lock_guard lock(p.mutex); // keep only the images now on screen
+            if (p.generation == generation) for (uint32_t e = 0; e < 2; ++e) { for (auto& h : p.held[e]) h = false; p.held[e][shown[e]] = true; }
+        }
+        pair_stats(s, fresh, blocked, interval, !error.empty(), fallbacks, waited, submitting);
+        report_submit(error);
+    } catch (const std::exception& error) {
+        OutputDebugStringA(("X4VR submission thread: "+std::string(error.what())+"\n").c_str());
+        Sleep(100);
+    }
+}
+// After the game's present: hold the render thread to the compositor clock (what WaitGetPoses
+// did when submission was inline). Pair mode releases the first eye mid-frame.
+void pace_to_compositor(const x4vr::StereoSettings& s, uint32_t eye) {
+    if (s.pair && s.stereo && eye == 0) { if (s.pair_wait) wait_mid_frame(); return; }
+    auto& t = ticks();
+    std::unique_lock lock(t.mutex);
+    const auto seen = t.count;
+    t.changed.wait_for(lock, std::chrono::milliseconds(100), [&] { return t.count != seen; });
+}
+// Inline submission (async_submit=0): WaitGetPoses and Submit on the game's present queue.
+void presenter_submit(const Device& d, VkQueue queue) {
+    auto& p = presenter();
+    if (!p.has_image(0) || !p.has_image(1)) return;
+    const auto settings = x4vr::stereo_settings();
+    if (!settings.pace) return; // calibration: no compositor pacing/submission
+    if (settings.pair && settings.stereo && p.last_eye == 0) { if (settings.pair_wait) wait_mid_frame(); return; }
+    std::array<vr::VRVulkanTextureData_t, 2> textures{};
+    for (uint32_t i = 0; i < 2; ++i) textures[i] = eye_texture(d, p, p.image(i, p.current[i]), queue, p.families[queue]);
+    auto poses = p.poses;
+    if (settings.submit_pose == 2) poses[0] = poses[1] = p.poses[p.last_eye]; // the eye just copied is newest
+    const auto called = std::chrono::steady_clock::now();
+    const auto error = d.runtime->submit_stereo(textures, eye_bounds(p, settings.valve_bounds), poses, settings.submit_pose != 0);
+    const auto interval = ticks().tick();
+    pair_stats(settings, p.fresh, std::chrono::duration<double>(std::chrono::steady_clock::now()-called).count(), interval, !error.empty());
+    p.fresh = {};
+    report_submit(error);
 }
 EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* ci,
     const VkAllocationCallbacks* alloc, VkSwapchainKHR* output) {
@@ -692,7 +986,7 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, cons
         std::lock_guard lock(p.mutex);
         if (p.ready && (ci->imageExtent.width != p.extent.width || ci->imageExtent.height != p.extent.height || ci->imageFormat != p.format)) {
             // ponytail: old targets are retired (leaked) per resize; fine for occasional resolution changes
-            p.retired.push_back(std::move(p.targets));
+            for (auto& set : p.targets) p.retired.push_back(std::move(set));
             p.dump_buffer = VK_NULL_HANDLE; p.dump_memory = VK_NULL_HANDLE;
             p.ready = false;
             OutputDebugStringA("X4VR presenter: swapchain size changed; eye targets will be rebuilt\n");
@@ -728,8 +1022,15 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkP
     auto forwarded = *info;
     if (copied) { forwarded.waitSemaphoreCount = 1; forwarded.pWaitSemaphores = &copied; }
     const auto result = data->QueuePresentKHR(queue, &forwarded);
-    if (copied) try { presenter_submit(*data, queue); } catch (...) {}
+    const bool async = copied && p.async_frame;
+    const auto eye = p.last_eye;
+    if (copied && !async) try { presenter_submit(*data, queue); } catch (...) {}
     lock.unlock();
+    const auto settings = x4vr::stereo_settings();
+    if (async) pace_to_compositor(settings, eye);
+    static uint64_t presents{};
+    if (settings.hitch_ms > 0 && settings.hitch_every > 0 && ++presents % uint64_t(settings.hitch_every) == 0)
+        Sleep(DWORD(settings.hitch_ms)); // diagnostics: simulated game hitch
     const auto frame = ++present_count;
     if (frame <= 5 || frame % 300 == 0) log([&](auto& s) {
         s << "{\"event\":\"present\",\"number\":" << frame << ",\"result\":" << result << ",\"tick\":" << GetTickCount64() << '}';

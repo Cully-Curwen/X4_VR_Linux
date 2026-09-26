@@ -3,7 +3,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 
@@ -100,24 +102,38 @@ RuntimeBootstrap::EyeSetup RuntimeBootstrap::eye_setup() {
     }
     return setup;
 }
+// Frame protocol: WaitGetPoses -> Submit(both) -> PostPresentHandoff. Waiting first also
+// paces the caller to the headset refresh.
 std::string RuntimeBootstrap::submit_stereo(const std::array<vr::VRVulkanTextureData_t, 2>& images,
                                             const std::array<vr::VRTextureBounds_t, 2>& bounds,
-                                            const std::array<Matrix, 2>& poses) {
+                                            const std::array<Matrix, 2>& poses, bool with_pose) {
+    auto error = wait_frame();
+    return error.empty() ? submit_frame(images, bounds, poses, with_pose) : error;
+}
+std::string RuntimeBootstrap::wait_frame() {
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
     if (session_.poll_quit()) return "OpenVR quit requested";
-    // Frame protocol: WaitGetPoses -> Submit(both) -> PostPresentHandoff. Waiting
-    // first also paces the game to the headset refresh.
     std::array<vr::TrackedDevicePose_t, 1> tracked{};
-    auto error = session_.compositor_->WaitGetPoses(tracked.data(), 1, nullptr, 0);
+    const auto error = session_.compositor_->WaitGetPoses(tracked.data(), 1, nullptr, 0);
     if (error != vr::VRCompositorError_None) return "WaitGetPoses failed: OpenVR compositor error " + std::to_string(error);
+    return {};
+}
+std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureData_t, 2>& images,
+                                           const std::array<vr::VRTextureBounds_t, 2>& bounds,
+                                           const std::array<Matrix, 2>& poses, bool with_pose) {
+    std::lock_guard lock(mutex_);
+    RuntimeCall call;
+    session_.adopt_bootstrap_thread();
+    vr::EVRCompositorError error{};
     auto descriptors = images;
     for (int i = 0; i < 2; ++i) {
         vr::VRTextureWithPose_t texture{};
         texture.handle = &descriptors[i]; texture.eType = vr::TextureType_Vulkan; texture.eColorSpace = vr::ColorSpace_Auto;
         for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) texture.mDeviceToAbsoluteTracking.m[r][c] = poses[i].m[r][c];
-        error = session_.compositor_->Submit(static_cast<vr::EVREye>(i), &texture, &bounds[i], vr::Submit_TextureWithPose);
+        error = session_.compositor_->Submit(static_cast<vr::EVREye>(i), &texture, &bounds[i],
+                                             with_pose ? vr::Submit_TextureWithPose : vr::Submit_Default);
         if (error != vr::VRCompositorError_None) return "Submit failed: OpenVR compositor error " + std::to_string(error);
     }
     session_.compositor_->PostPresentHandoff();
@@ -125,7 +141,7 @@ std::string RuntimeBootstrap::submit_stereo(const std::array<vr::VRVulkanTexture
 }
 namespace {
 std::atomic_uint64_t present_frames{};
-struct TaggedPose { uint64_t tag = ~0ull; Matrix head; };
+struct TaggedPose { uint64_t tag = ~0ull; Matrix head; uint32_t eye = 0; };
 std::mutex poses_mutex;
 std::array<TaggedPose, 16> poses;
 std::mutex settings_mutex;
@@ -158,6 +174,15 @@ StereoSettings stereo_settings() {
         else if (key == "game_tan_y") next.game_tan_y = static_cast<float>(value);
         else if (key == "synth") next.synth = value != 0;
         else if (key == "pace") next.pace = value != 0;
+        else if (key == "pair") next.pair = value != 0;
+        else if (key == "pair_wait") next.pair_wait = value != 0;
+        else if (key == "submit_pose") next.submit_pose = static_cast<int>(value);
+        else if (key == "async_submit") next.async_submit = value != 0;
+        else if (key == "submit_budget_ms") next.submit_budget_ms = static_cast<float>(value);
+        else if (key == "hitch_ms") next.hitch_ms = static_cast<float>(value);
+        else if (key == "hitch_every") next.hitch_every = static_cast<int>(value);        else if (key == "eye_from_half") next.eye_from_half = value != 0;
+        else if (key == "half_xor_render") next.half_xor_render = static_cast<int>(value);
+        else if (key == "half_xor_present") next.half_xor_present = static_cast<int>(value);
         else if (key == "valve_bounds") next.valve_bounds = value != 0;
         else if (key == "synth_rate") next.synth_rate = static_cast<float>(value);
         else if (key == "synth_base" || key == "synth_alt") {
@@ -169,19 +194,76 @@ StereoSettings stereo_settings() {
     cached = next;
     return cached;
 }
-uint32_t render_eye() { return static_cast<uint32_t>((present_frames.load()+stereo_settings().delay) & 1); }
-void record_render_pose(const Matrix& head) {
+namespace {
+// X4 9.00 double-buffers per-frame render data in two halves selected by a global that
+// flips once per frame (RVA 0x6b66280; the producer writes half^1, see code at 0x77a47f).
+// The half follows a frame from pose sampling to presentation whatever the queue depth.
+const volatile int32_t* frame_half_global() {
+    static const volatile int32_t* global = []() -> const volatile int32_t* {
+        static constexpr unsigned char expected[] = {0x48,0x63,0x05,0xfa,0xbd,0x3e,0x06,0x48,0x83,0xf0,0x01};
+        const auto base = reinterpret_cast<const unsigned char*>(GetModuleHandleW(nullptr));
+        return std::memcmp(base+0x77a47f, expected, sizeof(expected)) ? nullptr
+            : reinterpret_cast<const volatile int32_t*>(base+0x6b66280);
+    }();
+    return global;
+}
+}
+int frame_half() { const auto global = frame_half_global(); return global ? (*global & 1) : -1; }
+uint32_t render_eye() {
+    const auto s = stereo_settings();
+    const int half = s.eye_from_half ? frame_half() : -1;
+    if (half >= 0) return static_cast<uint32_t>((half ^ s.half_xor_render) & 1);
+    return static_cast<uint32_t>((present_frames.load()+s.delay) & 1);
+}
+void record_render_pose(const Matrix& head, uint32_t eye) {
     const auto tag = present_frames.load();
     std::lock_guard lock(poses_mutex);
-    poses[tag % poses.size()] = {tag, head}; // several calls per frame: last one wins
+    poses[tag % poses.size()] = {tag, head, eye}; // several calls per frame: last one wins
 }
-uint64_t next_present() { return present_frames++; }
+namespace {
+struct TraceEntry { uint64_t tick; uint64_t value; int half; char kind; };
+std::array<TraceEntry, 2048> trace_ring{};
+std::atomic_uint64_t trace_index{};
+}
+void trace_event(char kind, uint64_t value) {
+    LARGE_INTEGER now{}; QueryPerformanceCounter(&now);
+    trace_ring[trace_index++ % trace_ring.size()] = {uint64_t(now.QuadPart), value, frame_half(), kind};
+    if (kind != 'P') return;
+    char root[1024]{};
+    if (!GetEnvironmentVariableA("X4VR_CAPTURE_DIR", root, sizeof(root))) return;
+    const std::string request = std::string(root)+"/trace.request";
+    if (GetFileAttributesA(request.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    DeleteFileA(request.c_str());
+    LARGE_INTEGER frequency{}; QueryPerformanceFrequency(&frequency);
+    std::ofstream out(std::string(root)+"/trace.txt");
+    const auto end = trace_index.load();
+    for (auto i = end > trace_ring.size() ? end-trace_ring.size() : 0; i < end; ++i) {
+        const auto& e = trace_ring[i % trace_ring.size()];
+        out << e.kind << ' ' << e.value << ' ' << e.half << ' ' << std::fixed << std::setprecision(1)
+            << double(e.tick)*1e6/double(frequency.QuadPart) << '\n';
+    }
+}
+uint64_t next_present() { const auto n = present_frames++; trace_event('P', n); return n; }
 uint64_t frame_tag() { return present_frames.load(); }
-bool render_pose_for(uint64_t present, Matrix& head) {
-    const auto tag = present - static_cast<uint64_t>(stereo_settings().delay);
+bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head) {
+    const auto s = stereo_settings();
+    const int half = s.eye_from_half ? frame_half() : -1;
     std::lock_guard lock(poses_mutex);
+    if (half >= 0) {
+        eye = static_cast<uint32_t>((half ^ s.half_xor_present) & 1);
+        // Pose: the newest sample for this eye at least delay-1 frames old (the exact
+        // frame distance can vary by one; the eye itself is exact).
+        const uint64_t start = s.delay > 1 ? uint64_t(s.delay-1) : 0;
+        for (uint64_t back = start; back < poses.size() && back <= present; ++back) {
+            const auto& entry = poses[(present-back) % poses.size()];
+            if (entry.tag == present-back && entry.eye == eye) { head = entry.head; return true; }
+        }
+        return false;
+    }
+    const auto tag = present - static_cast<uint64_t>(s.delay);
     const auto& entry = poses[tag % poses.size()];
     if (entry.tag != tag) return false;
+    eye = static_cast<uint32_t>(present & 1);
     head = entry.head;
     return true;
 }

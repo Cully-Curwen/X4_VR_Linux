@@ -1,4 +1,4 @@
-# Implementation status — 2026-09-25 (checkpoint: working VR)
+# Implementation status — 2026-09-26 (working VR; async submission)
 
 **Native stereoscopic, head-tracked VR works in retail X4 9.00 on the Varjo Aero.**
 The user confirmed a stable world (no swimming or warping on look, pitch, roll or
@@ -14,15 +14,36 @@ lean), correct depth and scale.
    game's own head tracker, culling, object transforms, lighting and shadows all
    follow. Earlier attempts that patched downstream camera records only moved lighting.
 2. **Stereo by alternate-eye rendering (AFR).** Each game frame renders one eye: the
-   pose source adds that eye's `GetEyeToHeadTransform`. The eye is chosen per frame
-   from the present counter plus `delay`, never per call. X4 calls `FTGetData`
-   several times per frame.
+   pose source adds that eye's `GetEyeToHeadTransform`. The eye is chosen per frame,
+   never per call (X4 calls `FTGetData` several times per frame). With `eye_from_half=1`
+   (default) it comes from X4's per-frame render-data half (global RVA `0x6b66280`,
+   signature-checked at `0x77a47f`), which follows a frame from pose to present whatever
+   the queue depth; otherwise from the present counter plus `delay`.
 3. **Presentation.** The Vulkan layer (`src/observe_layer.cpp`, presenter section)
-   copies each presented swapchain image into that eye's texture. The textures are
-   padded to span each eye's whole frustum at the game's pixels-per-tangent. The layer
-   then calls `WaitGetPoses` → `Submit(both eyes, bounds, Submit_TextureWithPose)` →
-   `PostPresentHandoff`. The submitted pose is the one each image was rendered with,
-   so SteamVR reprojection corrects rotation latency.
+   copies each presented swapchain image into that eye's texture (a ring of 3 per eye).
+   The textures are padded to span each eye's whole frustum at the game's
+   pixels-per-tangent. A **submission thread** on a layer-private queue (one extra queue
+   requested at `vkCreateDevice`) runs `WaitGetPoses` → `Submit(both eyes, bounds,
+   Submit_TextureWithPose)` → `PostPresentHandoff` every compositor frame with each eye's
+   newest finished image (waiting at most `submit_budget_ms` for an in-flight copy). The
+   game's present only copies, then waits for the thread's frame tick. So a late game
+   frame repeats the previous image instead of reaching SteamVR late. `async_submit=0`
+   restores inline submission from the present.
+
+## Flicker investigation (2026-09-26)
+
+Symptom: dark/grey flashes (first seen in one eye, later both) whenever X4 fell below a
+steady 90 fps; "extreme ghosting" under an injected 35 ms stall. SteamVR's own reprojection
+and motion smoothing are off on this setup (Varjo driver defaults), so every late app frame
+reached the display as a flash. Ruled out by measurement: eye association (0 half-phase
+slips), texture reuse (ring of 3 made no difference), per-eye submit order and texture
+identity, submitted poses, and X4 content (per-frame brightness probe: no dark frames).
+SteamVR's cumulative dropped/timed-out counters did not register these gaps at all.
+Fixed by asynchronous submission: with a 35 ms stall injected every second, inline
+submission showed 44 ms gaps and was unplayable; async stayed at 11.6 ms and was clean.
+Tools: `tools/flicker_ab.py` (timed beep A/B of stereo.txt modes, prints `pair_stats.txt`),
+`hitch_ms`/`hitch_every` (stall injector), `frames.request` (last 1024 frames' 8x8 patch
+grid → `frames.raw`/`frames.txt`).
 
 ## X4 quirks found and compensated (all measured, see tools/vr_calibrate.py)
 
@@ -48,7 +69,11 @@ Verified numerically against live camera records and eye-texture dumps:
 
 ## How to run
 
-User-facing instructions (NVIDIA/in-game settings included) are in `README.md`. In short:
+User-facing instructions (NVIDIA/in-game settings included) are in `README.md`. Players use
+`build/Release/X4VRLauncher.exe` (`tools/launcher/`). It keeps profiles in `config/profiles/`,
+writes the live `stereo.txt` (config/stereo.txt defaults plus the profile's keys), checks and
+fixes X4's `config.xml`, and starts `crash_watch` → X4 with the same environment as
+`observe.ps1`. Its logic is tested in `tests/launcher_tests.cpp`. Scripted route:
 `scripts/install.ps1` (bootstrap, build, FreeTrack registry path, default `stereo.txt`), then
 `scripts/play.ps1` (runs `observe.ps1 -Target Game -OpenVRBootstrap -CrashWatch -GameArgs
 "-skipintro -nocputhrottle"`). Recentre with Ctrl+F12 or by bumping `recenter=` in
@@ -65,6 +90,10 @@ Eye dump: create `reports/captures/dump.txt`, which writes `eye-0.raw`, `eye-1.r
 
 - AFR gives 45 Hz per eye, and stale-eye parallax is not reprojected. Temporal AA/DLSS history
   crosses eyes.
+- Pair mode (`pair=1`: both eyes rendered back to back, 90 Hz per eye) needs X4 at 180 fps.
+  At 1440p on the RTX 3090 it is GPU-bound: the newest image often misses the submit budget
+  (up to ~27% of frames repeat one eye) and SteamVR's own frame timing stalls, so flashes
+  remain. Needs GPU headroom (lower resolution/settings) before it is usable.
 - Eye images come from the swapchain. At 4K via DSR they reach ~86% of the Aero's native
   pixel density; each eye uses ~70% of the frame width. HUD is part of the image.
 - X4's max FOV (tan 0.8675 vertical) leaves a black band at the bottom (the Aero needs 1.116).

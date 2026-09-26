@@ -25,10 +25,16 @@ public:
     EyeSetup eye_setup();
     // Submit both eye textures (with bounds), hand off, then block in WaitGetPoses
     // for pacing. Caller serializes the queue. Returns an empty string on success.
-    // poses: seated head pose each eye image was rendered with (Submit_TextureWithPose).
+    // poses: seated head pose each eye image was rendered with (Submit_TextureWithPose);
+    // with_pose false submits without poses (compositor assumes the WaitGetPoses pose).
     std::string submit_stereo(const std::array<vr::VRVulkanTextureData_t, 2>& images,
                               const std::array<vr::VRTextureBounds_t, 2>& bounds,
-                              const std::array<Matrix, 2>& poses);
+                              const std::array<Matrix, 2>& poses, bool with_pose = true);
+    // The same protocol split in two, for a dedicated submission thread.
+    std::string wait_frame();
+    std::string submit_frame(const std::array<vr::VRVulkanTextureData_t, 2>& images,
+                             const std::array<vr::VRTextureBounds_t, 2>& bounds,
+                             const std::array<Matrix, 2>& poses, bool with_pose = true);
 };
 // Alternate-eye bookkeeping shared by the FreeTrack pose source and the Vulkan layer.
 // Tunables are re-read from %X4VR_CAPTURE_DIR%/stereo.txt ("key=value" per line).
@@ -36,16 +42,32 @@ public:
 struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float ipd_scale = 1, pos_scale = 3.6f, yaw_gain = 2.1177f, pitch_gain = 2.1177f, roll_gain = 3.14159f, predict = 0.035f, game_tan_y = 0.8675f; // 0.8675 = X4 FOV slider at maximum (120 deg)
     // Calibration only: synthetic head pose (x y z metres, yaw pitch roll degrees, relative to
     // the recentred origin) plus a +/- delta alternating per game frame like the eyes.
-    bool synth = false, pace = true, valve_bounds = true; float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{}; };
+    bool synth = false, pace = true, valve_bounds = true, pair = false;
+    // Pair mode: hold the left eye's present until mid-way through the compositor frame.
+    bool pair_wait = true;
+    // Pose submitted with the eye images: 0 none, 1 each eye's own, 2 newest of the two for both
+    // (2: inline submission only).
+    int submit_pose = 1;
+    // Submit from a dedicated thread every compositor frame (a late game frame repeats the
+    // previous image instead of reaching SteamVR late), waiting at most submit_budget_ms
+    // for the newest image's copy to finish. 0 = submit inline from the game's present.
+    bool async_submit = true; float submit_budget_ms = 8;
+    // Diagnostics: stall the game's render thread for hitch_ms once every hitch_every presents.
+    float hitch_ms = 0; int hitch_every = 90;
+    // Eye association by X4's per-frame render-data half instead of present counting.
+    bool eye_from_half = false; int half_xor_render = 0, half_xor_present = 0; float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{}; };
 StereoSettings stereo_settings();
 // Pose source (may be called several times per game frame): eye the frame being
 // simulated now will be presented to, and the head pose it was rendered with.
 uint32_t render_eye();
 uint64_t frame_tag();   // present count when the game samples its pose
-void record_render_pose(const Matrix& head);
+void record_render_pose(const Matrix& head, uint32_t eye);
+int frame_half(); // X4 9.00 per-frame double-buffer half (0/1), -1 if unavailable
 // Layer: once per present. Returns the present number; pose lookup by number.
+void trace_event(char kind, uint64_t value); // diagnostics: create trace.request to dump
 uint64_t next_present();
-bool render_pose_for(uint64_t present, Matrix& head);
+// Eye and head pose of the frame being presented now (false: unknown yet, skip it).
+bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head);
 // Avoid recursively bootstrapping if runtime initialization itself uses Vulkan.
 bool is_runtime_bootstrap_thread();
 std::shared_ptr<RuntimeBootstrap> acquire_runtime_bootstrap();

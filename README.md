@@ -42,20 +42,20 @@ head tracking still works, but leaning backwards may be blocked (see *Limitation
 
    ```bat
    cd "C:\Program Files (x86)\Steam\steamapps\common\X4 Foundations"
-   git clone https://github.com/ToffelsKater/X4_Native_VR.git
+   git clone https://github.com/ToffelsKater/X4_Rebirth.git
    ```
 
 2. Run the installer from PowerShell:
 
    ```bat
-   powershell -ExecutionPolicy Bypass -File X4_Native_VR\scripts\install.ps1
+   powershell -ExecutionPolicy Bypass -File X4_Rebirth\scripts\install.ps1
    ```
 
    It does four things:
    - Downloads pinned dependencies: OpenVR SDK, Vulkan headers, MinHook.
    - Builds everything and runs self-tests. Add `-SkipTests` to skip the tests.
    - Sets the per-user registry value
-     `HKCU\Software\FreeTrack\FreeTrackClient\Path` to `X4_Native_VR\build\Release`. This is
+     `HKCU\Software\FreeTrack\FreeTrackClient\Path` to `X4_Rebirth\build\Release`. This is
      where X4 looks for a FreeTrack head tracker. If a different FreeTrack/opentrack path was
      set, it is backed up and restored by the uninstaller.
    - Creates the settings file `reports\captures\stereo.txt`.
@@ -110,11 +110,16 @@ Set these once in X4's **Options** menu. They are saved.
 ## Playing
 
 1. Start your headset software and **SteamVR**. Steam must be running too.
-2. Launch X4 through the VR launcher. Do not start it from the Steam library:
+2. Start `X4_Rebirth\build\Release\X4VRLauncher.exe` and press **Play X4 in VR**. Do not
+   start X4 from the Steam library. The launcher:
+   - keeps **profiles** (VR mode, world scale, prediction, stutter protection, the X4 resolution
+     you want). Type a name and press *Save*. Shipped: *Default* and *Pair 90 Hz (experimental)*;
+   - checks X4's own display settings against the table above. *Fix X4 settings* corrects them
+     after backing up `config.xml` (only while X4 is closed);
+   - stays open while you play. Changes apply within half a second, and it shows the frame rate
+     the headset gets.
 
-   ```bat
-   powershell -ExecutionPolicy Bypass -File X4_Native_VR\scripts\play.ps1
-   ```
+   Without the launcher: `powershell -ExecutionPolicy Bypass -File X4_Rebirth\scripts\play.ps1`
 
 3. Load your game. Sit comfortably, look straight ahead, and press **Ctrl+F12** to recenter.
    It also recenters automatically when head tracking starts.
@@ -128,7 +133,7 @@ Tips:
 
 ## Fine-tuning (optional)
 
-`X4_Native_VR\reports\captures\stereo.txt` is re-read every half second while playing. The
+`X4_Rebirth\reports\captures\stereo.txt` is re-read every half second while playing. The
 defaults are calibrated for X4 9.00:
 
 | Key | Default | Meaning |
@@ -141,11 +146,15 @@ defaults are calibrated for X4 9.00:
 | `game_tan_y` | 0.8675 | Tangent of half the game's vertical FOV; 0.8675 matches FOV = 120°. |
 | `stereo` | 1 | 0 = mono (same image to both eyes). |
 | `recenter` | 0 | Changing this number also recenters. |
+| `async_submit` | 1 | Frames go to SteamVR from a separate thread, so a game stutter repeats the last image instead of flashing. 0 = old behaviour. |
+| `pair` | 0 | Experimental: render both eyes back to back for 90 Hz per eye. Needs the game at 180 fps. |
 
 ## Limitations
 
 - **45 Hz per eye.** Frames alternate between the eyes. SteamVR reprojection keeps rotation
-  smooth, but fast head movement shows some parallax judder on nearby objects.
+  smooth, but fast head movement shows some parallax judder on nearby objects. The
+  experimental `pair=1` mode gives 90 Hz per eye but needs about twice the GPU power; if the
+  game can't hold 180 fps it shows dark flashes.
 - **HUD and menus are part of the rendered image**, not a separate VR layer.
 - **Small black band at the very bottom** of the view on wide-FOV headsets, because X4's
   maximum FOV is a bit smaller than the Varjo Aero's.
@@ -156,7 +165,7 @@ defaults are calibrated for X4 9.00:
 
 ## Troubleshooting
 
-Logs are written to `X4_Native_VR\reports\captures\debug-*\debug-events.log`; search for
+Logs are written to `X4_Rebirth\reports\captures\debug-*\debug-events.log`; search for
 `X4VR`.
 
 | Problem | Check |
@@ -172,10 +181,10 @@ Logs are written to `X4_Native_VR\reports\captures\debug-*\debug-events.log`; se
 ## Uninstall
 
 ```bat
-powershell -ExecutionPolicy Bypass -File X4_Native_VR\scripts\uninstall.ps1
+powershell -ExecutionPolicy Bypass -File X4_Rebirth\scripts\uninstall.ps1
 ```
 
-This restores or removes the FreeTrack registry value. Then delete the `X4_Native_VR` folder
+This restores or removes the FreeTrack registry value. Then delete the `X4_Rebirth` folder
 and, if you like, set OpenTrack Support back to Off and restore your display settings.
 
 ## How it works

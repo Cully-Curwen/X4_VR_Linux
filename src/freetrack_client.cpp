@@ -96,7 +96,8 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         const bool tracked = runtime->predicted_tracking(head, settings.predict) == x4vr::FrameStatus::ready;
         if (!tracked && !settings.synth) return FALSE;
         if (!tracked) head = x4vr::Matrix::identity();
-        x4vr::record_render_pose(head); // compositor reprojects from this pose (tracking space)
+        const auto eye = x4vr::render_eye(); // one game frame renders one eye
+        if (!settings.synth) x4vr::record_render_pose(head, eye); // reprojection pose (tracking space)
         // Recentre on Ctrl+F12 (edge-triggered; unbound in X4) or when stereo.txt's counter changes.
         static bool keys_were_down = false;
         const bool keys_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F12) & 0x8000);
@@ -109,7 +110,7 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         }
         head = x4vr::multiply(origin_inverse, head);
         if (settings.synth) {
-            const float sign = x4vr::render_eye() ? 1.f : -1.f;
+            const float sign = eye ? 1.f : -1.f;
             float v[6];
             for (int i = 0; i < 6; ++i) v[i] = settings.synth_base[i] + sign*settings.synth_alt[i];
             // ramp keyed to the frame tag: every call within one game frame agrees
@@ -117,11 +118,12 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
             if (settings.synth_rate != ramp_rate) { ramp_rate = settings.synth_rate; ramp_start = x4vr::frame_tag(); }
             v[3] += static_cast<float>(ramp_rate*double(x4vr::frame_tag()-ramp_start));
             head = synthetic_pose(v);
-            x4vr::record_render_pose(head); // calibration: dumps carry the synthetic pose
+            x4vr::record_render_pose(head, eye); // calibration: dumps carry the synthetic pose
         } else if (settings.stereo) {
             // Alternate-eye rendering: this game frame renders one eye; the Vulkan
             // layer submits the presented image to the same eye (shared counter).
-            auto head_from_eye = eyes.head_from_eye[x4vr::render_eye()];
+            x4vr::trace_event(eye ? 'R' : 'L', x4vr::frame_tag());
+            auto head_from_eye = eyes.head_from_eye[eye];
             for (int r = 0; r < 3; ++r) head_from_eye.m[r][3] *= settings.ipd_scale;
             head = x4vr::multiply(head, head_from_eye);
         }

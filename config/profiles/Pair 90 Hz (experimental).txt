@@ -1,0 +1,7 @@
+stereo=1
+pair=1
+ipd_scale=1.00
+predict=0.035
+async_submit=1
+x4_width=0
+x4_height=0
