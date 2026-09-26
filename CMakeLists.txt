@@ -80,6 +80,10 @@ target_compile_definitions(vulkan_smoke PRIVATE VK_NO_PROTOTYPES WIN32_LEAN_AND_
 include(CTest)
 add_executable(x4vr_launcher WIN32 tools/launcher/launcher.cpp)
 set_target_properties(x4vr_launcher PROPERTIES OUTPUT_NAME X4VRLauncher)
+if(CMAKE_BINARY_DIR STREQUAL "${CMAKE_SOURCE_DIR}/build")
+  # Players start the launcher from the repository root; it finds build/Release on its own.
+  set_target_properties(x4vr_launcher PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}")
+endif()
 target_compile_definitions(x4vr_launcher PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(x4vr_launcher PRIVATE /W4 /WX /permissive-)
 target_link_libraries(x4vr_launcher PRIVATE comctl32 shell32 ole32 advapi32)

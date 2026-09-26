@@ -44,7 +44,8 @@ everything and runs the self-tests; add `-SkipTests` to skip the tests. It then 
 per-user registry value `HKCU\Software\FreeTrack\FreeTrackClient\Path` at
 `X4_Rebirth\build\Release`, which is where X4 looks for a FreeTrack head tracker. If a
 different FreeTrack or opentrack path was set, it is backed up, and the uninstaller restores
-it. Finally it creates the settings file `reports\captures\stereo.txt`.
+it. Finally it creates the settings file `reports\captures\stereo.txt`. When it's done, the
+launcher `X4VRLauncher.exe` sits directly in the `X4_Rebirth` folder.
 
 ### 2. Raise the render resolution with NVIDIA DSR
 
@@ -101,7 +102,7 @@ head-tracking factors aren't stored in that file, so set those in the game.
 ### 4. First launch
 
 1. Start your headset software and SteamVR. Steam must be running too.
-2. Start `X4_Rebirth\build\Release\X4VRLauncher.exe`. Don't start X4 from the Steam library;
+2. Start `X4VRLauncher.exe` in the `X4_Rebirth` folder. Don't start X4 from the Steam library;
    launched that way the game runs flat.
 3. Check the launcher's Status box: SteamVR should be running, and the head-tracking DLL path
    and the build should both read "ok". The X4 settings box should say that all settings

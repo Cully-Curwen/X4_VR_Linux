@@ -8,3 +8,4 @@ __pycache__/
 reports/*.asm
 reports/camera-peek-*/
 /config/freetrack-path.backup
+/X4VRLauncher.exe

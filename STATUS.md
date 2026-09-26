@@ -70,7 +70,7 @@ Verified numerically against live camera records and eye-texture dumps:
 ## How to run
 
 User-facing instructions (NVIDIA/in-game settings included) are in `README.md`. Players use
-`build/Release/X4VRLauncher.exe` (`tools/launcher/`). It keeps profiles in `config/profiles/`,
+`X4VRLauncher.exe` in the repository root (built from `tools/launcher/`). It keeps profiles in `config/profiles/`,
 writes the live `stereo.txt` (config/stereo.txt defaults plus the profile's keys), checks and
 fixes X4's `config.xml`, and starts `crash_watch` → X4 with the same environment as
 `observe.ps1`. Its logic is tested in `tests/launcher_tests.cpp`. Scripted route:
