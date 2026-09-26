@@ -108,6 +108,14 @@ void fix_freetrack_path() {
     MessageBoxW(app.window, error ? L"Could not set the head-tracking path in the registry." :
                 (L"Head tracking now uses:\n"+path+L"\n\nStart X4 again if it is running.").c_str(), L"X4 VR", error ? MB_ICONERROR : MB_ICONINFORMATION);
 }
+// First start with no head tracker configured at all: point X4's FreeTrack support here. Another
+// tracker's path (opentrack, TrackIR) is left alone; the Status box offers the button for that.
+void default_freetrack_path() {
+    DWORD size{};
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\FreeTrack\\FreeTrackClient", L"Path", RRF_RT_REG_SZ, nullptr, nullptr, &size) != ERROR_FILE_NOT_FOUND) return;
+    const auto path = app.bin.wstring();
+    RegSetKeyValueW(HKEY_CURRENT_USER, L"Software\\FreeTrack\\FreeTrackClient", L"Path", REG_SZ, path.c_str(), DWORD((path.size()+1)*sizeof(wchar_t)));
+}
 // X4 keeps one config per Steam account under Documents\Egosoft\X4\<id>\; use the newest.
 fs::path x4_config() {
     PWSTR documents{};
@@ -317,6 +325,9 @@ void copy_tail(const fs::path& from, const fs::path& to, size_t limit) { // big 
     std::ofstream(to, std::ios::binary) << text;
 }
 std::string git_commit() {
+    auto release = read_file(app.root/L"version.txt"); // download package
+    while (!release.empty() && (release.back() == '\n' || release.back() == '\r')) release.pop_back();
+    if (!release.empty()) return release;
     auto head = read_file(app.root/L".git"/L"HEAD");
     while (!head.empty() && (head.back() == '\n' || head.back() == '\r')) head.pop_back();
     if (head.rfind("ref: ", 0)) return head.substr(0, 12);
@@ -607,11 +618,11 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w, LPARAM l) {
     }
     return DefWindowProcW(window, message, w, l);
 }
-fs::path find_root() { // the exe normally sits in <root>\build\Release
+fs::path find_root() { // a source checkout (CMakeLists.txt) or a download package (version.txt)
     wchar_t module[MAX_PATH]{};
     GetModuleFileNameW(nullptr, module, MAX_PATH);
     for (auto dir = fs::path(module).parent_path(); !dir.empty() && dir != dir.parent_path(); dir = dir.parent_path())
-        if (fs::exists(dir/L"config"/L"stereo.txt") && fs::exists(dir/L"CMakeLists.txt")) return dir;
+        if (fs::exists(dir/L"config"/L"stereo.txt") && (fs::exists(dir/L"CMakeLists.txt") || fs::exists(dir/L"version.txt"))) return dir;
     return {};
 }
 }
@@ -624,6 +635,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.captures = app.root/L"reports"/L"captures";
     app.profiles = app.root/L"config"/L"profiles";
     app.x4_exe = app.root.parent_path()/L"X4.exe";
+    default_freetrack_path();
     INITCOMMONCONTROLSEX common{sizeof(common), ICC_BAR_CLASSES | ICC_STANDARD_CLASSES};
     InitCommonControlsEx(&common);
     const auto screen = GetDC(nullptr); app.dpi = GetDeviceCaps(screen, LOGPIXELSY); ReleaseDC(nullptr, screen);

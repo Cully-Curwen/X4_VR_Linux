@@ -5,6 +5,11 @@ if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Prebuilt downloads must run without a matching Visual C++ redistributable: the VC and C++
+# runtimes are linked in, the Universal CRT (part of Windows 10 and 11) stays shared, so memory
+# passed between our DLLs still comes from one heap.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_link_options("$<$<NOT:$<CONFIG:Debug>>:/NODEFAULTLIB:libucrt.lib>" "$<$<NOT:$<CONFIG:Debug>>:ucrt.lib>")
 set(VULKAN_HEADERS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/Vulkan-Headers" CACHE PATH "Khronos Vulkan headers")
 set(OPENVR_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/openvr" CACHE PATH "Valve OpenVR SDK checkout")
 set(MINHOOK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/minhook" CACHE PATH "Pinned MinHook checkout")
