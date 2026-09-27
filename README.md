@@ -4,6 +4,13 @@ Native stereoscopic VR with 6DOF head tracking for X4: Foundations, on any Steam
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Egosoft.
 
+> [!NOTE]
+> Some antivirus programs, including Windows Defender, have flagged the download as
+> "Trojan:Win32/Sabsik.FL.A!ml". That is a false positive. The "!ml" means Defender's cloud
+> machine learning judged the file by its behavior, which happens a lot with new programs that
+> aren't signed. All of the code is in this repository, and you can
+> [build it yourself](#building-from-source) instead.
+
 ## What works
 
 - Flying from the cockpit in stereo with full head tracking. The world, the cockpit and the HUD
@@ -50,12 +57,6 @@ installation folder, the one that contains `X4.exe`, so that you end up with
 
 Windows may show "Windows protected your PC" the first time you start the launcher, because the
 program isn't signed. Click *More info* and then *Run anyway*.
-
-Some antivirus programs, including Windows Defender, have flagged the download as
-"Trojan:Win32/Sabsik.FL.A!ml". That is a false positive. The "!ml" means Defender's cloud machine
-learning judged the file by its behavior, which happens a lot with new programs that aren't signed.
-All of the code is in this repository, and you can [build it yourself](#building-from-source)
-instead.
 
 On its first start the launcher points X4's head-tracker setting, the per-user registry value
 `HKCU\Software\FreeTrack\FreeTrackClient\Path`, at `X4_VR\build\Release`. That is where X4 looks
