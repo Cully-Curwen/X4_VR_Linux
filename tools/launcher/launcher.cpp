@@ -355,7 +355,8 @@ std::string url_encode(const std::string& text) {
 }
 void report_bug() {
     if (MessageBoxW(app.window, L"This packs the VR logs, crash dumps and X4's config.xml into a zip and opens a new GitHub issue.\n\n"
-                    L"The files contain paths from this PC, including your Windows user name. Look through the zip before you attach it.\n\nContinue?",
+                    L"The files contain paths from this PC, including your Windows user name. Look through the zip before you attach it.\n\n"
+                    L"Creating the issue needs a free GitHub account. Without one, post in the Reddit thread and share the zip through a file host.\n\nContinue?",
                     L"Report a bug", MB_ICONINFORMATION | MB_OKCANCEL) != IDOK) return;
     SYSTEMTIME now; GetLocalTime(&now);
     wchar_t stamp[32]; swprintf_s(stamp, L"%04d%02d%02d-%02d%02d%02d", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
@@ -460,7 +461,9 @@ void play() {
     STARTUPINFOW startup{sizeof(startup)};
     startup.dwFlags = STARTF_USESTDHANDLES;
     startup.hStdOutput = log(L".stdout.log"); startup.hStdError = log(L".stderr.log");
-    const auto watcher = (app.bin/L"crash_watch.exe").wstring();
+    // A source build also has crash_watch_dev.exe (watchpoints, traces); the download only the plain recorder.
+    const auto dev_watcher = app.bin/L"crash_watch_dev.exe";
+    const auto watcher = (fs::exists(dev_watcher) ? dev_watcher : app.bin/L"crash_watch.exe").wstring();
     auto command = L'"'+watcher+L"\" \""+app.x4_exe.wstring()+L"\" \""+debug.wstring()+L'"';
     auto environment = environment_block();
     PROCESS_INFORMATION process{};

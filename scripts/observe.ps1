@@ -63,7 +63,7 @@ $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
 New-Item -ItemType Directory -Path $start.Environment['X4VR_CAPTURE_DIR'] -Force | Out-Null
 if ($CrashWatch) {
-    $start.FileName = Join-Path $binaryDirectory 'crash_watch.exe'
+    $start.FileName = Join-Path $binaryDirectory 'crash_watch_dev.exe'  # watchpoints, traces, -PoseHook
     if (-not (Test-Path -LiteralPath $start.FileName)) { throw 'Build the crash recorder first' }
     $debugDirectory = Join-Path $start.Environment['X4VR_CAPTURE_DIR'] ('debug-' + [Guid]::NewGuid().ToString('N'))
     # Windows PowerShell 5.1 (.NET Framework) lacks ProcessStartInfo.ArgumentList.

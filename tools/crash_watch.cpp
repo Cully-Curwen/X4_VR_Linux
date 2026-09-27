@@ -1,5 +1,7 @@
-// External crash recorder. Read-only unless --startup-module is explicitly used
-// for this recorder's newly created child; never attaches a module to a live game.
+// External crash recorder: runs the game as a debuggee and logs modules, exceptions, debug strings
+// and a minidump on an unhandled exception. The dev build crash_watch_dev.exe (X4VR_DEV_TOOLS) adds
+// hardware watchpoints, execution traces and --startup-module (a DLL loaded into this recorder's
+// newly created child only, never a live game); the download ships only the plain recorder.
 #include <windows.h>
 #include <dbghelp.h>
 #include <filesystem>
@@ -11,7 +13,9 @@
 #include <map>
 #include <array>
 #include <sstream>
+#ifdef X4VR_DEV_TOOLS
 #include "startup_module.hpp"
+#endif
 
 struct Handle {
     HANDLE value{};
@@ -24,6 +28,7 @@ void module(std::ofstream& log, const char* label, const void* base, HANDLE file
         << " path=" << std::filesystem::path(path).generic_string() << '\n';
     if (file) CloseHandle(file);
 }
+#ifdef X4VR_DEV_TOOLS
 // Optional hardware watchpoints, armed from <report>/watch.txt lines
 // "0x<address> <r|w>" (max 4, 8-byte aligned). Logs accessor RIP counts.
 struct Watch {
@@ -138,10 +143,15 @@ struct Trace {
         SetThreadContext(thread.value, &context);
     }
 };
+#endif
 int wmain(int argc, wchar_t** argv) {
+#ifdef X4VR_DEV_TOOLS
     if (argc != 3 && !(argc == 5 && std::wstring(argv[3]) == L"--startup-module")) {
-        std::cerr << "Usage: crash_watch.exe <executable> <new-report-directory> [--startup-module <dll>]\n"; return 2;
+        std::cerr << "Usage: crash_watch_dev.exe <executable> <new-report-directory> [--startup-module <dll>]\n"; return 2;
     }
+#else
+    if (argc != 3) { std::cerr << "Usage: crash_watch.exe <executable> <new-report-directory>\n"; return 2; }
+#endif
     const auto exe = std::filesystem::absolute(argv[1]);
     const auto directory = std::filesystem::absolute(argv[2]);
     if (!std::filesystem::is_regular_file(exe) || !std::filesystem::create_directory(directory)) {
@@ -172,17 +182,21 @@ int wmain(int argc, wchar_t** argv) {
     log << "started pid=" << process.dwProcessId << " tick=" << GetTickCount64() << '\n'; log.flush();
     std::cout << "Debug child PID: " << process.dwProcessId << std::endl;
     bool initial_breakpoint = true;
-    Watch watch;
-    Trace trace;
     unsigned exceptions = 0;
     size_t debug_bytes = 0;
     try {
+#ifdef X4VR_DEV_TOOLS
+    Watch watch;
+    Trace trace;
     std::unique_ptr<StartupModule> startup_module;
     if (argc == 5) startup_module = std::make_unique<StartupModule>(process.hProcess, process.hThread,
         process.dwProcessId, process.dwThreadId, argv[4], log);
+#endif
     for (;;) {
+#ifdef X4VR_DEV_TOOLS
         if (startup_module) startup_module->check_timeout();
         watch.poll(directory, log);
+#endif
         DEBUG_EVENT event{};
         if (!WaitForDebugEventEx(&event, 1000)) {
             if (GetLastError() == ERROR_SEM_TIMEOUT) continue;
@@ -193,12 +207,16 @@ int wmain(int argc, wchar_t** argv) {
         bool exited = false;
         DWORD exit_code = 0;
         if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
+#ifdef X4VR_DEV_TOOLS
             watch.threads[event.dwThreadId] = event.u.CreateProcessInfo.hThread;
             trace.load(event.u.CreateProcessInfo.lpBaseOfImage);
             if (trace.armed) { trace.apply(event.u.CreateProcessInfo.hThread); log << "trace armed\n"; }
             if (startup_module) startup_module->process_created(event.u.CreateProcessInfo.lpBaseOfImage);
+#endif
             module(log, "process", event.u.CreateProcessInfo.lpBaseOfImage, event.u.CreateProcessInfo.hFile);
-        } else if (event.dwDebugEventCode == CREATE_THREAD_DEBUG_EVENT) {
+        }
+#ifdef X4VR_DEV_TOOLS
+        else if (event.dwDebugEventCode == CREATE_THREAD_DEBUG_EVENT) {
             watch.threads[event.dwThreadId] = event.u.CreateThread.hThread;
             if (watch.armed) watch.apply(event.u.CreateThread.hThread);
             else if (trace.armed) trace.apply(event.u.CreateThread.hThread);
@@ -222,7 +240,9 @@ int wmain(int argc, wchar_t** argv) {
         } else if (event.dwDebugEventCode == EXIT_THREAD_DEBUG_EVENT) {
             watch.threads.erase(event.dwThreadId);
             if (startup_module) startup_module->thread_exited(event);
-        } else if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT)
+        }
+#endif
+        else if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT)
             module(log, "module", event.u.LoadDll.lpBaseOfDll, event.u.LoadDll.hFile);
         else if (event.dwDebugEventCode == OUTPUT_DEBUG_STRING_EVENT && debug_bytes < 4*1024*1024) {
             const auto& info = event.u.DebugString;
@@ -248,9 +268,12 @@ int wmain(int argc, wchar_t** argv) {
         } else if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
             auto record = event.u.Exception.ExceptionRecord;
             const bool first = event.u.Exception.dwFirstChance != 0;
+#ifdef X4VR_DEV_TOOLS
             if (startup_module && startup_module->exception(event)) {
                 if (record.ExceptionCode == EXCEPTION_BREAKPOINT) initial_breakpoint = false;
-            } else if (initial_breakpoint && first && record.ExceptionCode == EXCEPTION_BREAKPOINT) {
+            } else
+#endif
+            if (initial_breakpoint && first && record.ExceptionCode == EXCEPTION_BREAKPOINT) {
                 initial_breakpoint = false;
             } else {
                 continuation = DBG_EXCEPTION_NOT_HANDLED;
