@@ -1,5 +1,8 @@
 # X4 VR
 
+[Join the X4 VR Discord](https://discord.gg/yDmj5bnG7n) for setup help, bug reports and
+development updates.
+
 Native stereoscopic VR with 6DOF head tracking for X4: Foundations, on any SteamVR (OpenVR) headset.
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Egosoft.
@@ -45,6 +48,12 @@ NVIDIA RTX 3090 holding a steady 90 fps at 3840×2160, and Windows 11. Other Ste
 (Index, Vive, Quest through Link or Virtual Desktop in SteamVR mode, and so on) should work but
 haven't been tested. The calibration is specific to X4 9.00; on other versions some parts fall
 back to safer behavior (see [Limitations](#limitations)).
+
+OpenXR support is in development. It lets the mod use a headset's own OpenXR runtime, for
+example Varjo Base's, without going through SteamVR. In testing on a Varjo Aero it behaves the
+same as the SteamVR path. It is planned for a later release as an experimental option in the
+launcher, and SteamVR (OpenVR) stays the default. Progress is posted in the Discord's
+#openxr-dev-updates channel.
 
 ## Setup
 
