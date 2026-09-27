@@ -21,7 +21,8 @@ foreach ($file in $files) {
     New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $projectRoot $file) $target
 }
-$licenses = @{ 'external\openvr\LICENSE' = 'OpenVR.txt'; 'external\minhook\LICENSE.txt' = 'MinHook.txt'; 'external\Vulkan-Headers\LICENSE.md' = 'Vulkan-Headers.md' }
+$licenses = @{ 'external\openvr\LICENSE' = 'OpenVR.txt'; 'external\OpenXR-SDK\LICENSE' = 'OpenXR-SDK.txt';
+    'external\OpenXR-SDK\src\external\jsoncpp\LICENSE' = 'jsoncpp.txt'; 'external\minhook\LICENSE.txt' = 'MinHook.txt'; 'external\Vulkan-Headers\LICENSE.md' = 'Vulkan-Headers.md' }
 New-Item -ItemType Directory -Path (Join-Path $stage 'licenses') -Force | Out-Null
 foreach ($source in $licenses.Keys) { Copy-Item -LiteralPath (Join-Path $projectRoot $source) (Join-Path $stage "licenses\$($licenses[$source])") }
 Set-Content -LiteralPath (Join-Path $stage 'version.txt') -Value $version -Encoding ascii

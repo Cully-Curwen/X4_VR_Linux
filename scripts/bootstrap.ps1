@@ -43,3 +43,16 @@ if ($LASTEXITCODE -ne 0 -or $revision -ne $minhookCommit) {
     throw "Expected MinHook $minhookCommit; found $revision. Existing checkout unchanged."
 }
 Write-Output "MinHook: $revision"
+$openxrPath = Join-Path $projectRoot 'external/OpenXR-SDK'
+$openxrCommit = 'f2448a8797c85814aa892efc1ab8707900fbcc78' # release-1.1.63
+if (-not (Test-Path -LiteralPath $openxrPath)) {
+    git clone --filter=blob:none https://github.com/KhronosGroup/OpenXR-SDK.git $openxrPath
+    if ($LASTEXITCODE -ne 0) { throw 'OpenXR SDK clone failed' }
+    git -C $openxrPath checkout --detach $openxrCommit
+    if ($LASTEXITCODE -ne 0) { throw 'Pinned OpenXR revision checkout failed' }
+}
+$revision = git -C $openxrPath rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $revision -ne $openxrCommit) {
+    throw "Expected OpenXR SDK $openxrCommit; found $revision. Existing checkout unchanged."
+}
+Write-Output "OpenXR SDK: $revision"

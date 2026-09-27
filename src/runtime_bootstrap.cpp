@@ -1,4 +1,5 @@
 #include <x4vr/runtime_bootstrap.hpp>
+#include "openxr_runtime.hpp"
 #include <windows.h>
 #include <atomic>
 #include <chrono>
@@ -23,6 +24,12 @@ std::weak_ptr<RuntimeBootstrap> bootstrap;
 bool is_runtime_bootstrap_thread() { return runtime_thread; }
 RuntimeBootstrap::RuntimeBootstrap() {
     RuntimeCall call;
+    char backend[16]{};
+    if (GetEnvironmentVariableA("X4VR_RUNTIME", backend, sizeof(backend)) && !_stricmp(backend, "openxr")) {
+        OutputDebugStringA("X4VR bootstrap: OpenXR backend\n");
+        xr_ = std::make_unique<OpenXRRuntime>();
+        return;
+    }
     OutputDebugStringA("X4VR bootstrap: initialize begin\n");
     session_.initialize();
     OutputDebugStringA("X4VR bootstrap: initialize complete\n");
@@ -34,6 +41,7 @@ RuntimeBootstrap::~RuntimeBootstrap() {
     session_.shutdown();
 }
 std::vector<std::string> RuntimeBootstrap::instance_extensions() {
+    if (xr_) { RuntimeCall call; return xr_->instance_extensions(); }
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -43,6 +51,7 @@ std::vector<std::string> RuntimeBootstrap::instance_extensions() {
     return result;
 }
 std::vector<std::string> RuntimeBootstrap::device_extensions(VkPhysicalDevice_T* physical) {
+    if (xr_) { RuntimeCall call; return xr_->device_extensions(); }
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -52,6 +61,7 @@ std::vector<std::string> RuntimeBootstrap::device_extensions(VkPhysicalDevice_T*
     return result;
 }
 VkPhysicalDevice_T* RuntimeBootstrap::output_device(VkInstance_T* instance) {
+    if (xr_) { RuntimeCall call; return xr_->output_device(instance); }
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -72,7 +82,14 @@ std::shared_ptr<RuntimeBootstrap> acquire_runtime_bootstrap() {
     (void)pinned;
     return result;
 }
+std::string RuntimeBootstrap::start_session(const XrVulkanContext& vulkan) {
+    if (!xr_) return {};
+    RuntimeCall call; // the runtime may create Vulkan objects of its own in here
+    return xr_->start_session(vulkan);
+}
+void RuntimeBootstrap::end_session(VkDevice_T* device) { if (xr_) xr_->end_session(device); }
 FrameStatus RuntimeBootstrap::sample_tracking(Matrix& tracking_from_head) {
+    if (xr_) return xr_->predicted_tracking(tracking_from_head, 0);
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -81,6 +98,7 @@ FrameStatus RuntimeBootstrap::sample_tracking(Matrix& tracking_from_head) {
 FrameStatus RuntimeBootstrap::predicted_tracking(Matrix& tracking_from_head, float seconds) {
     // Deliberately lock-free: the game thread must never wait behind the render
     // thread's WaitGetPoses. IVRSystem pose queries are safe from any thread.
+    if (xr_) return xr_->predicted_tracking(tracking_from_head, seconds);
     tracking_from_head = {};
     vr::TrackedDevicePose_t head{};
     session_.system_->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseSeated, seconds, &head, 1);
@@ -90,6 +108,7 @@ FrameStatus RuntimeBootstrap::predicted_tracking(Matrix& tracking_from_head, flo
     return FrameStatus::ready;
 }
 RuntimeBootstrap::EyeSetup RuntimeBootstrap::eye_setup() {
+    if (xr_) return xr_->eye_setup();
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -111,6 +130,7 @@ std::string RuntimeBootstrap::submit_stereo(const std::array<vr::VRVulkanTexture
     return error.empty() ? submit_frame(images, bounds, poses, with_pose) : error;
 }
 std::string RuntimeBootstrap::wait_frame() {
+    if (xr_) { RuntimeCall call; return xr_->wait_frame(); }
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -123,6 +143,7 @@ std::string RuntimeBootstrap::wait_frame() {
 std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureData_t, 2>& images,
                                            const std::array<vr::VRTextureBounds_t, 2>& bounds,
                                            const std::array<Matrix, 2>& poses, bool with_pose) {
+    if (xr_) { RuntimeCall call; return xr_->submit_frame(images, bounds, poses, with_pose); }
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -141,6 +162,7 @@ std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureD
 }
 std::string RuntimeBootstrap::show_theater(const vr::VRVulkanTextureData_t* image, const vr::VRTextureBounds_t& bounds,
                                            const Matrix& seated_from_screen, float width) {
+    if (xr_) { RuntimeCall call; return xr_->show_theater(image, bounds, seated_from_screen, width); }
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -166,6 +188,7 @@ std::string RuntimeBootstrap::show_theater(const vr::VRVulkanTextureData_t* imag
 }
 std::string RuntimeBootstrap::show_cursor(const uint8_t* rgba, uint32_t width, uint32_t height, bool on_screen,
                                           const Matrix& placement, float width_m) {
+    if (xr_) { RuntimeCall call; return xr_->show_cursor(rgba, width, height, on_screen, placement, width_m); }
     std::lock_guard lock(mutex_);
     auto* overlay = vr::VROverlay();
     if (!overlay) return "OpenVR overlay interface unavailable";
@@ -187,10 +210,12 @@ std::string RuntimeBootstrap::show_cursor(const uint8_t* rgba, uint32_t width, u
     return {};
 }
 void RuntimeBootstrap::hide_cursor() {
+    if (xr_) return xr_->hide_cursor();
     std::lock_guard lock(mutex_);
     if (auto* overlay = vr::VROverlay(); overlay && cursor_ != vr::k_ulOverlayHandleInvalid) overlay->HideOverlay(cursor_);
 }
 void RuntimeBootstrap::hide_theater() {
+    if (xr_) return xr_->hide_theater();
     std::lock_guard lock(mutex_);
     if (auto* overlay = vr::VROverlay(); overlay && theater_ != vr::k_ulOverlayHandleInvalid) overlay->HideOverlay(theater_);
 }

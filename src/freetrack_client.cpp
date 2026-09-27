@@ -148,7 +148,6 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
             }
         }
         const auto settings = x4vr::stereo_settings();
-        static const auto eyes = runtime->eye_setup();
         // On foot the camera takes the head pose one game frame later than in the cockpit
         // (measured: every alternating synthetic axis arrived in the other eye), so this pose
         // is for the next frame's eye, one frame further ahead.
@@ -195,6 +194,9 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
             // Alternate-eye rendering: this game frame renders one eye; the Vulkan
             // layer submits the presented image to the same eye (shared counter).
             x4vr::trace_event(eye ? 'R' : 'L', x4vr::frame_tag());
+            // Read on first use: a tracked pose here means the runtime's session runs (OpenXR has
+            // no eye setup before that).
+            static const auto eyes = runtime->eye_setup();
             auto head_from_eye = eyes.head_from_eye[eye];
             for (int r = 0; r < 3; ++r) head_from_eye.m[r][3] *= settings.ipd_scale;
             head = x4vr::multiply(head, head_from_eye);

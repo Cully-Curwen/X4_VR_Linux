@@ -3,7 +3,8 @@
 [Join the X4 VR Discord](https://discord.gg/yDmj5bnG7n) for setup help, bug reports and
 development updates.
 
-Native stereoscopic VR with 6DOF head tracking for X4: Foundations, on any SteamVR (OpenVR) headset.
+Native stereoscopic VR with 6DOF head tracking for X4: Foundations, on any SteamVR (OpenVR) headset,
+and experimentally through a headset's own OpenXR runtime.
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Egosoft.
 
@@ -34,7 +35,7 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
 
 - Windows 10 or 11 (64-bit), Steam, and X4: Foundations 9.00.
 - SteamVR plus your headset's own software, for example Varjo Base with SteamVR support
-  enabled.
+  enabled. With the experimental OpenXR option, the headset's OpenXR runtime replaces SteamVR.
 - A GPU that can hold your headset's refresh rate (for example 90 fps). Every displayed frame
   renders one eye.
 - An NVIDIA GPU is recommended, because the setup below uses DSR for a high render resolution.
@@ -49,10 +50,10 @@ NVIDIA RTX 3090 holding a steady 90 fps at 3840×2160, and Windows 11. Other Ste
 haven't been tested. The calibration is specific to X4 9.00; on other versions some parts fall
 back to safer behavior (see [Limitations](#limitations)).
 
-OpenXR support is in development. It lets the mod use a headset's own OpenXR runtime, for
-example Varjo Base's, without going through SteamVR. In testing on a Varjo Aero it behaves the
-same as the SteamVR path. It is planned for a later release as an experimental option in the
-launcher, and SteamVR (OpenVR) stays the default. Progress is posted in the Discord's
+OpenXR is available as an experimental option in the launcher. It lets the mod use a headset's
+own OpenXR runtime, for example Varjo Base's, without going through SteamVR. On a Varjo Aero it
+behaves the same as the SteamVR path. SteamVR (OpenVR) stays the default; see
+[VR runtime](#vr-runtime-openvr-or-openxr-experimental). Updates are posted in the Discord's
 #openxr-dev-updates channel.
 
 ## Setup
@@ -88,7 +89,7 @@ Then run the installer from PowerShell:
 powershell -ExecutionPolicy Bypass -File X4_VR\scripts\install.ps1
 ```
 
-The installer downloads the pinned dependencies (OpenVR SDK, Vulkan headers, MinHook), builds
+The installer downloads the pinned dependencies (OpenVR SDK, OpenXR SDK, Vulkan headers, MinHook), builds
 everything and runs the self-tests; add `-SkipTests` to skip the tests. It then points the
 per-user registry value `HKCU\Software\FreeTrack\FreeTrackClient\Path` at
 `X4_VR\build\Release`, which is where X4 looks for a FreeTrack head tracker. If a different
@@ -133,7 +134,7 @@ Options > Display Settings:
 | Resolution | 3840×2160 | Appears after enabling DSR. You can change it while playing. |
 | Anti-Aliasing | None | A non-temporal mode (FXAA/MSAA/SSAA) is fine. Avoid *Temporal*. |
 | AMD FSR | Off | Temporal upscalers mix left- and right-eye frames, which shows as ghosting. |
-| NVIDIA DLSS | Off | Same reason. |
+| NVIDIA DLSS | Your choice | Works, tested up to Ultra Performance. Keep DLSS frame generation off: it blends frames of different eyes. |
 | VSync | Off | SteamVR paces the frames. |
 | Frame Rate Limit | 90 FPS (your headset's refresh rate) or higher | |
 | FOV | maximum (120°) | Required. The eye mapping is calibrated for it (see `game_tan_y` below). |
@@ -205,6 +206,17 @@ You can also start the game without the launcher:
 `powershell -ExecutionPolicy Bypass -File X4_VR\scripts\play.ps1`
 
 Keep X4 focused on the desktop. Clicking into another window can throttle the game.
+
+### VR runtime: OpenVR or OpenXR (experimental)
+
+The launcher's *VR runtime* box picks how frames reach the headset. It applies the next time X4
+starts.
+
+- *OpenVR (SteamVR)* is the default and the tested path.
+- *OpenXR (experimental)* uses Windows' active OpenXR runtime, for example Varjo Base's own
+  runtime, which skips SteamVR. SteamVR doesn't need to run then. Overlays that live in SteamVR
+  (dashboard, fpsVR, OVR Toolkit) don't show in a native OpenXR runtime. If something looks
+  wrong, switch back to OpenVR.
 
 ## Updating
 
@@ -309,5 +321,6 @@ display settings.
 ## License
 
 MIT (see [LICENSE](LICENSE)). The dependencies fetched at build time keep their own licenses:
-OpenVR SDK (BSD-3-Clause), Vulkan-Headers (Apache-2.0), MinHook (BSD-2-Clause).
+OpenVR SDK (BSD-3-Clause), OpenXR SDK loader (Apache-2.0, with jsoncpp under MIT),
+Vulkan-Headers (Apache-2.0), MinHook (BSD-2-Clause).
 X4: Foundations is © Egosoft; this project contains no game files.

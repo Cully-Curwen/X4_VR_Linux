@@ -20,6 +20,9 @@ int main() {
     CHECK(get(live, "x4_width").empty()); // launcher-only keys stay out of stereo.txt
     CHECK(parse_settings(format_settings(live)) == live);
     CHECK(get(profile_of(live), "delay").empty() && get(profile_of(live), "pair") == "1");
+    // VR runtime: OpenVR unless the profile says openxr; kept in profiles (and stereo.txt, for reports).
+    CHECK(!uses_openxr(profile) && uses_openxr(parse_settings("runtime=openxr\n")));
+    CHECK(get(profile_of(compose_live(defaults, parse_settings("runtime=openxr\n"), "0")), "runtime") == "openxr");
 
     // X4 config: flag what VR needs, fix exactly that, keep everything else.
     const std::string xml = "<?xml version=\"1.0\"?>\n<root>\n  <fullscreen>false</fullscreen>\n  <borderless>false</borderless>\n"
@@ -37,6 +40,7 @@ int main() {
     CHECK(xml_value(fixed, "gamma", v) && v == "1.00");
     CHECK(xml_value(fixed, "res_width", v) && v == "2560");
     CHECK(failing(check_x4(fixed, 0, 0)) == 0); // resolution unchecked when the profile has none
+    CHECK(failing(check_x4(xml_set(xml_set(fixed, "dlss", "true"), "dlssmode", "ultra_performance"), 2560, 1440)) == 0); // DLSS allowed
     const auto inserted = xml_set("<root>\n</root>\n", "enableopentrack", "true");
     CHECK(xml_value(inserted, "enableopentrack", v) && v == "true");
 

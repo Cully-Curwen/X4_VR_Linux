@@ -30,6 +30,20 @@ lean), correct depth and scale.
    frame repeats the previous image instead of reaching SteamVR late. `async_submit=0`
    restores inline submission from the present.
 
+## OpenXR backend (2026-09-27, experimental)
+
+`X4VR_RUNTIME=openxr` (the launcher's *VR runtime* box) switches `RuntimeBootstrap` to
+`src/openxr_runtime.cpp`; everything else in the pipeline is shared. `XR_KHR_vulkan_enable` (v1)
+supplies the extensions the layer adds to X4's instance and device. The session is created at the
+first present on X4's device and the layer's private queue, and destroyed in `vkDestroyDevice`.
+Each frame the submission thread copies both eye images into runtime swapchains (8-bit UNORM goes
+to its SRGB twin) and sends each eye at the head pose it was rendered with; eyes without a pose
+(theater mode fills only eye 0) use the runtime's own pose. Theater screen and cursor are quad
+layers. The runtime reaches our `vkGetDeviceQueue` hook inside `xrCreateSession` while the present
+holds the presenter lock, so the queue map has its own lock. Tools: `openxr_probe` (runtime
+capabilities), `runtime_smoke` (drives either backend without X4). Tested on Varjo Base's runtime
+and SteamVR's OpenXR runtime (probe only).
+
 ## Flicker investigation (2026-09-26)
 
 Symptom: dark/grey flashes (first seen in one eye, later both) whenever X4 fell below a

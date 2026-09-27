@@ -69,8 +69,8 @@ struct Device {
     PFN_vkSetDeviceLoaderData set_loader_data{};
     PFN_vkGetInstanceProcAddr gipa{};
     std::shared_ptr<x4vr::RuntimeBootstrap> runtime;
-    VkQueue vr_queue{}; // layer-private queue for OpenVR submission (null if unavailable)
-    uint32_t vr_family = UINT32_MAX;
+    VkQueue vr_queue{}; // layer-private queue for VR submission (null if unavailable)
+    uint32_t vr_family = UINT32_MAX, vr_index{};
 };
 std::mutex state_mutex;
 // Explicit vkDestroyInstance performs runtime shutdown. Never invoke VR_Shutdown
@@ -415,7 +415,9 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical, 
 #undef RESOLVE
     if (vr_family != UINT32_MAX && data.GetDeviceQueue) {
         data.GetDeviceQueue(*output, vr_family, vr_index, &data.vr_queue);
-        if (data.vr_queue && data.set_loader_data && data.set_loader_data(*output, data.vr_queue) == VK_SUCCESS) data.vr_family = vr_family;
+        if (data.vr_queue && data.set_loader_data && data.set_loader_data(*output, data.vr_queue) == VK_SUCCESS) {
+            data.vr_family = vr_family; data.vr_index = vr_index;
+        }
         else data.vr_queue = VK_NULL_HANDLE;
     }
     try { std::lock_guard lock(state_mutex); devices.emplace(key(*output), data); }
@@ -433,6 +435,7 @@ void stop_submission(VkDevice device);
 EXPORT VKAPI_ATTR void VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks* alloc) {
     const auto data = device_for(device); if (!data) return;
     stop_submission(device); // it submits on this device's queue: X4 crashed on exit without this
+    if (data->runtime) data->runtime->end_session(device); // OpenXR: the session uses this device
     { std::lock_guard lock(state_mutex); devices.erase(key(device)); }
     data->DestroyDevice(device, alloc);
     log([&](auto& s) { s << "{\"event\":\"device_destroyed\",\"device\":" << handle(device) << '}'; });
@@ -517,7 +520,15 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice device, 
 // eye's texture, then submit both eye textures to OpenVR with frustum bounds.
 struct Presenter {
     std::mutex mutex;
+    // Own lock, not `mutex`: the OpenXR runtime fetches its queue through our vkGetDeviceQueue
+    // hook inside xrCreateSession, which runs while the present holds `mutex`.
+    std::mutex families_mutex;
     std::unordered_map<VkQueue, uint32_t> families;
+    uint32_t family_of(VkQueue queue) {
+        std::lock_guard lock(families_mutex);
+        const auto found = families.find(queue);
+        return found == families.end() ? UINT32_MAX : found->second;
+    }
     VkSwapchainKHR swapchain{};
     std::vector<VkImage> images;
     VkExtent2D extent{};
@@ -653,6 +664,13 @@ void presenter_initialize(const Device& d, uint32_t family) {
     auto& p = presenter();
     const auto memory = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(d.gipa(d.instance, "vkGetPhysicalDeviceMemoryProperties"));
     const auto image_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties>(d.gipa(d.instance, "vkGetPhysicalDeviceImageFormatProperties"));
+    if (d.runtime->openxr()) { // the session needs this device and the private queue; eye setup comes from it
+        if (!d.vr_queue) throw std::runtime_error("OpenXR needs a private queue in the game's graphics family");
+        x4vr::XrVulkanContext vulkan{d.instance, d.physical, d.runtime->output_device(d.instance), d.device, d.vr_queue,
+            d.vr_family, d.vr_index, reinterpret_cast<decltype(x4vr::XrVulkanContext::gipa)>(d.gipa),
+            reinterpret_cast<decltype(x4vr::XrVulkanContext::gdpa)>(d.gdpa), reinterpret_cast<decltype(x4vr::XrVulkanContext::set_loader_data)>(d.set_loader_data)};
+        if (const auto error = d.runtime->start_session(vulkan); !error.empty()) throw std::runtime_error(error);
+    }
     p.eyes = d.runtime->eye_setup();
     const float tan_y = x4vr::stereo_settings().game_tan_y;
     const float tan_x = tan_y*float(p.extent.width)/float(p.extent.height);
@@ -731,9 +749,9 @@ bool update_theater(Presenter& p, const x4vr::StereoSettings& s, bool posed, boo
 VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKHR* info) {
     auto& p = presenter();
     if (p.failed || !d.runtime || info->swapchainCount != 1 || info->pSwapchains[0] != p.swapchain) return VK_NULL_HANDLE;
-    const auto family = p.families.find(queue);
-    if (family == p.families.end() || info->pImageIndices[0] >= p.images.size()) return VK_NULL_HANDLE;
-    if (!p.ready) presenter_initialize(d, family->second);
+    const auto family = p.family_of(queue);
+    if (family == UINT32_MAX || info->pImageIndices[0] >= p.images.size()) return VK_NULL_HANDLE;
+    if (!p.ready) presenter_initialize(d, family);
     const auto settings = x4vr::stereo_settings();
     const auto number = x4vr::next_present();
     p.last_number = number;
@@ -754,7 +772,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     p.last_eye = eye;
     std::error_code absent;
     if (p.probe_count && std::filesystem::remove(capture_root()/"frames.request", absent)) probe_write(d, p);
-    p.async_frame = settings.async_submit && settings.pace && d.vr_queue && d.vr_family == family->second;
+    p.async_frame = settings.async_submit && settings.pace && d.vr_queue && d.vr_family == family;
     constexpr auto ring = Presenter::ring_size;
     std::array<uint32_t, 2> slot_of{UINT32_MAX, UINT32_MAX}; // ring image each written eye goes to
     for (uint32_t target = 0; target < 2; ++target) {
@@ -899,7 +917,7 @@ void report_submit(const std::string& error) {
     static std::atomic_uint reported{};
     if (!error.empty() && reported++ < 8) OutputDebugStringA(("X4VR presenter: "+error+"\n").c_str());
     static std::atomic_bool first{};
-    if (error.empty() && !first.exchange(true)) OutputDebugStringA("X4VR presenter: first stereo pair submitted to OpenVR\n");
+    if (error.empty() && !first.exchange(true)) OutputDebugStringA("X4VR presenter: first stereo pair submitted to the VR runtime\n");
 }
 // Compositor frame clock, published by whichever path calls WaitGetPoses; paces the game.
 struct Ticks {
@@ -1193,7 +1211,7 @@ void compositor_loop(Device d) {
                 }
                 textures[e] = eye_texture(d, p, VK_NULL_HANDLE, d.vr_queue, d.vr_family);
             }
-            bounds = eye_bounds(p, s.valve_bounds);
+            bounds = eye_bounds(p, s.valve_bounds && !d.runtime->openxr());
         }
         uint32_t fallbacks = 0;
         std::array<bool, 2> fresh{};
@@ -1243,6 +1261,9 @@ void compositor_loop(Device d) {
             screen = x4vr::multiply(screen_origin, ahead);
             error = d.runtime->show_theater(fresh[0] || !screen_visible ? &textures[0] : nullptr, crop, screen, s.theater_width);
             screen_visible = true;
+        }
+        update_cursor(d, cursor, s, theater && screen_visible ? &screen : nullptr); // before submit: OpenXR sends all layers in it
+        if (theater) {
             auto dark = textures;
             for (uint32_t e = 0; e < 2; ++e) {
                 dark[e] = textures[0];
@@ -1252,7 +1273,6 @@ void compositor_loop(Device d) {
         } else {
             error = d.runtime->submit_frame(textures, bounds, poses, s.submit_pose != 0);
         }
-        update_cursor(d, cursor, s, theater && screen_visible ? &screen : nullptr);
         const auto submitting = std::chrono::duration<double>(std::chrono::steady_clock::now()-submitted_at).count();
         check(d.ResetFences(d.device, 1, &read), "vkResetFences");
         check(d.QueueSubmit(d.vr_queue, 0, nullptr, read), "vkQueueSubmit");
@@ -1298,11 +1318,12 @@ void presenter_submit(const Device& d, VkQueue queue) {
     if (!settings.pace) return; // calibration: no compositor pacing/submission
     if (settings.pair && settings.stereo && p.last_eye == 0) { if (settings.pair_wait) wait_mid_frame(); return; }
     std::array<vr::VRVulkanTextureData_t, 2> textures{};
-    for (uint32_t i = 0; i < 2; ++i) textures[i] = eye_texture(d, p, p.image(i, p.current[i]), queue, p.families[queue]);
+    for (uint32_t i = 0; i < 2; ++i) textures[i] = eye_texture(d, p, p.image(i, p.current[i]), queue, p.family_of(queue));
     auto poses = p.poses;
     if (settings.submit_pose == 2) poses[0] = poses[1] = p.poses[p.last_eye]; // the eye just copied is newest
     const auto called = std::chrono::steady_clock::now();
-    const auto error = d.runtime->submit_stereo(textures, eye_bounds(p, settings.valve_bounds), poses, settings.submit_pose != 0);
+    const auto error = d.runtime->submit_stereo(textures, eye_bounds(p, settings.valve_bounds && !d.runtime->openxr()), poses,
+                                                settings.submit_pose != 0);
     const auto interval = ticks().tick();
     pair_stats(settings, p.fresh, std::chrono::duration<double>(std::chrono::steady_clock::now()-called).count(), interval, !error.empty());
     p.fresh = {};
@@ -1337,12 +1358,12 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, cons
 EXPORT VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue(VkDevice device, uint32_t family, uint32_t index, VkQueue* queue) {
     const auto data = device_for(device); if (!data || !data->GetDeviceQueue) return;
     data->GetDeviceQueue(device, family, index, queue);
-    if (*queue) { auto& p = presenter(); std::lock_guard lock(p.mutex); p.families[*queue] = family; }
+    if (*queue) { auto& p = presenter(); std::lock_guard lock(p.families_mutex); p.families[*queue] = family; }
 }
 EXPORT VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue2(VkDevice device, const VkDeviceQueueInfo2* info, VkQueue* queue) {
     const auto data = device_for(device); if (!data || !data->GetDeviceQueue2) return;
     data->GetDeviceQueue2(device, info, queue);
-    if (*queue) { auto& p = presenter(); std::lock_guard lock(p.mutex); p.families[*queue] = info->queueFamilyIndex; }
+    if (*queue) { auto& p = presenter(); std::lock_guard lock(p.families_mutex); p.families[*queue] = info->queueFamilyIndex; }
 }
 EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info) {
     const auto data = device_for(queue); if (!data || !data->QueuePresentKHR) return VK_ERROR_INITIALIZATION_FAILED;

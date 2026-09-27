@@ -40,9 +40,10 @@ inline void set(Settings& settings, const std::string& key, const std::string& v
 }
 
 // What a profile holds. Everything else in stereo.txt is X4 calibration from config/stereo.txt.
-// x4_width/x4_height are the launcher's own (the resolution the X4 check expects).
+// x4_width/x4_height are the launcher's own (the resolution the X4 check expects). runtime (openvr
+// or openxr) is read by the game at startup from X4VR_RUNTIME; stereo.txt keeps it for bug reports.
 inline const std::vector<std::string>& profile_keys() {
-    static const std::vector<std::string> keys{"stereo", "pair", "ipd_scale", "predict", "async_submit", "x4_width", "x4_height"};
+    static const std::vector<std::string> keys{"stereo", "pair", "ipd_scale", "predict", "async_submit", "runtime", "x4_width", "x4_height"};
     return keys;
 }
 inline Settings profile_of(const Settings& settings) {
@@ -60,6 +61,8 @@ inline Settings compose_live(const Settings& defaults, const Settings& profile, 
     if (!recenter.empty()) set(out, "recenter", recenter);
     return out;
 }
+
+inline bool uses_openxr(const Settings& profile) { return get(profile, "runtime") == "openxr"; }
 
 // X4's config.xml is flat <key>value</key> lines under <root>.
 inline bool xml_value(const std::string& xml, const std::string& key, std::string& value) {
@@ -103,8 +106,8 @@ inline std::vector<Check> check_x4(const std::string& xml, int width, int height
     const auto aa = value("antialiasing");
     checks.push_back({"Anti-aliasing not temporal", true, aa.find("taa") == std::string::npos && aa.find("temporal") == std::string::npos,
                       aa, {{"antialiasing", "none"}}});
-    equals("NVIDIA DLSS off", "dlss", "false", true);
-    equals("DLSS mode off", "dlssmode", "off", true);
+    // DLSS upscaling is allowed: tested up to Ultra Performance (2026-09-27) without the eyes
+    // mixing. Frame generation inserts frames between two different eyes, so it stays off.
     equals("DLSS frame generation off", "dlssg", "off", true);
     equals("AMD FSR frame generation off", "fsr3g", "off", true);
     equals("Upscaling off", "upmode", "none", true);

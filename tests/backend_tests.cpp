@@ -1,4 +1,5 @@
 #include <x4vr/session.hpp>
+#include "openxr_runtime.hpp"
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -105,10 +106,44 @@ void image_contract() {
     rejects([&] { session.submit(1, images); }, "Reject submission before initialization");
     session.shutdown(); session.shutdown();
 }
+// OpenXR backend: the same poses, frusta and texture crops as the OpenVR path, converted.
+void openxr_conversions() {
+    auto pose = yaw(0.7f);
+    auto pitch = x4vr::Matrix::identity();
+    pitch.m[1][1] = pitch.m[2][2] = std::cos(-1.2f); pitch.m[1][2] = -std::sin(-1.2f); pitch.m[2][1] = std::sin(-1.2f);
+    pose = x4vr::multiply(pose, pitch);
+    pose.m[0][3] = 0.03f; pose.m[1][3] = 1.2f; pose.m[2][3] = -0.4f;
+    const auto xr = x4vr::to_xr(pose);
+    const auto& q = xr.orientation;
+    near(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w, 1, "Unit quaternion");
+    const auto back = x4vr::from_xr(xr);
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j) near(back.m[i][j], pose.m[i][j], "Pose survives the OpenXR round trip", 1e-5f);
+    auto half_turn = yaw(3.14159265f); // trace -1: the non-trace quaternion branches
+    const auto turned = x4vr::from_xr(x4vr::to_xr(half_turn));
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) near(turned.m[i][j], half_turn.m[i][j], "Half turn survives the round trip", 1e-5f);
+    require(!x4vr::is_rigid(x4vr::Matrix{}), "An unset (all-zero) eye pose is not rigid: OpenXR uses the runtime pose");
+    const std::array<float, 4> aero{-1.5697f, 0.7105f, -0.8036f, 1.1149f}; // Varjo Aero left eye, OpenVR convention
+    const auto fov = x4vr::fov_from_tangents(aero);
+    require(fov.angleLeft < 0 && fov.angleRight > 0 && fov.angleUp > 0 && fov.angleDown < 0, "OpenXR angle signs");
+    near(fov.angleUp, 0.6770f, "Up angle from the negative OpenVR top", 1e-3f);
+    const auto tangents = x4vr::tangents_from_fov(fov);
+    for (int i = 0; i < 4; ++i) near(tangents[i], aero[i], "Tangents survive the round trip", 1e-5f);
+    const auto rect = x4vr::bounds_rect({0.25f, 0.1f, 0.75f, 0.9f}, 1000, 2000);
+    require(rect.offset.x == 250 && rect.offset.y == 200 && rect.extent.width == 500 && rect.extent.height == 1600, "Bounds to pixels");
+    const auto flipped = x4vr::bounds_rect({0.25f, 0.9f, 0.75f, 0.1f}, 1000, 2000);
+    require(flipped.offset.y == 200 && flipped.extent.height == 1600, "Bounds order does not matter");
+    const std::vector<int64_t> varjo{43, 50, 37, 126, 129, 130};
+    require(x4vr::swapchain_format(44, varjo) == 50, "B8G8R8A8_UNORM goes to its SRGB twin");
+    require(x4vr::swapchain_format(37, varjo) == 43, "R8G8B8A8_UNORM goes to its SRGB twin");
+    require(x4vr::swapchain_format(50, varjo) == 50, "SRGB stays");
+    require(x4vr::swapchain_format(44, {37}) == 0, "No channel-swapping copy");
+}
 }
 int main() {
     try {
-        camera_math(); projections(); image_contract();
+        camera_math(); projections(); image_contract(); openxr_conversions();
         std::cout << checks << " checks passed (math/metadata/pre-init only; no GPU or HMD exercised).\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

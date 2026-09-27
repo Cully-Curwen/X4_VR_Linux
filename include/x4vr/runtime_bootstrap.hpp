@@ -4,16 +4,36 @@
 #include <mutex>
 
 namespace x4vr {
+class OpenXRRuntime;
+// The Vulkan layer's device, for the OpenXR session (OpenVR takes these per submitted texture).
+// physical: the layer's own handle; output_physical: the runtime's handle from output_device().
+using VulkanFunction = void (*)();
+struct XrVulkanContext {
+    VkInstance_T* instance{};
+    VkPhysicalDevice_T* physical{}, *output_physical{};
+    VkDevice_T* device{};
+    VkQueue_T* queue{}; // the layer-private queue
+    uint32_t family{}, queue_index{};
+    VulkanFunction (*gipa)(VkInstance_T*, const char*){};
+    VulkanFunction (*gdpa)(VkDevice_T*, const char*){};
+    int (*set_loader_data)(VkDevice_T*, void*){};
+};
 // Initialization and unpaced tracking bridge: no queue access, tracking wait,
 // or image submission. One shared-library instance for both native/Vulkan modules.
 // Calls are serialized on Vulkan's caller thread: dispatching extension queries
 // to a worker while inside vkCreateInstance can invert loader locks.
+// Backend: OpenVR, or OpenXR when the launcher sets X4VR_RUNTIME=openxr (read once).
 class RuntimeBootstrap {
     std::mutex mutex_;
     Session session_;
+    std::unique_ptr<OpenXRRuntime> xr_;
 public:
     RuntimeBootstrap();
     ~RuntimeBootstrap();
+    bool openxr() const { return xr_ != nullptr; }
+    // OpenXR: create the session on the game's device (first present); OpenVR: nothing to do.
+    std::string start_session(const XrVulkanContext& vulkan);
+    void end_session(VkDevice_T* device); // before that device is destroyed
     std::vector<std::string> instance_extensions();
     std::vector<std::string> device_extensions(VkPhysicalDevice_T* physical);
     VkPhysicalDevice_T* output_device(VkInstance_T* instance);
