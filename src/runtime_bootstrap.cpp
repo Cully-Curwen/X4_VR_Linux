@@ -1,6 +1,7 @@
 #include <x4vr/runtime_bootstrap.hpp>
 #include "openxr_runtime.hpp"
 #include <windows.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -8,6 +9,7 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <map>
 #include <sstream>
@@ -217,15 +219,36 @@ std::string RuntimeBootstrap::show_cursor(const uint8_t* rgba, uint32_t width, u
     std::lock_guard lock(mutex_);
     auto* overlay = vr::VROverlay();
     if (!overlay) return "OpenVR overlay interface unavailable";
-    if (cursor_ == vr::k_ulOverlayHandleInvalid) {
-        const auto error = overlay->CreateOverlay("x4vr.cursor", "X4 VR cursor", &cursor_);
-        if (error != vr::VROverlayError_None) { cursor_ = vr::k_ulOverlayHandleInvalid; return "CreateOverlay (cursor) failed: OpenVR overlay error " + std::to_string(error); }
-        overlay->SetOverlaySortOrder(cursor_, 1); // above the theater screen
-    }
     if (rgba) {
-        const auto error = overlay->SetOverlayRaw(cursor_, const_cast<uint8_t*>(rgba), width, height, 4);
-        if (error != vr::VROverlayError_None) return "SetOverlayRaw failed: OpenVR overlay error " + std::to_string(error);
+        const auto key = std::hash<std::string_view>{}({reinterpret_cast<const char*>(rgba), size_t(width)*height*4})^(size_t(width) << 16 | height);
+        const auto found = std::find_if(cursors_.begin(), cursors_.end(), [&](const auto& c) { return c.first == key; });
+        auto handle = vr::k_ulOverlayHandleInvalid;
+        std::string error;
+        if (found != cursors_.end()) { handle = found->second; cursors_.erase(found); }
+        else {
+            // ponytail: 16 images; X4 uses a handful. Past that the least recently shown is uploaded again,
+            // which spends another block: a texture overlay (SetOverlayTexture) if X4 ever cycles more shapes.
+            if (cursors_.size() < 16) {
+                const auto name = "x4vr.cursor." + std::to_string(cursors_.size());
+                if (const auto created = overlay->CreateOverlay(name.c_str(), "X4 VR cursor", &handle); created != vr::VROverlayError_None)
+                    return "CreateOverlay (cursor) failed: OpenVR overlay error " + std::to_string(created);
+                overlay->SetOverlaySortOrder(handle, 1); // above the theater screen
+            } else {
+                handle = cursors_.front().second;
+                cursors_.erase(cursors_.begin());
+            }
+            // Kept even if the upload fails, so a failing image isn't retried every frame.
+            if (const auto uploaded = overlay->SetOverlayRaw(handle, const_cast<uint8_t*>(rgba), width, height, 4); uploaded != vr::VROverlayError_None)
+                error = "SetOverlayRaw failed: OpenVR overlay error " + std::to_string(uploaded);
+            static unsigned uploads{};
+            OutputDebugStringA(("X4VR presenter: cursor image " + std::to_string(++uploads) + " uploaded\n").c_str());
+        }
+        cursors_.emplace_back(key, handle);
+        if (cursor_ != handle && cursor_ != vr::k_ulOverlayHandleInvalid) overlay->HideOverlay(cursor_);
+        cursor_ = handle;
+        if (!error.empty()) return error;
     }
+    if (cursor_ == vr::k_ulOverlayHandleInvalid) return "no cursor image yet";
     vr::HmdMatrix34_t transform{};
     for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) transform.m[r][c] = placement.m[r][c];
     overlay->SetOverlayWidthInMeters(cursor_, width_m);

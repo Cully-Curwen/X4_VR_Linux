@@ -130,14 +130,15 @@ Eye dump: create `reports/captures/dump.txt`, which writes `eye-0.raw`, `eye-1.r
 - X4's max FOV (tan 0.8675 vertical) leaves a black band at the bottom (the Aero needs 1.116).
 - Needs the launcher (PATH to `build/Release`, Vulkan layer env). A normal Steam launch
   would fail to load `x4_openvr.dll` dependencies.
-- **Open bug (important, 2026-09-28, OpenVR):** after playing for a while and opening and
-  closing menus, the mouse breaks and the cursor is invisible. Not yet reproduced or
-  diagnosed. The cursor overlay (`update_cursor`, `observe_layer.cpp`) hides whenever one of
-  these checks fails: `GetCursorInfo` reports `CURSOR_SHOWING`, the foreground window is the
-  cached largest X4 window (`game_window`), and the cursor is inside its client rect. If input
-  also stops, lost focus or a cursor X4 hid or clipped are the first suspects. When it
-  happens, capture `GetCursorInfo` flags, the foreground window and `GetClipCursor` while X4
-  is still running.
+- **Cursor bug (2026-09-28, OpenVR; fixed):**
+  after a while of opening and closing menus the cursor went invisible. Cause: every
+  `SetOverlayRaw` keeps one of SteamVR's memory blocks, and the cursor overlay uploaded its
+  image on every shape change (arrow, hand, ...). At ~200 blocks vrclient refuses more
+  ("201 blocks are already outstanding", `D:/Steam/logs/vrclient_X4.previous.txt`); every upload
+  then failed and the layer retried each frame (18,651 failures in one session). Fix: one
+  overlay per cursor image (`RuntimeBootstrap::show_cursor`), uploaded once, then only shown
+  or hidden; each upload is logged ("cursor image N uploaded"). Verified: 5 minutes of menus,
+  5 uploads in the whole session, 0 failures, cursor visible throughout.
 
 ---
 

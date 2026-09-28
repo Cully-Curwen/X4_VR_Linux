@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <utility>
+#include <vector>
 
 namespace x4vr {
 class OpenXRRuntime;
@@ -75,7 +77,13 @@ public:
                             const Matrix& placement, float width_m);
     void hide_cursor();
 private:
-    vr::VROverlayHandle_t theater_{vr::k_ulOverlayHandleInvalid}, cursor_{vr::k_ulOverlayHandleInvalid};
+    vr::VROverlayHandle_t theater_{vr::k_ulOverlayHandleInvalid};
+    // One overlay per cursor image, uploaded once. Every SetOverlayRaw keeps a SteamVR memory
+    // block for good, and vrclient refuses new ones past ~200 ("201 blocks are already
+    // outstanding", vrclient_X4.txt). Uploading on each shape change used them up after a while
+    // in menus: from then on every upload failed and the cursor stayed invisible.
+    std::vector<std::pair<size_t, vr::VROverlayHandle_t>> cursors_; // image hash, overlay; most recently shown last
+    vr::VROverlayHandle_t cursor_{vr::k_ulOverlayHandleInvalid}; // the one shown
 };
 // Alternate-eye bookkeeping shared by the FreeTrack pose source and the Vulkan layer.
 // Tunables are re-read from %X4VR_CAPTURE_DIR%/stereo.txt ("key=value" per line).
