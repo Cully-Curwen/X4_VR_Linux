@@ -301,7 +301,9 @@ void apply_hud(bool remove) {
     if (running(L"X4.exe")) { MessageBoxW(app.window, L"Close X4 first: it loads extensions at startup.", L"X4 VR", MB_ICONWARNING); return; }
     std::error_code removed;
     if (remove) { fs::remove_all(hud_extension(), removed); return; }
-    const auto scale = _wtof(text_of(app.controls[HudEdit]).c_str());
+    auto text = text_of(app.controls[HudEdit]);
+    std::replace(text.begin(), text.end(), L',', L'.'); // "2,5" on comma-decimal keyboards; _wtof would read 2
+    const auto scale = _wtof(text.c_str());
     if (scale < 1 || scale > 6) { MessageBoxW(app.window, L"HUD distance: use a factor between 1 and 6 (2.5 is a good start).", L"X4 VR", MB_ICONINFORMATION); return; }
     std::string error;
     if (!install_hud(scale, error)) MessageBoxW(app.window, widen("Could not build the HUD mod: "+error).c_str(), L"X4 VR", MB_ICONERROR);
