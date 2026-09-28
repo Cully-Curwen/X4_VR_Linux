@@ -1,13 +1,14 @@
 """Timed in-headset A/B of presentation modes; segment n starts with n beeps.
 Waits for X4 to be the foreground window, then runs each mode for SECONDS and prints the
 layer's pair_stats.txt lines per segment. Restores stereo.txt afterwards.
-usage: flicker_ab.py [seconds] [async|hitch|content|pose]"""
+usage: flicker_ab.py [seconds] [async|hitch|content|pose|stutter|still|eyeuse|delay]"""
 import sys, time, ctypes as C, winsound
 from ctypes import wintypes as W
 from pathlib import Path
 
 CAPTURES = Path(__file__).resolve().parents[1]/'reports'/'captures'
-BASE = dict(pair=0, pair_wait=1, eye_from_half=1, half_xor_render=0, half_xor_present=1, submit_pose=1, async_submit=1, hitch_ms=0)
+BASE = dict(pair=0, pair_wait=1, eye_from_half=1, half_xor_render=0, half_xor_present=1, submit_pose=1, async_submit=1, hitch_ms=0,
+            handoff=0, release_late=0, eye_at_use=1)
 MODE_SETS = {
     # the 2026-09-26 finding: inline submission shows every late game frame (grey flashes in
     # pair mode, ghosting on stalls); async submission hides them
@@ -26,7 +27,22 @@ MODE_SETS = {
     'pose': [('pair, per-eye poses', dict(pair=1)),
              ('pair, no submitted pose', dict(pair=1, submit_pose=0)),
              ('alternate eyes, per-eye poses', {}),
-             ('alternate eyes, no submitted pose', dict(submit_pose=0))]}
+             ('alternate eyes, no submitted pose', dict(submit_pose=0))],
+    # STUTTER_RESEARCH.md items 3 and 4: compare the late/x4_late/waited_max columns
+    'stutter': [('no handoff, late frames go on at once', dict(release_late=1)),
+                ('PostPresentHandoff after Submit', dict(handoff=1, release_late=1)),
+                ('late frames wait for the next tick', {}),
+                ('no handoff, late frames go on at once', dict(release_late=1))],
+    # 2026-09-28: stutter with head and ship still; which part of the stereo path causes it
+    'still': [('alternate eyes', {}),
+              ('mono: both eyes the same image, every frame', dict(stereo=0)),
+              ('alternate eyes, no pose prediction', dict(predict=0)),
+              ('alternate eyes, no pose submitted with the images', dict(submit_pose=0))],
+    # the fix for wrong-eye frames: eye offset added when X4's camera reads the tracker
+    'eyeuse': [('eye chosen at use (fix)', {}), ('eye chosen at the tracker read (old)', dict(eye_at_use=0)),
+               ('eye chosen at use (fix)', {}), ('eye chosen at the tracker read (old)', dict(eye_at_use=0))],
+    # which recorded pose goes with a presented frame (turn the head while comparing)
+    'delay': [('delay 2', dict(delay=2)), ('delay 1', dict(delay=1)), ('delay 2', dict(delay=2)), ('delay 1', dict(delay=1))]}
 
 def x4_in_front():
     u, k = C.windll.user32, C.windll.kernel32

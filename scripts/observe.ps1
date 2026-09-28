@@ -5,6 +5,7 @@ param(
     [switch]$Memory,
     [switch]$NativeCamera,
     [switch]$StackTrace,
+    [switch]$Shaders,
     [switch]$OpenVRBootstrap,
     [switch]$PoseHook,
     [switch]$HeadLook,
@@ -55,6 +56,7 @@ $start.Environment['X4VR_CAPTURE_DIR'] = Join-Path $projectRoot 'reports/capture
 $start.Environment['X4VR_CAPTURE_MEMORY'] = $(if ($Memory -or $NativeCamera -or $StackTrace) { '1' } else { '0' })
 $start.Environment['X4VR_CAPTURE_NATIVE_CAMERA'] = $(if ($NativeCamera) { '1' } else { '0' })
 $start.Environment['X4VR_CAPTURE_STACK'] = $(if ($StackTrace) { '1' } else { '0' })
+$start.Environment['X4VR_CAPTURE_SHADERS'] = $(if ($Shaders) { '1' } else { '0' }) # shader modules and pipelines to events.jsonl
 $start.Environment['X4VR_OPENVR_BOOTSTRAP'] = $(if ($OpenVRBootstrap) { '1' } else { '0' })
 $start.Environment['X4VR_HEAD_LOOK'] = $(if ($HeadLook) { '1' } else { '0' })
 $start.Environment['X4VR_GAME_ARGS'] = $GameArgs

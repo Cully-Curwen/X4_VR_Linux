@@ -24,11 +24,28 @@ lean), correct depth and scale.
    The textures are padded to span each eye's whole frustum at the game's
    pixels-per-tangent. A **submission thread** on a layer-private queue (one extra queue
    requested at `vkCreateDevice`) runs `WaitGetPoses` → `Submit(both eyes, bounds,
-   Submit_TextureWithPose)` → `PostPresentHandoff` every compositor frame with each eye's
-   newest finished image (waiting at most `submit_budget_ms` for an in-flight copy). The
+   Submit_TextureWithPose)` every compositor frame with each eye's
+   newest finished image (waiting at most `submit_budget_ms`, default 2, for an in-flight
+   copy; SteamVR on the Aero latches ~3.2 ms after `WaitGetPoses`, and the old 8 ms budget
+   let copies that were a few ms late push Submit past it, a missed frame and a flash). The
    game's present only copies, then waits for the thread's frame tick. So a late game
    frame repeats the previous image instead of reaching SteamVR late. `async_submit=0`
    restores inline submission from the present.
+   Since 2026-09-28 (docs/STUTTER_RESEARCH.md, fix plan items 1-5) nothing between
+   `WaitGetPoses` and `Submit` waits without a deadline: OpenVR's copies of earlier
+   submissions are tracked by a fence per submission (their images stay held) instead of
+   being waited for; the lock shared with the present hook is taken with the submit budget
+   (on timeout the last frame is sent again, `resubmit` column); the present hook releases
+   it before the driver's present. The thread runs at time-critical priority. All
+   diagnostic file I/O (stats, `stereo.txt` reload, request files, `events.jsonl`,
+   `head.txt`) runs on one background thread in `x4_openvr.dll`. Shader modules, pipelines
+   and descriptor layouts are logged only with `observe.ps1 -Shaders` (needed by
+   `reflect_capture.py`/`analyze_uniforms.py`); otherwise only pipeline creations over 2 ms
+   (`slow_pipelines`). Live keys: `handoff=1` restores `PostPresentHandoff` after Submit;
+   `release_late=0` makes a game frame that ends after a tick wait for the next one again
+   (it halved 80-89 fps to 45; `x4_late` column counts released frames).
+   `submit.request` writes the thread's last 2048 frames to `submit_trace.txt`
+   (`tools/submit_trace.py` requests and summarizes it; `flicker_ab.py … stutter` A/Bs the keys).
 
 ## OpenXR backend (2026-09-27, experimental)
 

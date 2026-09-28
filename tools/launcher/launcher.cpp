@@ -437,7 +437,7 @@ std::wstring environment_block() {
     variables[L"X4VR_CAPTURE_DIR"] = app.captures.wstring();
     variables[L"X4VR_OPENVR_BOOTSTRAP"] = L"1"; // the runtime bootstrap, whichever backend
     variables[L"X4VR_RUNTIME"] = uses_openxr(app.profile) ? L"openxr" : L"openvr";
-    for (const auto* off : {L"X4VR_CAPTURE_MEMORY", L"X4VR_CAPTURE_NATIVE_CAMERA", L"X4VR_CAPTURE_STACK", L"X4VR_HEAD_LOOK", L"X4VR_SCENE_COPY"})
+    for (const auto* off : {L"X4VR_CAPTURE_MEMORY", L"X4VR_CAPTURE_NATIVE_CAMERA", L"X4VR_CAPTURE_STACK", L"X4VR_CAPTURE_SHADERS", L"X4VR_HEAD_LOOK", L"X4VR_SCENE_COPY"})
         variables[off] = L"0";
     variables[L"X4VR_GAME_ARGS"] = L"-skipintro -nocputhrottle";
     std::wstring block;

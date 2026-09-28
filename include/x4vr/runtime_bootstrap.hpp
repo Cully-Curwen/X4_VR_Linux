@@ -1,5 +1,7 @@
 #pragma once
 #include <x4vr/session.hpp>
+#include <chrono>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 
@@ -50,11 +52,17 @@ public:
     std::string submit_stereo(const std::array<vr::VRVulkanTextureData_t, 2>& images,
                               const std::array<vr::VRTextureBounds_t, 2>& bounds,
                               const std::array<Matrix, 2>& poses, bool with_pose = true);
-    // The same protocol split in two, for a dedicated submission thread.
+    // The same protocol split in two, for a dedicated submission thread. handoff: call
+    // PostPresentHandoff after Submit (OpenVR). marks (diagnostics): when Submit(left),
+    // Submit(right) and the handoff returned.
+    using SubmitMarks = std::array<std::chrono::steady_clock::time_point, 3>;
     std::string wait_frame();
     std::string submit_frame(const std::array<vr::VRVulkanTextureData_t, 2>& images,
                              const std::array<vr::VRTextureBounds_t, 2>& bounds,
-                             const std::array<Matrix, 2>& poses, bool with_pose = true);
+                             const std::array<Matrix, 2>& poses, bool with_pose = true, bool handoff = true,
+                             SubmitMarks* marks = nullptr);
+    // SteamVR's timing of a recent compositor frame (OpenVR only; false for OpenXR).
+    bool frame_timing(vr::Compositor_FrameTiming& timing, uint32_t frames_ago);
     // Theater mode: the flat game image on a world-fixed virtual screen (an OpenVR overlay),
     // `width` metres wide, centred at seated_from_screen. A null image keeps the last one.
     std::string show_theater(const vr::VRVulkanTextureData_t* image, const vr::VRTextureBounds_t& bounds,
@@ -84,11 +92,25 @@ struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float i
     // Submit from a dedicated thread every compositor frame (a late game frame repeats the
     // previous image instead of reaching SteamVR late), waiting at most submit_budget_ms
     // for the newest image's copy to finish. 0 = submit inline from the game's present.
-    bool async_submit = true; float submit_budget_ms = 8;
+    // SteamVR on the Aero latches the frame ~3.2-4.5 ms after WaitGetPoses returns (measured
+    // 2026-09-28): a Submit after that misses a whole compositor frame, which shows as a flash.
+    bool async_submit = true; float submit_budget_ms = 2;
+    // PostPresentHandoff after each asynchronous Submit. openvr.h: only needed when WaitGetPoses
+    // can't follow the present, and here it follows at once (openvr #1401: the call itself blocked).
+    bool handoff = false;
+    // 1: a game frame that ends after a compositor tick releases X4 at once instead of waiting
+    // for the next tick. Off: in the headset (2026-09-28, GPU-bound ~75 fps) waiting was steadier;
+    // tick-aligned frames keep X4's simulation steps in step with the display.
+    bool release_late = false;
     // Diagnostics: stall the game's render thread for hitch_ms once every hitch_every presents.
     float hitch_ms = 0; int hitch_every = 90;
     // Eye association by X4's per-frame render-data half instead of present counting.
-    bool eye_from_half = false; int half_xor_render = 0, half_xor_present = 0; float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{};
+    bool eye_from_half = false; int half_xor_render = 0, half_xor_present = 0;
+    // Eye offset added when X4's camera reads the tracker position, not at the tracker read
+    // (FreeTrack client, EyeOffsets); half_xor_use maps the frame half then to the eye.
+    // half_xor_use 1: measured in the headset 2026-09-28 (0 swapped the eyes: near objects doubled).
+    bool eye_at_use = true; int half_xor_use = 1;
+    float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{};
     // Theater mode (flat game image on a virtual screen): 0 off, 1 while X4 shows a fullscreen
     // menu or sends no head poses, 2 always. Screen distance and width in metres.
     int theater = 1; float theater_distance = 2.f, theater_width = 2.2f;
@@ -99,7 +121,13 @@ struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float i
     // since the newest image (SteamVR then aligns both). 0 off, 1 on foot, 2 always (in the
     // cockpit it misaligns the interior during ship turns instead).
     int turn_comp = 1; };
-StereoSettings stereo_settings();
+StereoSettings stereo_settings(); // cached; a background thread re-reads stereo.txt every 500 ms
+// File I/O on that background thread, in call order: X4's threads and the submission thread
+// never wait on the disk. append false replaces the file.
+void write_file_later(std::filesystem::path path, std::string text, bool append);
+// True once each time `name` appeared in %X4VR_CAPTURE_DIR% (deleted when seen; polled every
+// 500 ms from the first call on).
+bool take_request(const char* name);
 // Pose source (may be called several times per game frame): eye the frame being
 // simulated now will be presented to, and the head pose it was rendered with.
 uint32_t render_eye();
@@ -112,7 +140,10 @@ void publish_view_origin(const Matrix& origin);
 bool view_origin(Matrix& origin);
 int frame_half(); // X4 9.00 per-frame double-buffer half (0/1), -1 if unavailable
 // Layer: once per present. Returns the present number; pose lookup by number.
-void trace_event(char kind, uint64_t value); // diagnostics: create trace.request to dump
+// Diagnostics: create trace.request to dump the last 16384 events to trace.txt
+// ("kind value half time_us thread a b c"). Kinds: P present, L/R pose read for that eye,
+// C main camera bound (a b c: camera world position).
+void trace_event(char kind, uint64_t value, float a = 0, float b = 0, float c = 0);
 uint64_t next_present();
 // Eye, head pose, flat and walking flags of the frame being presented now (false: no pose known).
 bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat, bool& walking);

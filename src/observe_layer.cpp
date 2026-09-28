@@ -112,16 +112,17 @@ bool memory_enabled();
 bool native_camera_enabled();
 bool stack_trace_enabled();
 bool openvr_bootstrap_enabled();
+bool shaders_enabled();
 class Capture {
 public:
     std::mutex mutex;
-    std::ofstream events;
+    std::filesystem::path events; // empty until open() succeeded
     std::filesystem::path directory;
     bool attempted = false;
     uint32_t shader_count = 0;
     uint64_t shader_bytes = 0;
     bool open() {
-        if (attempted) return events.is_open();
+        if (attempted) return !events.empty();
         attempted = true;
         wchar_t path[32768];
         const auto count = GetEnvironmentVariableW(L"X4VR_CAPTURE_DIR", path, 32768);
@@ -132,26 +133,31 @@ public:
         const uint64_t stamp = (uint64_t(time.dwHighDateTime) << 32) | time.dwLowDateTime;
         directory = root / ("process-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(stamp));
         if (!std::filesystem::create_directories(directory)) return false;
-        events.open(directory / "events.jsonl", std::ios::out);
-        events << "{\"event\":\"capture_started\",\"pid\":" << GetCurrentProcessId()
-               << ",\"rendering_modified\":false,\"memory_sampling\":" << (memory_enabled() ? "true" : "false")
-               << ",\"native_camera\":" << (native_camera_enabled() ? "true" : "false")
-               << ",\"stack_trace\":" << (stack_trace_enabled() ? "true" : "false")
-               << ",\"openvr_bootstrap_requested\":" << (openvr_bootstrap_enabled() ? "true" : "false") << "}\n";
-        events.flush();
-        return events.is_open();
+        std::ofstream out(directory / "events.jsonl", std::ios::out);
+        out << "{\"event\":\"capture_started\",\"pid\":" << GetCurrentProcessId()
+            << ",\"rendering_modified\":false,\"memory_sampling\":" << (memory_enabled() ? "true" : "false")
+            << ",\"native_camera\":" << (native_camera_enabled() ? "true" : "false")
+            << ",\"stack_trace\":" << (stack_trace_enabled() ? "true" : "false")
+            << ",\"shaders\":" << (shaders_enabled() ? "true" : "false")
+            << ",\"openvr_bootstrap_requested\":" << (openvr_bootstrap_enabled() ? "true" : "false") << "}\n";
+        if (!out) return false;
+        events = directory / "events.jsonl";
+        return true;
     }
 };
 Capture capture;
-// Diagnostic I/O is never allowed to throw through Vulkan's C ABI.
+// Diagnostic I/O is never allowed to throw through Vulkan's C ABI. Lines are written by the
+// background thread: X4's threads never wait on the disk.
 template<class Writer> void log(Writer writer) noexcept {
     try {
         std::lock_guard lock(capture.mutex);
         if (!capture.open()) return;
-        std::ostringstream s; writer(s); capture.events << s.str() << '\n'; capture.events.flush();
+        std::ostringstream s; writer(s); s << '\n';
+        x4vr::write_file_later(capture.events, s.str(), true);
     } catch (...) {}
 }
 std::atomic_uint64_t present_count{}, update_count{}, bind_count{};
+std::atomic_uint64_t late_frames{}; // game frames released at once because a compositor tick had passed
 std::atomic_uint64_t camera_sample_count{}, world_sample_count{}, camera_epoch{~0ull}, world_epoch{~0ull};
 x4vr::observe::CameraSampling camera_sampling;
 template<class F> void observe(F function) noexcept { try { function(); } catch (...) {} }
@@ -170,6 +176,20 @@ bool stack_trace_enabled() {
 bool openvr_bootstrap_enabled() {
     static const bool enabled = [] { wchar_t value[8]{}; return GetEnvironmentVariableW(L"X4VR_OPENVR_BOOTSTRAP", value, 8) == 1 && value[0] == L'1'; }();
     return enabled;
+}
+// Shader modules (with their SPIR-V), pipelines and descriptor layouts are logged only for
+// diagnostics (observe.ps1 -Shaders): X4 keeps creating them for minutes into play.
+bool shaders_enabled() {
+    static const bool enabled = [] { wchar_t value[8]{}; return GetEnvironmentVariableW(L"X4VR_CAPTURE_SHADERS", value, 8) == 1 && value[0] == L'1'; }();
+    return enabled;
+}
+// Without shader capture, only pipeline creations long enough to stall a frame are logged.
+void slow_pipelines(const char* kind, uint32_t count, std::chrono::steady_clock::time_point started) {
+    const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count();
+    if (ms > 2) log([&](auto& s) {
+        s << "{\"event\":\"slow_pipelines\",\"kind\":\"" << kind << "\",\"count\":" << count << ",\"ms\":" << ms
+          << ",\"present\":" << present_count.load() << '}';
+    });
 }
 void executable_stack(std::ostream& s) {
     void* frames[40]{};
@@ -210,6 +230,14 @@ void track_camera(const Device& device, VkDescriptorSet set) {
     if (!main) { ++v.other; v.other_tan = tan_y; v.other_33 = projection[15]; return; }
     for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) v.view.m[r][c] = m[c*4+r];
     ++v.binds;
+    static uint64_t traced = ~0ull; // diagnostics: the first main-camera bind per present (under v.mutex)
+    if (const auto now = present_count.load(); now != traced) {
+        traced = now;
+        float position[3]{}; // camera in world space, -R^T t: shows which eye offset the frame was built with
+        for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) position[i] -= v.view.m[j][i]*v.view.m[j][3];
+        x4vr::trace_event('C', v.binds, position[0], position[1], position[2]);
+        x4vr::trace_event('F', v.binds, v.view.m[2][0], v.view.m[2][1], v.view.m[2][2]); // camera z axis in world
+    }
 }
 void sample_uniform(const Device& device, VkCommandBuffer command, VkPipelineLayout layout, uint32_t slot, VkDescriptorSet set) {
     if (!device.memory || !memory_enabled() || (slot != 1 && slot != 3)) return;
@@ -444,7 +472,7 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateShaderModule(VkDevice device, cons
     const VkAllocationCallbacks* alloc, VkShaderModule* output) {
     const auto data = device_for(device); if (!data) return VK_ERROR_INITIALIZATION_FAILED;
     const auto result = data->CreateShaderModule(device, ci, alloc, output);
-    if (result == VK_SUCCESS) log([&](auto& s) {
+    if (result == VK_SUCCESS && shaders_enabled()) log([&](auto& s) {
         s << "{\"event\":\"shader_module\",\"device\":" << handle(device) << ",\"module\":" << handle(*output)
           << ",\"bytes\":" << ci->codeSize;
         if (ci->pCode && ci->codeSize && ci->codeSize <= 4*1024*1024 && capture.shader_count < 4096 &&
@@ -464,7 +492,7 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorSetLayout(VkDevice devic
     const VkAllocationCallbacks* alloc, VkDescriptorSetLayout* output) {
     const auto data = device_for(device); if (!data) return VK_ERROR_INITIALIZATION_FAILED;
     const auto result = data->CreateDescriptorSetLayout(device, ci, alloc, output);
-    if (result == VK_SUCCESS) log([&](auto& s) {
+    if (result == VK_SUCCESS && shaders_enabled()) log([&](auto& s) {
         s << "{\"event\":\"descriptor_layout\",\"layout\":" << handle(*output) << ",\"bindings\":[";
         for (uint32_t i = 0; i < ci->bindingCount; ++i) {
             if (i) s << ','; const auto& b = ci->pBindings[i];
@@ -478,7 +506,7 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreatePipelineLayout(VkDevice device, co
     const VkAllocationCallbacks* alloc, VkPipelineLayout* output) {
     const auto data = device_for(device); if (!data) return VK_ERROR_INITIALIZATION_FAILED;
     const auto result = data->CreatePipelineLayout(device, ci, alloc, output);
-    if (result == VK_SUCCESS) log([&](auto& s) {
+    if (result == VK_SUCCESS && shaders_enabled()) log([&](auto& s) {
         s << "{\"event\":\"pipeline_layout\",\"layout\":" << handle(*output) << ",\"sets\":[";
         for (uint32_t i = 0; i < ci->setLayoutCount; ++i) { if (i) s << ','; s << handle(ci->pSetLayouts[i]); }
         s << "],\"push_constants\":[";
@@ -493,7 +521,9 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreatePipelineLayout(VkDevice device, co
 EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device, VkPipelineCache cache,
     uint32_t count, const VkGraphicsPipelineCreateInfo* ci, const VkAllocationCallbacks* alloc, VkPipeline* output) {
     const auto data = device_for(device); if (!data) return VK_ERROR_INITIALIZATION_FAILED;
+    const auto started = std::chrono::steady_clock::now();
     const auto result = data->CreateGraphicsPipelines(device, cache, count, ci, alloc, output);
+    if (!shaders_enabled()) { slow_pipelines("graphics", count, started); return result; }
     for (uint32_t i = 0; i < count; ++i) if (output[i]) log([&](auto& s) {
         s << "{\"event\":\"graphics_pipeline\",\"pipeline\":" << handle(output[i]) << ",\"layout\":" << handle(ci[i].layout)
           << ",\"render_pass\":" << handle(ci[i].renderPass) << ",\"subpass\":" << ci[i].subpass << ",\"shaders\":[";
@@ -508,7 +538,9 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device,
 EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice device, VkPipelineCache cache,
     uint32_t count, const VkComputePipelineCreateInfo* ci, const VkAllocationCallbacks* alloc, VkPipeline* output) {
     const auto data = device_for(device); if (!data) return VK_ERROR_INITIALIZATION_FAILED;
+    const auto started = std::chrono::steady_clock::now();
     const auto result = data->CreateComputePipelines(device, cache, count, ci, alloc, output);
+    if (!shaders_enabled()) { slow_pipelines("compute", count, started); return result; }
     for (uint32_t i = 0; i < count; ++i) if (output[i]) log([&](auto& s) {
         s << "{\"event\":\"compute_pipeline\",\"pipeline\":" << handle(output[i]) << ",\"layout\":" << handle(ci[i].layout)
           << ",\"module\":" << handle(ci[i].stage.module) << ",\"entry\":" << quote(ci[i].stage.pName) << '}';
@@ -519,7 +551,7 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice device, 
 // source advances the shared eye counter once per game frame); copy it into that
 // eye's texture, then submit both eye textures to OpenVR with frustum bounds.
 struct Presenter {
-    std::mutex mutex;
+    std::timed_mutex mutex; // the submission thread waits for it with a deadline
     // Own lock, not `mutex`: the OpenXR runtime fetches its queue through our vkGetDeviceQueue
     // hook inside xrCreateSession, which runs while the present holds `mutex`.
     std::mutex families_mutex;
@@ -759,6 +791,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     auto rendered = x4vr::Matrix::identity();
     bool flat{}, walking{};
     const bool posed = x4vr::presented_frame(number, eye, rendered, flat, walking);
+    if (posed) x4vr::trace_event('S', number*2+eye, rendered.m[0][2], rendered.m[1][2], rendered.m[2][2]); // submitted head z axis
     x4vr::Matrix view; // main camera of this frame, if it bound one since the last present
     bool viewed{};
     {
@@ -770,8 +803,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     if (!update_theater(p, settings, posed, flat)) return VK_NULL_HANDLE; // skip frame
     if (!settings.stereo || p.theater) eye = 0;
     p.last_eye = eye;
-    std::error_code absent;
-    if (p.probe_count && std::filesystem::remove(capture_root()/"frames.request", absent)) probe_write(d, p);
+    if (p.probe_count && x4vr::take_request("frames.request")) probe_write(d, p);
     p.async_frame = settings.async_submit && settings.pace && d.vr_queue && d.vr_family == family;
     constexpr auto ring = Presenter::ring_size;
     std::array<uint32_t, 2> slot_of{UINT32_MAX, UINT32_MAX}; // ring image each written eye goes to
@@ -842,8 +874,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     barrier(d, command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_ACCESS_TRANSFER_READ_BIT, 0);
     p.dump_pending = false;
-    std::error_code busy; // a request file still open by its writer must not disable the presenter
-    if (p.has_image(0) && p.has_image(1) && std::filesystem::remove(capture_root()/"dump.txt", busy)) {
+    if (p.has_image(0) && p.has_image(1) && x4vr::take_request("dump.txt")) {
         if (!p.dump_buffer) dump_prepare(d, p);
         for (uint32_t i = 0; i < 2; ++i) {
             VkBufferImageCopy region{};
@@ -870,14 +901,17 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
 // Diagnostics, once per submission: every ~2 s one line is appended to pair_stats.txt.
 // stale = an eye submitted again without a new image; late = more than ~1.2 headset frames
 // since the previous submission (90 Hz); fallback = the newest image's copy missed the
-// submit budget, so the previous image was submitted; waited = time spent on that copy.
+// submit budget, so the previous image was submitted; waited = time from WaitGetPoses to
+// Submit (lock and copies); x4_late = game frames released at once because they ended after a
+// tick; resubmit = the present hook held the lock past the budget, so the last frame was sent again.
 void pair_stats(const x4vr::StereoSettings& s, std::array<bool, 2> fresh, double blocked, double interval, bool failed,
-                uint32_t fallbacks = 0, double waited = 0, double submitting = 0) {
-    struct Totals { uint32_t submits, stale[2], late, failed, fallbacks; double blocked, blocked_max, interval_max, waited_max, submit_max; };
+                uint32_t fallbacks = 0, double waited = 0, double submitting = 0, bool resubmit = false) {
+    struct Totals { uint32_t submits, stale[2], late, failed, fallbacks, resubmits; double blocked, blocked_max, interval_max, waited_max, submit_max; };
     static Totals t{};
     static auto start = std::chrono::steady_clock::now();
     static bool header{};
-    ++t.submits; t.failed += failed; t.fallbacks += fallbacks;
+    static uint64_t late_seen{};
+    ++t.submits; t.failed += failed; t.fallbacks += fallbacks; t.resubmits += resubmit;
     for (int i = 0; i < 2; ++i) t.stale[i] += !fresh[i];
     t.late += interval > 0.0135;
     t.blocked += blocked; t.blocked_max = std::fmax(t.blocked_max, blocked);
@@ -885,13 +919,16 @@ void pair_stats(const x4vr::StereoSettings& s, std::array<bool, 2> fresh, double
     t.submit_max = std::fmax(t.submit_max, submitting);
     const auto now = std::chrono::steady_clock::now();
     if (now-start < std::chrono::seconds(2)) return;
-    std::ofstream out(capture_root()/"pair_stats.txt", std::ios::app);
-    if (!header) { header = true; out << "# tick_ms submits stale_L stale_R late failed fallback blocked_avg_ms blocked_max_ms interval_max_ms waited_max_ms submit_max_ms | async pair pair_wait half_xor_render half_xor_present\n"; }
+    std::ostringstream out;
+    if (!header) { header = true; out << "# tick_ms submits stale_L stale_R late failed fallback blocked_avg_ms blocked_max_ms interval_max_ms waited_max_ms submit_max_ms x4_late resubmit | async pair pair_wait half_xor_render half_xor_present handoff release_late\n"; }
+    const auto late = late_frames.load();
     out << GetTickCount64() << ' ' << t.submits << ' ' << t.stale[0] << ' ' << t.stale[1] << ' ' << t.late << ' ' << t.failed << ' '
         << t.fallbacks << ' ' << std::fixed << std::setprecision(2) << 1000*t.blocked/t.submits << ' ' << 1000*t.blocked_max << ' '
-        << 1000*t.interval_max << ' ' << 1000*t.waited_max << ' ' << 1000*t.submit_max << " | " << s.async_submit << ' ' << s.pair
-        << ' ' << s.pair_wait << ' ' << s.half_xor_render << ' ' << s.half_xor_present << '\n';
-    t = {}; start = now;
+        << 1000*t.interval_max << ' ' << 1000*t.waited_max << ' ' << 1000*t.submit_max << ' ' << late-late_seen << ' ' << t.resubmits
+        << " | " << s.async_submit << ' ' << s.pair << ' ' << s.pair_wait << ' ' << s.half_xor_render << ' ' << s.half_xor_present
+        << ' ' << s.handoff << ' ' << s.release_late << '\n';
+    x4vr::write_file_later(capture_root()/"pair_stats.txt", out.str(), true);
+    t = {}; start = now; late_seen = late;
 }
 // The padded texture spans [-span, span] tangents symmetrically; crop each eye's asymmetric
 // frustum out of it. Tangent convention: OpenVR top is negative. GetProjectionRaw's top/bottom
@@ -924,6 +961,7 @@ struct Ticks {
     std::mutex mutex;
     std::condition_variable changed;
     uint64_t count{};
+    uint64_t released{}; // count when the game's render thread was last released (pace_to_compositor)
     std::chrono::steady_clock::time_point start{};
     double period = 1.0/90;
     double tick() { // WaitGetPoses just returned; returns the measured frame interval
@@ -1130,45 +1168,103 @@ void turn_stats(bool compensated, double degrees) {
     }
     const auto total_presents = x4vr::frame_tag();
     const double frames = double(std::max<uint64_t>(total_presents-presents, 1));
-    std::ofstream out(capture_root()/"turn.txt");
+    std::ostringstream out;
     out << GetTickCount64() << ' ' << count << '/' << submits << ' ' << std::fixed << std::setprecision(3) << (count ? sum/count : 0) << ' ' << max
         << ' ' << double(total_binds-binds)/frames << " | set1 " << double(total_seen-seen)/frames << " unread " << double(total_unread-unread)/frames
         << ' ' << status << " other " << double(total_other-other)/frames << " tan " << other_tan << " p33 " << other_33 << '\n';
+    x4vr::write_file_later(capture_root()/"turn.txt", out.str(), false);
     count = submits = 0; sum = max = 0; binds = total_binds; presents = total_presents; start = now;
     seen = total_seen; unread = total_unread; other = total_other;
 }
+// Per-frame timeline of the submission thread (diagnostics): creating submit.request in the
+// capture folder writes the last 2048 frames to submit_trace.txt. Times in microseconds on the
+// QPC clock, like trace.txt. SteamVR's timing (OpenVR only) is of the compositor frame before.
+struct SubmitRecord {
+    std::chrono::steady_clock::time_point called, returned, locked, ready; // WaitGetPoses called/returned, lock taken, copies done
+    x4vr::RuntimeBootstrap::SubmitMarks marks{}; // Submit(left), Submit(right), handoff returned
+    uint8_t fresh{}, fallbacks{}; // fresh: bit per eye
+    bool resubmit{}, theater{};
+    uint64_t x4_late{}; // running count of late game frames
+    vr::Compositor_FrameTiming timing{};
+};
+void write_timeline(std::vector<SubmitRecord> records, uint64_t next) {
+    const auto us = [](std::chrono::steady_clock::time_point t) {
+        return std::chrono::duration_cast<std::chrono::microseconds>(t.time_since_epoch()).count();
+    };
+    std::ostringstream out;
+    out << "# called returned locked ready left right handoff fresh fallbacks resubmit theater x4_late"
+           " | frame presents mispresented dropped reprojection system_s wait_called_ms poses_ready_ms frame_ready_ms"
+           " update_start_ms render_start_ms submit_ms idle_ms interval_ms\n" << std::fixed << std::setprecision(3);
+    for (auto i = next > records.size() ? next-records.size() : 0; i < next; ++i) {
+        const auto& r = records[i % records.size()];
+        const auto& t = r.timing;
+        out << us(r.called) << ' ' << us(r.returned) << ' ' << us(r.locked) << ' ' << us(r.ready) << ' ' << us(r.marks[0]) << ' '
+            << us(r.marks[1]) << ' ' << us(r.marks[2]) << ' ' << int(r.fresh) << ' ' << int(r.fallbacks) << ' ' << r.resubmit << ' '
+            << r.theater << ' ' << r.x4_late << " | " << t.m_nFrameIndex << ' ' << t.m_nNumFramePresents << ' ' << t.m_nNumMisPresented
+            << ' ' << t.m_nNumDroppedFrames << ' ' << t.m_nReprojectionFlags << ' ' << t.m_flSystemTimeInSeconds << ' '
+            << t.m_flWaitGetPosesCalledMs << ' ' << t.m_flNewPosesReadyMs << ' ' << t.m_flNewFrameReadyMs << ' '
+            << t.m_flCompositorUpdateStartMs << ' ' << t.m_flCompositorRenderStartMs << ' ' << t.m_flSubmitFrameMs << ' '
+            << t.m_flCompositorIdleCpuMs << ' ' << t.m_flClientFrameIntervalMs << '\n';
+    }
+    x4vr::write_file_later(capture_root()/"submit_trace.txt", out.str(), false);
+}
 void compositor_loop(Device d) {
     auto& p = presenter();
-    VkFence read{}; // signals once OpenVR's copies of the submitted images completed
+    // Mostly blocked in the runtime; once it returns, Submit has ~3 ms before the frame latches.
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    // Per recent submission: a fence signalled once OpenVR's copies of its images completed, and
+    // those images, held until then. Nothing waits for these between WaitGetPoses and Submit.
+    struct Read { VkFence fence{}; std::array<uint32_t, 2> slots{UINT32_MAX, UINT32_MAX}; uint64_t generation{}; };
+    std::array<Read, 4> reads{};
+    uint64_t submissions{};
     VkFenceCreateInfo signalled{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; signalled.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    if (d.CreateFence(d.device, &signalled, nullptr, &read) != VK_SUCCESS) return;
+    for (auto& r : reads) if (d.CreateFence(d.device, &signalled, nullptr, &r.fence) != VK_SUCCESS) return;
+    const auto hold_unread = [&] { // under p.mutex
+        for (const auto& r : reads)
+            if (r.generation == p.generation && d.GetFenceStatus(d.device, r.fence) != VK_SUCCESS)
+                for (uint32_t e = 0; e < 2; ++e) if (r.slots[e] != UINT32_MAX) p.held[e][r.slots[e]] = true;
+    };
+    const auto wait_reads = [&] { for (const auto& r : reads) d.WaitForFences(d.device, 1, &r.fence, VK_TRUE, UINT64_MAX); };
+    // The last submission. Sent again when the present hook holds the lock past the budget: its
+    // images stay held until the next successful selection.
+    struct Frame {
+        std::array<vr::VRVulkanTextureData_t, 2> textures{};
+        std::array<vr::VRTextureBounds_t, 2> bounds{};
+        std::array<x4vr::Matrix, 2> poses{};
+        bool with_pose{}, valid{};
+        std::array<uint32_t, 2> slots{UINT32_MAX, UINT32_MAX};
+        uint64_t generation{};
+    } last;
     std::array<uint32_t, 2> shown{UINT32_MAX, UINT32_MAX}; // slot submitted last per eye
     std::array<uint64_t, 2> shown_seq{}; // and the copy it held then
     uint64_t generation{};
     std::unique_ptr<x4vr::EyeTargets> black;
     Cursor cursor;
-    bool screen_visible{}, keys_were_down{};
+    bool screen_visible{}, keys_were_down{}, ready{}, theater{};
     auto screen_origin = x4vr::Matrix::identity(), screen = screen_origin; // seated_from_screen
+    std::vector<SubmitRecord> timeline(2048);
+    uint64_t frames{};
     while (!p.stopping) try {
         const auto s = x4vr::stereo_settings();
         if (!s.async_submit || !s.pace) { Sleep(5); continue; }
-        bool ready{}, theater{};
-        {
-            std::lock_guard lock(p.mutex);
+        if (std::unique_lock lock(p.mutex, std::chrono::milliseconds(1)); lock) { // busy: keep the last state
             theater = p.theater;
             ready = p.ready && p.async_frame && p.has_image(0) && (theater || p.has_image(1));
         }
         if (!ready) { Sleep(1); continue; }
         if (screen_visible && !theater) { d.runtime->hide_theater(); screen_visible = false; }
-        const auto called = std::chrono::steady_clock::now();
+        auto& record = timeline[frames++ % timeline.size()];
+        record = {};
+        record.theater = theater;
+        record.called = std::chrono::steady_clock::now();
         auto error = d.runtime->wait_frame();
         const auto interval = ticks().tick();
-        const auto frame_start = std::chrono::steady_clock::now();
-        const auto blocked = std::chrono::duration<double>(frame_start-called).count();
-        // Theater mode never waits: its screen isn't latency-critical, and a prompt submit keeps pacing.
-        const auto deadline = frame_start + std::chrono::microseconds(theater ? 0 : int64_t(s.submit_budget_ms*1000));
+        const auto frame_start = record.returned = std::chrono::steady_clock::now();
+        const auto blocked = std::chrono::duration<double>(frame_start-record.called).count();
+        const auto budget = frame_start + std::chrono::microseconds(int64_t(s.submit_budget_ms*1000));
+        // Theater mode never waits for copies: its screen isn't latency-critical, and a prompt submit keeps pacing.
+        const auto deadline = theater ? frame_start : budget;
         if (!error.empty()) { report_submit(error); Sleep(5); continue; }
-        check(d.WaitForFences(d.device, 1, &read, VK_TRUE, UINT64_MAX), "vkWaitForFences"); // last frame's reads done
         std::array<uint32_t, 2> newest{}, older{};
         std::array<uint64_t, 2> newest_seq{}, older_seq{};
         std::array<VkImage, 2> images{}, fallback{};
@@ -1182,117 +1278,146 @@ void compositor_loop(Device d) {
         vr::VRTextureBounds_t crop{}; // the game image inside the padded texture
         VkFormat format{};
         VkExtent2D eye_extent{};
+        bool resubmit{};
         {
-            std::lock_guard lock(p.mutex);
-            if (!p.ready) continue; // swapchain resized meanwhile
-            if (p.generation != generation) { generation = p.generation; shown = {UINT32_MAX, UINT32_MAX}; }
-            const auto width = float(p.eye_extent.width), height = float(p.eye_extent.height);
-            crop = {p.offset.x/width, p.offset.y/height, (p.offset.x+p.extent.width)/width, (p.offset.y+p.extent.height)/height};
-            format = p.format; eye_extent = p.eye_extent; eye_setup = p.eyes;
-            for (uint32_t e = 0; e < eyes; ++e) {
-                for (auto& h : p.held[e]) h = false;
-                newest[e] = p.current[e];
-                p.held[e][newest[e]] = true;
-                images[e] = p.image(e, newest[e]); fences[e] = p.written[e][newest[e]]; poses[e] = p.slot_pose[e][newest[e]];
-                views[e] = p.slot_view[e][newest[e]]; turn[e] = p.slot_turn[e][newest[e]];
-                newest_seq[e] = p.slot_seq[e][newest[e]];
-                // Fallback: the newest finished image other than the newest one. When the GPU runs
-                // behind, every newest image is still in flight at submit time; the one that was late
-                // last tick is shown now instead of repeating the same image forever.
-                older[e] = UINT32_MAX;
-                for (uint32_t k = 0; k < Presenter::ring_size; ++k)
-                    if (k != newest[e] && p.filled[e][k] && (older[e] == UINT32_MAX || p.slot_seq[e][k] > p.slot_seq[e][older[e]]) &&
-                        d.GetFenceStatus(d.device, p.written[e][k]) == VK_SUCCESS) older[e] = k;
-                if (older[e] != UINT32_MAX) {
-                    p.held[e][older[e]] = true;
-                    fallback[e] = p.image(e, older[e]); fallback_poses[e] = p.slot_pose[e][older[e]];
-                    fallback_views[e] = p.slot_view[e][older[e]]; fallback_turn[e] = p.slot_turn[e][older[e]];
-                    older_seq[e] = p.slot_seq[e][older[e]];
+            std::unique_lock lock(p.mutex, budget);
+            resubmit = !lock;
+            if (lock) {
+                if (!p.ready) continue; // swapchain resized meanwhile
+                if (p.generation != generation) { generation = p.generation; shown = {UINT32_MAX, UINT32_MAX}; }
+                const auto width = float(p.eye_extent.width), height = float(p.eye_extent.height);
+                crop = {p.offset.x/width, p.offset.y/height, (p.offset.x+p.extent.width)/width, (p.offset.y+p.extent.height)/height};
+                format = p.format; eye_extent = p.eye_extent; eye_setup = p.eyes;
+                for (uint32_t e = 0; e < eyes; ++e) {
+                    for (auto& h : p.held[e]) h = false;
+                    newest[e] = p.current[e];
+                    p.held[e][newest[e]] = true;
+                    images[e] = p.image(e, newest[e]); fences[e] = p.written[e][newest[e]]; poses[e] = p.slot_pose[e][newest[e]];
+                    views[e] = p.slot_view[e][newest[e]]; turn[e] = p.slot_turn[e][newest[e]];
+                    newest_seq[e] = p.slot_seq[e][newest[e]];
+                    // Fallback: the newest finished image other than the newest one. When the GPU runs
+                    // behind, every newest image is still in flight at submit time; the one that was late
+                    // last tick is shown now instead of repeating the same image forever.
+                    older[e] = UINT32_MAX;
+                    for (uint32_t k = 0; k < Presenter::ring_size; ++k)
+                        if (k != newest[e] && p.filled[e][k] && (older[e] == UINT32_MAX || p.slot_seq[e][k] > p.slot_seq[e][older[e]]) &&
+                            d.GetFenceStatus(d.device, p.written[e][k]) == VK_SUCCESS) older[e] = k;
+                    if (older[e] != UINT32_MAX) {
+                        p.held[e][older[e]] = true;
+                        fallback[e] = p.image(e, older[e]); fallback_poses[e] = p.slot_pose[e][older[e]];
+                        fallback_views[e] = p.slot_view[e][older[e]]; fallback_turn[e] = p.slot_turn[e][older[e]];
+                        older_seq[e] = p.slot_seq[e][older[e]];
+                    }
+                    textures[e] = eye_texture(d, p, VK_NULL_HANDLE, d.vr_queue, d.vr_family);
                 }
-                textures[e] = eye_texture(d, p, VK_NULL_HANDLE, d.vr_queue, d.vr_family);
+                hold_unread();
+                bounds = eye_bounds(p, s.valve_bounds && !d.runtime->openxr());
             }
-            bounds = eye_bounds(p, s.valve_bounds && !d.runtime->openxr());
         }
+        if (resubmit && !last.valid) continue;
+        record.locked = std::chrono::steady_clock::now();
         uint32_t fallbacks = 0;
         std::array<bool, 2> fresh{};
-        for (uint32_t e = 0; e < eyes; ++e) {
-            const auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline-std::chrono::steady_clock::now()).count();
-            const bool done = d.WaitForFences(d.device, 1, &fences[e], VK_TRUE, fallback[e] ? uint64_t(std::max<int64_t>(left, 0)) : UINT64_MAX) == VK_SUCCESS;
-            const bool use_newest = done || !fallback[e];
-            fallbacks += !use_newest;
-            const auto seq = use_newest ? newest_seq[e] : older_seq[e];
-            fresh[e] = seq != shown_seq[e];
-            shown_seq[e] = seq;
-            shown[e] = use_newest ? newest[e] : older[e];
-            textures[e].m_nImage = reinterpret_cast<uint64_t>(use_newest ? images[e] : fallback[e]);
-            if (!use_newest) { poses[e] = fallback_poses[e]; views[e] = fallback_views[e]; turn[e] = fallback_turn[e]; }
-        }
-        // Turn compensation: the older eye image is shown at the newest image's camera heading.
-        const bool compensate = !theater && turn[0] && turn[1] && shown_seq[0] != shown_seq[1];
+        bool compensate{};
         double correction = 0;
-        if (compensate) {
-            const uint32_t ref = shown_seq[1] > shown_seq[0], other = 1-ref;
-            const auto turned = x4vr::turned_pose(poses[ref], eye_setup.head_from_eye[ref], views[ref],
-                                            poses[other], eye_setup.head_from_eye[other], views[other]);
-            correction = x4vr::rotation_degrees(turned, poses[other]);
-            poses[other] = turned;
+        if (!resubmit) {
+            for (uint32_t e = 0; e < eyes; ++e) {
+                // Unbounded only without a fallback, i.e. before anything was shown since start or a resize.
+                const auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline-std::chrono::steady_clock::now()).count();
+                const bool done = d.WaitForFences(d.device, 1, &fences[e], VK_TRUE, fallback[e] ? uint64_t(std::max<int64_t>(left, 0)) : UINT64_MAX) == VK_SUCCESS;
+                const bool use_newest = done || !fallback[e];
+                fallbacks += !use_newest;
+                const auto seq = use_newest ? newest_seq[e] : older_seq[e];
+                fresh[e] = seq != shown_seq[e];
+                shown_seq[e] = seq;
+                shown[e] = use_newest ? newest[e] : older[e];
+                textures[e].m_nImage = reinterpret_cast<uint64_t>(use_newest ? images[e] : fallback[e]);
+                if (!use_newest) { poses[e] = fallback_poses[e]; views[e] = fallback_views[e]; turn[e] = fallback_turn[e]; }
+            }
+            // Turn compensation: the older eye image is shown at the newest image's camera heading.
+            compensate = !theater && turn[0] && turn[1] && shown_seq[0] != shown_seq[1];
+            if (compensate) {
+                const uint32_t ref = shown_seq[1] > shown_seq[0], other = 1-ref;
+                const auto turned = x4vr::turned_pose(poses[ref], eye_setup.head_from_eye[ref], views[ref],
+                                                poses[other], eye_setup.head_from_eye[other], views[other]);
+                correction = x4vr::rotation_degrees(turned, poses[other]);
+                poses[other] = turned;
+            }
         }
-        turn_stats(compensate, correction);
-        const auto waited = std::chrono::duration<double>(std::chrono::steady_clock::now()-frame_start).count();
+        record.ready = std::chrono::steady_clock::now();
+        const auto waited = std::chrono::duration<double>(record.ready-frame_start).count();
+        const bool xr = d.runtime->openxr();
+        if (!resubmit) {
+            if (theater) {
+                if (!black || black->extent().width != eye_extent.width || black->extent().height != eye_extent.height ||
+                    black->color_format() != format) {
+                    wait_reads(); // OpenVR is done with the old images
+                    black.reset();
+                    black = make_black(d, eye_extent, format);
+                }
+                // The screen stands theater_distance ahead of the recentred origin (else the current
+                // head), placed when theater mode starts and again on Ctrl+F12.
+                const bool keys_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F12) & 0x8000);
+                const bool hotkey = keys_down && !keys_were_down;
+                keys_were_down = keys_down;
+                if (!screen_visible || hotkey) {
+                    x4vr::Matrix head;
+                    if (hotkey || !x4vr::view_origin(screen_origin))
+                        screen_origin = d.runtime->predicted_tracking(head, 0) == x4vr::FrameStatus::ready ? x4vr::seated_origin(head) : x4vr::Matrix::identity();
+                }
+                auto ahead = x4vr::Matrix::identity();
+                ahead.m[2][3] = -s.theater_distance;
+                screen = x4vr::multiply(screen_origin, ahead);
+                error = d.runtime->show_theater(fresh[0] || !screen_visible ? &textures[0] : nullptr, crop, screen, s.theater_width);
+                screen_visible = true;
+            }
+            if (xr) update_cursor(d, cursor, s, theater && screen_visible ? &screen : nullptr); // OpenXR sends all layers with the frame
+            if (theater) {
+                auto dark = textures;
+                for (uint32_t e = 0; e < 2; ++e) {
+                    dark[e] = textures[0];
+                    dark[e].m_nImage = reinterpret_cast<uint64_t>(black->eyes()[e].color.image);
+                }
+                last = {dark, {{{0, 0, 1, 1}, {0, 0, 1, 1}}}, poses, false, true, {shown[0], UINT32_MAX}, generation};
+            } else {
+                last = {textures, bounds, poses, s.submit_pose != 0, true, shown, generation};
+            }
+        }
         const auto submitted_at = std::chrono::steady_clock::now();
-        if (theater) {
-            if (!black || black->extent().width != eye_extent.width || black->extent().height != eye_extent.height ||
-                black->color_format() != format) {
-                black.reset(); // after the read fence: OpenVR is done with it
-                black = make_black(d, eye_extent, format);
-            }
-            // The screen stands theater_distance ahead of the recentred origin (else the current
-            // head), placed when theater mode starts and again on Ctrl+F12.
-            const bool keys_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F12) & 0x8000);
-            const bool hotkey = keys_down && !keys_were_down;
-            keys_were_down = keys_down;
-            if (!screen_visible || hotkey) {
-                x4vr::Matrix head;
-                if (hotkey || !x4vr::view_origin(screen_origin))
-                    screen_origin = d.runtime->predicted_tracking(head, 0) == x4vr::FrameStatus::ready ? x4vr::seated_origin(head) : x4vr::Matrix::identity();
-            }
-            auto ahead = x4vr::Matrix::identity();
-            ahead.m[2][3] = -s.theater_distance;
-            screen = x4vr::multiply(screen_origin, ahead);
-            error = d.runtime->show_theater(fresh[0] || !screen_visible ? &textures[0] : nullptr, crop, screen, s.theater_width);
-            screen_visible = true;
-        }
-        update_cursor(d, cursor, s, theater && screen_visible ? &screen : nullptr); // before submit: OpenXR sends all layers in it
-        if (theater) {
-            auto dark = textures;
-            for (uint32_t e = 0; e < 2; ++e) {
-                dark[e] = textures[0];
-                dark[e].m_nImage = reinterpret_cast<uint64_t>(black->eyes()[e].color.image);
-            }
-            if (error.empty()) error = d.runtime->submit_frame(dark, {{{0, 0, 1, 1}, {0, 0, 1, 1}}}, poses, false);
-        } else {
-            error = d.runtime->submit_frame(textures, bounds, poses, s.submit_pose != 0);
-        }
+        if (error.empty()) error = d.runtime->submit_frame(last.textures, last.bounds, last.poses, last.with_pose, s.handoff, &record.marks);
         const auto submitting = std::chrono::duration<double>(std::chrono::steady_clock::now()-submitted_at).count();
-        check(d.ResetFences(d.device, 1, &read), "vkResetFences");
-        check(d.QueueSubmit(d.vr_queue, 0, nullptr, read), "vkQueueSubmit");
-        {
-            std::lock_guard lock(p.mutex); // keep only the images now on screen
-            if (p.generation == generation) for (uint32_t e = 0; e < eyes; ++e) {
-                for (auto& h : p.held[e]) h = false;
-                if (shown[e] != UINT32_MAX) p.held[e][shown[e]] = true;
+        auto& pending = reads[submissions++ % reads.size()];
+        // ponytail: reuses a fence 4 submissions (~44 ms) old; waits only if the GPU is that far behind
+        check(d.WaitForFences(d.device, 1, &pending.fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+        check(d.ResetFences(d.device, 1, &pending.fence), "vkResetFences");
+        check(d.QueueSubmit(d.vr_queue, 0, nullptr, pending.fence), "vkQueueSubmit");
+        pending.slots = last.slots; pending.generation = last.generation;
+        if (!resubmit) {
+            // Keep only the images now on screen or still being read. Busy: they stay held until next tick.
+            if (std::unique_lock lock(p.mutex, std::chrono::milliseconds(2)); lock) {
+                if (p.generation == generation) for (uint32_t e = 0; e < eyes; ++e) {
+                    for (auto& h : p.held[e]) h = false;
+                    if (shown[e] != UINT32_MAX) p.held[e][shown[e]] = true;
+                }
+                hold_unread();
             }
+            if (!xr) update_cursor(d, cursor, s, theater && screen_visible ? &screen : nullptr); // OpenVR overlays don't wait for Submit
+            turn_stats(compensate, correction);
         }
-        pair_stats(s, fresh, blocked, interval, !error.empty(), fallbacks, waited, submitting);
+        pair_stats(s, fresh, blocked, interval, !error.empty(), fallbacks, waited, submitting, resubmit);
         report_submit(error);
+        record.fresh = uint8_t(int(fresh[0]) | int(fresh[1]) << 1); record.fallbacks = uint8_t(fallbacks); record.resubmit = resubmit;
+        record.x4_late = late_frames.load();
+        d.runtime->frame_timing(record.timing, 1);
+        if (x4vr::take_request("submit.request")) std::thread(write_timeline, timeline, frames).detach();
     } catch (const std::exception& error) {
         OutputDebugStringA(("X4VR submission thread: "+std::string(error.what())+"\n").c_str());
         Sleep(100);
     }
     if (screen_visible) d.runtime->hide_theater();
     if (cursor.shown) d.runtime->hide_cursor();
-    d.WaitForFences(d.device, 1, &read, VK_TRUE, UINT64_MAX); // OpenVR's last copies
-    d.DestroyFence(d.device, read, nullptr);
+    wait_reads(); // OpenVR's last copies
+    for (const auto& r : reads) d.DestroyFence(d.device, r.fence, nullptr);
 }
 void stop_submission(VkDevice device) {
     auto& p = presenter();
@@ -1303,12 +1428,18 @@ void stop_submission(VkDevice device) {
 }
 // After the game's present: hold the render thread to the compositor clock (what WaitGetPoses
 // did when submission was inline). Pair mode releases the first eye mid-frame.
+// A frame that ends after a tick is late: it goes on at once (the thread submits it next tick
+// anyway). Waiting for the next tick turned every frame slightly over 11.1 ms into 22.2 ms.
 void pace_to_compositor(const x4vr::StereoSettings& s, uint32_t eye) {
     if (s.pair && s.stereo && eye == 0) { if (s.pair_wait) wait_mid_frame(); return; }
     auto& t = ticks();
     std::unique_lock lock(t.mutex);
-    const auto seen = t.count;
-    t.changed.wait_for(lock, std::chrono::milliseconds(100), [&] { return t.count != seen; });
+    if (s.release_late && t.count != t.released) ++late_frames;
+    else {
+        const auto seen = t.count;
+        t.changed.wait_for(lock, std::chrono::milliseconds(100), [&] { return t.count != seen; });
+    }
+    t.released = t.count;
 }
 // Inline submission (async_submit=0): WaitGetPoses and Submit on the game's present queue.
 void presenter_submit(const Device& d, VkQueue queue) {
@@ -1377,11 +1508,16 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkP
     }
     auto forwarded = *info;
     if (copied) { forwarded.waitSemaphoreCount = 1; forwarded.pWaitSemaphores = &copied; }
-    const auto result = data->QueuePresentKHR(queue, &forwarded);
     const bool async = copied && p.async_frame;
     const auto eye = p.last_eye;
-    if (copied && !async) try { presenter_submit(*data, queue); } catch (...) {}
-    lock.unlock();
+    // The driver's present can block while the GPU is behind; the submission thread must not
+    // wait for it. Inline submission (after the present) keeps the lock.
+    if (!copied || async) lock.unlock();
+    const auto result = data->QueuePresentKHR(queue, &forwarded);
+    if (lock.owns_lock()) {
+        try { presenter_submit(*data, queue); } catch (...) {}
+        lock.unlock();
+    }
     const auto settings = x4vr::stereo_settings();
     if (async) pace_to_compositor(settings, eye);
     static uint64_t presents{};
@@ -1398,7 +1534,7 @@ EXPORT VKAPI_ATTR void VKAPI_CALL vkUpdateDescriptorSets(VkDevice device, uint32
     const auto data = device_for(device); if (!data) return;
     data->UpdateDescriptorSets(device, count, writes, copy_count, copies);
     if (data->memory) observe([&] { data->memory->update(count, writes, copy_count, copies); });
-    if (update_count.fetch_add(1) >= 2048) return;
+    if (!shaders_enabled() || update_count.fetch_add(1) >= 2048) return;
     for (uint32_t i = 0; i < count; ++i) {
         const auto& w = writes[i];
         if (w.descriptorType != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER && w.descriptorType != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC) continue;
@@ -1423,7 +1559,7 @@ EXPORT VKAPI_ATTR void VKAPI_CALL vkCmdBindDescriptorSets(VkCommandBuffer cmd, V
             sample_uniform(*data, cmd, layout, first+i, sets[i]);
         }
     });
-    if (bind_count.fetch_add(1) >= 2048) return;
+    if (!shaders_enabled() || bind_count.fetch_add(1) >= 2048) return;
     log([&](auto& s) {
         s << "{\"event\":\"bind_descriptor_sets\",\"command_buffer\":" << handle(cmd) << ",\"layout\":" << handle(layout)
           << ",\"bind_point\":" << point << ",\"first_set\":" << first << ",\"sets\":[";

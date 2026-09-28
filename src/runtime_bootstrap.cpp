@@ -3,12 +3,20 @@
 #include <windows.h>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <thread>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 namespace x4vr {
 namespace {
@@ -142,8 +150,14 @@ std::string RuntimeBootstrap::wait_frame() {
 }
 std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureData_t, 2>& images,
                                            const std::array<vr::VRTextureBounds_t, 2>& bounds,
-                                           const std::array<Matrix, 2>& poses, bool with_pose) {
-    if (xr_) { RuntimeCall call; return xr_->submit_frame(images, bounds, poses, with_pose); }
+                                           const std::array<Matrix, 2>& poses, bool with_pose, bool handoff,
+                                           SubmitMarks* marks) {
+    if (xr_) {
+        RuntimeCall call;
+        auto error = xr_->submit_frame(images, bounds, poses, with_pose);
+        if (marks) marks->fill(std::chrono::steady_clock::now());
+        return error;
+    }
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
@@ -156,9 +170,20 @@ std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureD
         error = session_.compositor_->Submit(static_cast<vr::EVREye>(i), &texture, &bounds[i],
                                              with_pose ? vr::Submit_TextureWithPose : vr::Submit_Default);
         if (error != vr::VRCompositorError_None) return "Submit failed: OpenVR compositor error " + std::to_string(error);
+        if (marks) (*marks)[i] = std::chrono::steady_clock::now();
     }
-    session_.compositor_->PostPresentHandoff();
+    if (handoff) session_.compositor_->PostPresentHandoff();
+    if (marks) (*marks)[2] = std::chrono::steady_clock::now();
     return {};
+}
+bool RuntimeBootstrap::frame_timing(vr::Compositor_FrameTiming& timing, uint32_t frames_ago) {
+    if (xr_) return false;
+    std::lock_guard lock(mutex_);
+    RuntimeCall call;
+    session_.adopt_bootstrap_thread();
+    timing = {};
+    timing.m_nSize = sizeof(timing);
+    return session_.compositor_->GetFrameTiming(&timing, frames_ago);
 }
 std::string RuntimeBootstrap::show_theater(const vr::VRVulkanTextureData_t* image, const vr::VRTextureBounds_t& bounds,
                                            const Matrix& seated_from_screen, float width) {
@@ -223,22 +248,23 @@ namespace {
 std::atomic_uint64_t present_frames{};
 struct TaggedPose { uint64_t tag = ~0ull; Matrix head; uint32_t eye = 0; bool flat = false, walking = false; };
 std::mutex poses_mutex;
-std::array<TaggedPose, 16> poses;
+// In record order, several per tag: with the eye chosen at use, X4's camera thread can record the
+// next frame's pose before the present that ends this tag (long frames), which one slot per tag lost.
+std::array<TaggedPose, 32> poses;
+uint64_t pose_count = 0;
 Matrix published_origin;
 bool origin_known = false;
 std::mutex settings_mutex;
 StereoSettings cached;
-std::chrono::steady_clock::time_point checked{};
-}
-StereoSettings stereo_settings() {
-    std::lock_guard lock(settings_mutex);
-    const auto now = std::chrono::steady_clock::now();
-    if (now-checked < std::chrono::milliseconds(500)) return cached;
-    checked = now;
+std::string capture_dir() {
     char root[1024]{};
-    if (!GetEnvironmentVariableA("X4VR_CAPTURE_DIR", root, sizeof(root))) return cached;
-    std::ifstream file(std::string(root)+"/stereo.txt");
+    return GetEnvironmentVariableA("X4VR_CAPTURE_DIR", root, sizeof(root)) ? std::string(root) : std::string();
+}
+StereoSettings read_settings() {
     StereoSettings next;
+    const auto root = capture_dir();
+    if (root.empty()) return next;
+    std::ifstream file(root+"/stereo.txt");
     for (std::string line; std::getline(file, line);) {
         const auto split = line.find('=');
         if (split == std::string::npos) continue;
@@ -261,6 +287,8 @@ StereoSettings stereo_settings() {
         else if (key == "submit_pose") next.submit_pose = static_cast<int>(value);
         else if (key == "async_submit") next.async_submit = value != 0;
         else if (key == "submit_budget_ms") next.submit_budget_ms = static_cast<float>(value);
+        else if (key == "handoff") next.handoff = value != 0;
+        else if (key == "release_late") next.release_late = value != 0;
         else if (key == "hitch_ms") next.hitch_ms = static_cast<float>(value);
         else if (key == "hitch_every") next.hitch_every = static_cast<int>(value);
         else if (key == "eye_from_half") next.eye_from_half = value != 0;
@@ -272,6 +300,8 @@ StereoSettings stereo_settings() {
         else if (key == "turn_comp") next.turn_comp = static_cast<int>(value);
         else if (key == "half_xor_render") next.half_xor_render = static_cast<int>(value);
         else if (key == "half_xor_present") next.half_xor_present = static_cast<int>(value);
+        else if (key == "eye_at_use") next.eye_at_use = value != 0;
+        else if (key == "half_xor_use") next.half_xor_use = static_cast<int>(value);
         else if (key == "valve_bounds") next.valve_bounds = value != 0;
         else if (key == "synth_rate") next.synth_rate = static_cast<float>(value);
         else if (key == "synth_base" || key == "synth_alt") {
@@ -280,8 +310,85 @@ StereoSettings stereo_settings() {
             for (auto& v : target) in >> v;
         }
     }
-    cached = next;
+    return next;
+}
+struct Background {
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<std::tuple<std::filesystem::path, std::string, bool>> writes; // path, text, append
+    std::map<std::string, bool, std::less<>> requests; // polled file names -> seen, not yet taken
+};
+Background& background() { static auto* value = new Background; return *value; }
+void background_loop() {
+    auto& b = background();
+    const auto root = capture_dir();
+    auto poll = std::chrono::steady_clock::now();
+    for (;;) try {
+        decltype(b.writes) writes;
+        {
+            std::unique_lock lock(b.mutex);
+            b.wake.wait_until(lock, poll, [&] { return !b.writes.empty(); });
+            writes.swap(b.writes);
+        }
+        std::ofstream out;
+        std::filesystem::path current;
+        for (auto& [path, text, append] : writes) { // consecutive appends to one file share one open
+            if (!out.is_open() || !append || path != current) {
+                out.close();
+                out.open(path, append ? std::ios::app : std::ios::trunc);
+                current = path;
+            }
+            out << text;
+        }
+        out.close();
+        if (std::chrono::steady_clock::now() < poll) continue;
+        poll = std::chrono::steady_clock::now()+std::chrono::milliseconds(500);
+        const auto next = read_settings();
+        { std::lock_guard lock(settings_mutex); cached = next; }
+        if (root.empty()) continue;
+        std::vector<std::string> names;
+        {
+            std::lock_guard lock(b.mutex);
+            for (const auto& [name, seen] : b.requests) if (!seen) names.push_back(name);
+        }
+        for (const auto& name : names) // a file still open by its writer isn't deleted: seen next time
+            if (DeleteFileA((root+"/"+name).c_str())) { std::lock_guard lock(b.mutex); b.requests[name] = true; }
+    } catch (...) {
+        Sleep(100);
+    }
+}
+void start_background() {
+    static std::once_flag started;
+    std::call_once(started, [] {
+        { const auto first = read_settings(); std::lock_guard lock(settings_mutex); cached = first; }
+        HMODULE self{}; // the thread runs this module's code until the process exits
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                           reinterpret_cast<LPCWSTR>(&background_loop), &self);
+        std::thread(background_loop).detach();
+    });
+}
+}
+StereoSettings stereo_settings() {
+    start_background();
+    std::lock_guard lock(settings_mutex);
     return cached;
+}
+void write_file_later(std::filesystem::path path, std::string text, bool append) {
+    start_background();
+    auto& b = background();
+    {
+        std::lock_guard lock(b.mutex);
+        b.writes.emplace_back(std::move(path), std::move(text), append);
+    }
+    b.wake.notify_one();
+}
+bool take_request(const char* name) {
+    start_background();
+    auto& b = background();
+    std::lock_guard lock(b.mutex);
+    const auto found = b.requests.find(std::string_view(name));
+    if (found == b.requests.end()) { b.requests.emplace(name, false); return false; }
+    return std::exchange(found->second, false);
 }
 namespace {
 // X4 9.00 double-buffers per-frame render data in two halves selected by a global that
@@ -307,7 +414,7 @@ uint32_t render_eye() {
 void record_render_pose(const Matrix& head, uint32_t eye, bool flat, bool walking) {
     const auto tag = present_frames.load();
     std::lock_guard lock(poses_mutex);
-    poses[tag % poses.size()] = {tag, head, eye, flat, walking}; // several calls per frame: last one wins
+    poses[pose_count++ % poses.size()] = {tag, head, eye, flat, walking}; // several per frame: the newest wins
 }
 void publish_view_origin(const Matrix& origin) {
     std::lock_guard lock(poses_mutex);
@@ -319,26 +426,22 @@ bool view_origin(Matrix& origin) {
     return origin_known;
 }
 namespace {
-struct TraceEntry { uint64_t tick; uint64_t value; int half; char kind; };
-std::array<TraceEntry, 2048> trace_ring{};
+struct TraceEntry { uint64_t tick; uint64_t value; int half; char kind; uint32_t thread; float a, b, c; };
+std::array<TraceEntry, 16384> trace_ring{}; // camera binds add several events per frame
 std::atomic_uint64_t trace_index{};
 }
-void trace_event(char kind, uint64_t value) {
+void trace_event(char kind, uint64_t value, float a, float b, float c) {
     LARGE_INTEGER now{}; QueryPerformanceCounter(&now);
-    trace_ring[trace_index++ % trace_ring.size()] = {uint64_t(now.QuadPart), value, frame_half(), kind};
-    if (kind != 'P') return;
-    char root[1024]{};
-    if (!GetEnvironmentVariableA("X4VR_CAPTURE_DIR", root, sizeof(root))) return;
-    const std::string request = std::string(root)+"/trace.request";
-    if (GetFileAttributesA(request.c_str()) == INVALID_FILE_ATTRIBUTES) return;
-    DeleteFileA(request.c_str());
+    trace_ring[trace_index++ % trace_ring.size()] = {uint64_t(now.QuadPart), value, frame_half(), kind, GetCurrentThreadId(), a, b, c};
+    if (kind != 'P' || !take_request("trace.request")) return;
     LARGE_INTEGER frequency{}; QueryPerformanceFrequency(&frequency);
-    std::ofstream out(std::string(root)+"/trace.txt");
+    std::ofstream out(capture_dir()+"/trace.txt");
     const auto end = trace_index.load();
     for (auto i = end > trace_ring.size() ? end-trace_ring.size() : 0; i < end; ++i) {
         const auto& e = trace_ring[i % trace_ring.size()];
         out << e.kind << ' ' << e.value << ' ' << e.half << ' ' << std::fixed << std::setprecision(1)
-            << double(e.tick)*1e6/double(frequency.QuadPart) << '\n';
+            << double(e.tick)*1e6/double(frequency.QuadPart) << ' ' << e.thread << ' ' << std::setprecision(4)
+            << e.a << ' ' << e.b << ' ' << e.c << '\n';
     }
 }
 uint64_t next_present() { const auto n = present_frames++; trace_event('P', n); return n; }
@@ -352,17 +455,22 @@ bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat, 
         // Pose: the newest sample for this eye at least delay-1 frames old (the exact
         // frame distance can vary by one; the eye itself is exact).
         const uint64_t start = s.delay > 1 ? uint64_t(s.delay-1) : 0;
-        for (uint64_t back = start; back < poses.size() && back <= present; ++back) {
-            const auto& entry = poses[(present-back) % poses.size()];
-            if (entry.tag == present-back && entry.eye == eye) { head = entry.head; flat = entry.flat; walking = entry.walking; return true; }
+        if (present < start) return false;
+        const uint64_t newest = present-start, oldest = present > 15 ? present-15 : 0;
+        for (uint64_t i = pose_count; i-- > (pose_count > poses.size() ? pose_count-poses.size() : 0);) {
+            const auto& entry = poses[i % poses.size()];
+            if (entry.tag <= newest && entry.tag >= oldest && entry.eye == eye) { head = entry.head; flat = entry.flat; walking = entry.walking; return true; }
         }
         return false;
     }
     const auto tag = present - static_cast<uint64_t>(s.delay);
-    const auto& entry = poses[tag % poses.size()];
-    if (entry.tag != tag) return false;
-    eye = static_cast<uint32_t>(present & 1);
-    head = entry.head; flat = entry.flat; walking = entry.walking;
-    return true;
+    for (uint64_t i = pose_count; i-- > (pose_count > poses.size() ? pose_count-poses.size() : 0);) {
+        const auto& entry = poses[i % poses.size()];
+        if (entry.tag != tag) continue;
+        eye = static_cast<uint32_t>(present & 1);
+        head = entry.head; flat = entry.flat; walking = entry.walking;
+        return true;
+    }
+    return false;
 }
 }
