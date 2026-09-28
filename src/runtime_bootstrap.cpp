@@ -302,6 +302,9 @@ StereoSettings read_settings() {
         else if (key == "half_xor_present") next.half_xor_present = static_cast<int>(value);
         else if (key == "eye_at_use") next.eye_at_use = value != 0;
         else if (key == "half_xor_use") next.half_xor_use = static_cast<int>(value);
+        else if (key == "walk_at_use") next.walk_at_use = value != 0;
+        else if (key == "half_xor_walk") next.half_xor_walk = static_cast<int>(value);
+        else if (key == "delay_walk") next.delay_walk = static_cast<int>(value);
         else if (key == "valve_bounds") next.valve_bounds = value != 0;
         else if (key == "synth_rate") next.synth_rate = static_cast<float>(value);
         else if (key == "synth_base" || key == "synth_alt") {
@@ -453,13 +456,14 @@ bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat, 
     if (half >= 0) {
         eye = static_cast<uint32_t>((half ^ s.half_xor_present) & 1);
         // Pose: the newest sample for this eye at least delay-1 frames old (the exact
-        // frame distance can vary by one; the eye itself is exact).
-        const uint64_t start = s.delay > 1 ? uint64_t(s.delay-1) : 0;
-        if (present < start) return false;
-        const uint64_t newest = present-start, oldest = present > 15 ? present-15 : 0;
+        // frame distance can vary by one; the eye itself is exact). On foot: delay_walk.
+        const uint64_t start = s.delay > 1 ? uint64_t(s.delay-1) : 0, walk_start = s.delay_walk > 1 ? uint64_t(s.delay_walk-1) : 0;
+        const uint64_t oldest = present > 15 ? present-15 : 0;
         for (uint64_t i = pose_count; i-- > (pose_count > poses.size() ? pose_count-poses.size() : 0);) {
             const auto& entry = poses[i % poses.size()];
-            if (entry.tag <= newest && entry.tag >= oldest && entry.eye == eye) { head = entry.head; flat = entry.flat; walking = entry.walking; return true; }
+            if (entry.tag+(entry.walking ? walk_start : start) <= present && entry.tag >= oldest && entry.eye == eye) {
+                head = entry.head; flat = entry.flat; walking = entry.walking; return true;
+            }
         }
         return false;
     }

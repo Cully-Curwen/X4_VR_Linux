@@ -110,6 +110,11 @@ struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float i
     // (FreeTrack client, EyeOffsets); half_xor_use maps the frame half then to the eye.
     // half_xor_use 1: measured in the headset 2026-09-28 (0 swapped the eyes: near objects doubled).
     bool eye_at_use = true; int half_xor_use = 1;
+    // The same on foot, measured 2026-09-28: the camera bridge reads the tracker right after a
+    // present and that frame uses it (in the cockpit: right before a present, two frames later),
+    // so the eye there is half ^ 0 and the reprojection pose is found with delay 1 (delay 2
+    // submitted a pose two frames old: stutter when turning the head).
+    bool walk_at_use = true; int half_xor_walk = 0, delay_walk = 1;
     float synth_rate = 0; std::array<float, 6> synth_base{}, synth_alt{};
     // Theater mode (flat game image on a virtual screen): 0 off, 1 while X4 shows a fullscreen
     // menu or sends no head poses, 2 always. Screen distance and width in metres.

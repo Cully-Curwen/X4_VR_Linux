@@ -237,6 +237,7 @@ void track_camera(const Device& device, VkDescriptorSet set) {
         for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) position[i] -= v.view.m[j][i]*v.view.m[j][3];
         x4vr::trace_event('C', v.binds, position[0], position[1], position[2]);
         x4vr::trace_event('F', v.binds, v.view.m[2][0], v.view.m[2][1], v.view.m[2][2]); // camera z axis in world
+        x4vr::trace_event('X', v.binds, v.view.m[0][0], v.view.m[0][1], v.view.m[0][2]); // camera x axis: which side the eye is on
     }
 }
 void sample_uniform(const Device& device, VkCommandBuffer command, VkPipelineLayout layout, uint32_t slot, VkDescriptorSet set) {

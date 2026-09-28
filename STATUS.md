@@ -130,6 +130,14 @@ Eye dump: create `reports/captures/dump.txt`, which writes `eye-0.raw`, `eye-1.r
 - X4's max FOV (tan 0.8675 vertical) leaves a black band at the bottom (the Aero needs 1.116).
 - Needs the launcher (PATH to `build/Release`, Vulkan layer env). A normal Steam launch
   would fail to load `x4_openvr.dll` dependencies.
+- **Open bug (important, 2026-09-28, OpenVR):** after playing for a while and opening and
+  closing menus, the mouse breaks and the cursor is invisible. Not yet reproduced or
+  diagnosed. The cursor overlay (`update_cursor`, `observe_layer.cpp`) hides whenever one of
+  these checks fails: `GetCursorInfo` reports `CURSOR_SHOWING`, the foreground window is the
+  cached largest X4 window (`game_window`), and the cursor is inside its client rect. If input
+  also stops, lost focus or a cursor X4 hid or clipped are the first suspects. When it
+  happens, capture `GetCursorInfo` flags, the foreground window and `GetClipCursor` while X4
+  is still running.
 
 ---
 

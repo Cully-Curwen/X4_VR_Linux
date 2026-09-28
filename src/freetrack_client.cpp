@@ -106,6 +106,7 @@ bool on_foot_tracking = false;
 // X4 builds at that moment, from the frame half then.
 struct EyeOffsets {
     bool valid = false; // the last read sent the centre; add these
+    bool walking = false; // on foot the camera applies the pose one frame later
     std::array<std::array<float, 3>, 2> delta{}; // per eye, FreeTrack position units
     std::array<x4vr::Matrix, 2> head{}; // reprojection pose per eye (tracking space)
 };
@@ -118,7 +119,7 @@ void position_at_use(void* tracker, float* x, float* y, float* z) {
     { std::lock_guard lock(offsets_mutex); offsets = eye_offsets; }
     if (!offsets.valid) return tracker_position(tracker, x, y, z);
     const auto settings = x4vr::stereo_settings();
-    const auto eye = x4vr::render_eye()^uint32_t(settings.half_xor_use); // the frame X4 builds now
+    const auto eye = x4vr::render_eye()^uint32_t(offsets.walking ? settings.half_xor_walk : settings.half_xor_use); // the frame X4 builds now
     // X4 9.00: position = FreeTrack xyz * tracker[+0x104] * 0.2 ([0x2cbe324]), smoothed into +0xc0
     // (strength 1: the last read); the accessor scales and clamps it. Offset it for this call only.
     static const float gain = *reinterpret_cast<const float*>(reinterpret_cast<const char*>(GetModuleHandleW(nullptr))+0x2cbe324);
@@ -128,7 +129,7 @@ void position_at_use(void* tracker, float* x, float* y, float* z) {
     for (int i = 0; i < 3; ++i) position[i] += offsets.delta[eye][i]*scale;
     tracker_position(tracker, x, y, z);
     for (int i = 0; i < 3; ++i) position[i] = centre[i];
-    x4vr::record_render_pose(offsets.head[eye], eye, false, false);
+    x4vr::record_render_pose(offsets.head[eye], eye, false, offsets.walking);
     x4vr::trace_event(eye ? 'r' : 'l', x4vr::frame_tag());
 }
 // X4 stops reading the pose (the bridge skips both accessors) once 30 reads in a row barely
@@ -317,8 +318,8 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
             }
             alternate = true;
         }
-        // On foot the camera reads the tracker elsewhere (Camera::GetOffset): keep choosing the eye here.
-        const bool at_use = alternate && !walking && settings.eye_at_use && eye_hook_ready(data);
+        // On foot Camera::GetOffset applies what the bridge read one frame later (walk_at_use, half_xor_walk).
+        const bool at_use = alternate && (!walking || settings.walk_at_use) && settings.eye_at_use && eye_hook_ready(data);
         if (!at_use) {
             head = eye_head[eye];
             if (!settings.synth || flat) x4vr::record_render_pose(tracking_head, eye, flat, walking);
@@ -345,6 +346,7 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         {
             std::lock_guard offsets_lock(offsets_mutex);
             eye_offsets.valid = at_use;
+            eye_offsets.walking = walking;
             if (at_use) {
                 const float axis[3]{sx, sh, sz};
                 for (uint32_t e = 0; e < 2; ++e)

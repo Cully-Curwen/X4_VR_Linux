@@ -72,11 +72,30 @@ same as before the changes. Items 1-5 fixed missed compositor frames, which were
   own pose for both eyes) gave "much worse, extreme ghosting" while turning the head. The Varjo
   driver implements `IVRDriverDirectModeComponent_007`, whose `SubmitLayerPerEye_t` carries
   `mHmdPose` per eye.
-- Also open: on-foot tracking still chooses the eye at the read (X4's on-foot camera takes the
-  pose through `Camera::GetOffset`, not the bridge).
+- A longer play session after that showed no issues (checkpoint commit 7c82e84).
 
-Next: a longer play session (ship turning, stations) to catch the remaining short stutters, then
-on-foot eye-at-use and items 6-12.
+### On foot (2026-09-28)
+
+- `head_sync.py` now also checks each frame's eye side, which is absolute: the camera minus the
+  mean of its neighbours lies along the camera x axis (`X` trace events), to the right for the
+  right eye. It catches single wrong-eye frames and whole-view swaps, which `eye_phase.py`'s
+  majority mapping misses. Cockpit reference: 100%.
+- The old on-foot path (eye chosen at `FTGetData`) put 94% of frames on the correct side. The
+  wrong 6% came in bursts.
+- The camera bridge reads the tracker on foot too (slot 0x108), but right *after* a present,
+  and the frame then being built uses it. In the cockpit the read comes right *before* a present
+  and is used two frames later. So on foot the eye at use is half ^ 0 (`half_xor_walk`; ^1
+  swapped every frame, 0% correct side), and the eye side is 100%.
+- The reprojection pose was still two frames old on foot: `presented_frame` only takes poses
+  recorded at least `delay-1` presents earlier, which skipped the pose recorded right after the
+  present. User: "extremely stutter" when moving the head on foot, fine when turning with the
+  mouse; `head_sync.py` best lag +2. `delay=1` for all fixed on foot but broke the cockpit (there
+  it took the next same-eye frame's pose: lag -2), so on-foot poses use `delay_walk` (default 1).
+- Result (defaults `walk_at_use=1`, `half_xor_walk=0`, `delay_walk=1`), turning fast (2.1°/frame
+  median): cockpit and on foot both lag 0, correlation 1.000, residual 0.003°, eye side 100%.
+  User: cockpit and on foot smooth (final build).
+
+Next: items 6-12. The mouse cursor bug is in the backlog (STATUS.md).
 
 ## Research (2026-09-28)
 
