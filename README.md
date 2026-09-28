@@ -244,6 +244,7 @@ are calibrated for X4 9.00; keys you leave out use their defaults.
 | `pos_scale` | 3.6 | Converts head movement into X4's units (1:1 in metres). |
 | `yaw_gain`, `pitch_gain`, `roll_gain` | 2.1177, 2.1177, 3.1416 | Undo X4's internal angle scaling. |
 | `delay` | 2 | Frames between reading a pose and showing that frame. |
+| `delay_walk` | 1 | The same on foot, where X4 uses the head pose sooner. |
 | `predict` | 0.035 | Pose prediction in seconds. |
 | `game_tan_y` | 0.8675 | Tangent of half the game's vertical FOV; 0.8675 matches FOV = 120°. |
 | `stereo` | 1 | 0 = mono (the same image in both eyes). |
