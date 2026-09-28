@@ -112,9 +112,12 @@ inline std::vector<Check> check_x4(const std::string& xml, int width, int height
     equals("AMD FSR frame generation off", "fsr3g", "off", true);
     equals("Upscaling off", "upmode", "none", true);
     equals("VSync off", "presentmode", "immediate", true);
-    const auto limited = value("frameratelimit"), target = value("frameratetarget");
-    checks.push_back({"Frame rate limit off or \xE2\x89\xA5 90", true, limited != "true" || std::atoi(target.c_str()) >= 90,
-                      limited == "true" ? target+" fps" : limited, {{"frameratelimit", "false"}}});
+    // The mod paces X4 to the headset, so a cap at or above 90 does nothing in alternate mode
+    // (measured 2026-09-29: cap 90 vs off, same frame times), and in pair mode any cap under
+    // 180 fps defeats the mode. Off is the one value right for both.
+    const auto limited = value("frameratelimit");
+    checks.push_back({"Frame rate limit off", true, limited != "true",
+                      limited == "true" ? value("frameratetarget")+" fps" : limited, {{"frameratelimit", "false"}}});
     equals("OpenTrack (FreeTrack) support on", "enableopentrack", "true", true);
     equals("Chromatic aberration off", "chromaticaberration", "false", false);
     equals("Distortion off", "distortion", "false", false);

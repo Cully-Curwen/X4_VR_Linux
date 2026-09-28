@@ -95,7 +95,26 @@ same as before the changes. Items 1-5 fixed missed compositor frames, which were
   median): cockpit and on foot both lag 0, correlation 1.000, residual 0.003°, eye side 100%.
   User: cockpit and on foot smooth (final build).
 
-Next: items 6-12. The mouse cursor bug is in the backlog (STATUS.md).
+### One pacer (item 7, 2026-09-29)
+
+- The layer paces X4 in every mode (`pace_to_compositor`, pair mode's `wait_mid_frame`, inline
+  `WaitGetPoses`), so X4's frame limiter is a second clock.
+- Headset A/B, alternate eyes, cockpit, ship still, 22 s per run (`submit_trace.py`, X4
+  presents from `trace.txt`). At 1440p, where X4 holds ~88 fps and the limiter engages:
+  cap 90 vs off gave 87.8 vs 87.8 fps, present p50/p90/p99 11.20/12.44/15.16 vs
+  11.22/12.52/14.83 ms, 0 vs 0 missed compositor frames, fallbacks 154 vs 150. At 4K
+  (GPU-bound, ~73 fps) off vs cap 90 also matched. The two clocks don't beat measurably.
+- So the limiter only matters in pair mode, where any cap under 180 fps defeats it. The launcher
+  check now requires it off (it accepted a cap of 90 fps or more), the one value right for both
+  modes; *Fix X4 settings* sets `frameratelimit=false`. README: limiter off, NVIDIA Max Frame
+  Rate off.
+- Reflex: none of the 85 logged `device_created` events (`process-*/events.jsonl`) enables
+  `VK_NV_low_latency2`, which Reflex needs on Vulkan, so its sleep isn't pacing X4 in those runs.
+  The logs don't record whether DLSS was on.
+- Seen in passing: at 4K the frame rate fell from ~89 to ~73 fps mid-session with no settings
+  change (scene load), which showed as 2x the eye-image fallbacks.
+
+Next: items 6 and 8-12. The mouse cursor bug is in the backlog (STATUS.md).
 
 ## Research (2026-09-28)
 
@@ -599,7 +618,7 @@ Stutter kind C.
   `PostPresentHandoff`? Does the latch stay at 3.2–4.5 ms under GPU load?
 - Does Varjo's OpenXR runtime use `XR_KHR_composition_layer_depth` for positional timewarp the way
   its native API does? `openxr_probe` lists the extension; confirm it visually.
-- Is Reflex active in X4 9.00 without DLSS, and on which thread does its sleep run?
+- Is Reflex active in X4 9.00 with DLSS on? Without it, no (see [One pacer](#one-pacer-item-7-2026-09-29)).
 - What does X4's `adaptivesampling` option do? If it's dynamic resolution, it's a GPU-headroom
   lever.
 - How long do X4's in-game pipeline creations take with a warm NVIDIA shader cache?

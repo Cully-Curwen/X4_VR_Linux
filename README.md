@@ -136,7 +136,7 @@ Options > Display Settings:
 | AMD FSR | Off | Temporal upscalers mix left- and right-eye frames, which shows as ghosting. |
 | NVIDIA DLSS | Your choice | Works, tested up to Ultra Performance. Keep DLSS frame generation off: it blends frames of different eyes. |
 | VSync | Off | SteamVR paces the frames. |
-| Frame Rate Limit | 90 FPS (your headset's refresh rate) or higher | |
+| Frame Rate Limit | Off | The mod paces the game to the headset, so a limit adds nothing, and one under 180 fps defeats pair mode. The same goes for NVIDIA Control Panel's Max Frame Rate. |
 | FOV | maximum (120°) | Required. The eye mapping is calibrated for it (see `game_tan_y` below). |
 
 Options > Graphics Settings:

@@ -40,6 +40,7 @@ int main() {
     CHECK(xml_value(fixed, "gamma", v) && v == "1.00");
     CHECK(xml_value(fixed, "res_width", v) && v == "2560");
     CHECK(failing(check_x4(fixed, 0, 0)) == 0); // resolution unchecked when the profile has none
+    CHECK(failing(check_x4(xml_set(xml_set(fixed, "frameratelimit", "true"), "frameratetarget", "180"), 2560, 1440)) == 1); // any cap: the mod paces, and under 180 fps a cap defeats pair mode
     CHECK(failing(check_x4(xml_set(xml_set(fixed, "dlss", "true"), "dlssmode", "ultra_performance"), 2560, 1440)) == 0); // DLSS allowed
     const auto inserted = xml_set("<root>\n</root>\n", "enableopentrack", "true");
     CHECK(xml_value(inserted, "enableopentrack", v) && v == "true");
