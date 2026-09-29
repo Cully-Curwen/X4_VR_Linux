@@ -260,6 +260,8 @@ std::string source_hash(const std::map<std::string, std::string>& originals) {
     return md5_hex(all);
 }
 Settings installed_hud() { return parse_settings(read_file(hud_extension()/L"x4vr_hud.txt")); } // scale=, source=
+fs::path x4_content() { const auto config = x4_config(); return config.empty() ? config : config.parent_path()/L"content.xml"; }
+bool hud_disabled_in_x4() { bool disabled = false; enable_hud_extension(read_file(x4_content()), disabled); return disabled; }
 bool install_hud(double scale, std::string& error) {
     const auto originals = hud_originals();
     const auto files = hud_files(originals, scale, error);
@@ -306,7 +308,11 @@ void apply_hud(bool remove) {
     const auto scale = _wtof(text.c_str());
     if (scale < 1 || scale > 6) { MessageBoxW(app.window, L"HUD distance: use a factor between 1 and 6 (2.5 is a good start).", L"X4 VR", MB_ICONINFORMATION); return; }
     std::string error;
-    if (!install_hud(scale, error)) MessageBoxW(app.window, widen("Could not build the HUD mod: "+error).c_str(), L"X4 VR", MB_ICONERROR);
+    if (!install_hud(scale, error)) { MessageBoxW(app.window, widen("Could not build the HUD mod: "+error).c_str(), L"X4 VR", MB_ICONERROR); return; }
+    bool disabled = false;
+    const auto content = enable_hud_extension(read_file(x4_content()), disabled);
+    if (disabled && !write_file(x4_content(), content))
+        MessageBoxW(app.window, L"X4 has the HUD distance mod turned off. Turn on \"X4 VR HUD distance\" in X4's Extensions menu.", L"X4 VR", MB_ICONWARNING);
 }
 
 // ---- bug report: logs zipped for the GitHub issue (a web link cannot attach files itself) ----
@@ -522,7 +528,8 @@ void refresh_status() {
 
     const auto hud = get(installed_hud(), "scale");
     SetWindowTextW(app.controls[HudText], hud.empty() ? L"Off: X4's HUD sits about 15 cm from your eyes in VR."
-                                                     : widen("On: "+hud+"x farther away, same apparent size.").c_str());
+                                        : hud_disabled_in_x4() ? L"Off in X4's Extensions menu: press Apply to turn it back on."
+                                                               : widen("On: "+hud+"x farther away, same apparent size.").c_str());
     EnableWindow(app.controls[HudApply], !x4);
     EnableWindow(app.controls[HudRemove], !x4 && !hud.empty());
 }

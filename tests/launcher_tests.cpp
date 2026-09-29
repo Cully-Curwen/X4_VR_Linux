@@ -76,5 +76,14 @@ int main() {
     CHECK(lua.find("== 0.5") != std::string::npos);
     std::string error;
     CHECK(hud_files({}, 2.5, error).empty() && !error.empty()); // missing game files: nothing half-built
+    // X4's user content.xml: only our entry is turned back on.
+    bool was_disabled = false;
+    const auto content = enable_hud_extension("<content>\n  <extension id=\"ws_1\" enabled=\"false\"/>\n"
+                                              "  <extension id=\"x4vr_hud\" enabled=\"false\"/>\n</content>\n", was_disabled);
+    CHECK(was_disabled);
+    CHECK(content.find("id=\"x4vr_hud\" enabled=\"true\"/>") != std::string::npos);
+    CHECK(content.find("id=\"ws_1\" enabled=\"false\"/>") != std::string::npos);
+    enable_hud_extension(content, was_disabled);
+    CHECK(!was_disabled);
     std::printf("launcher logic ok\n");
 }

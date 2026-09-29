@@ -68,6 +68,15 @@ inline std::string scale_presentation_factors(const std::string& lua, double k, 
     return rewrite(lua, factor, [&](const std::smatch& m) { return m[1].str()+m[2].str()+format_number(std::stod(m[3])*k); }, count);
 }
 
+// X4's per-user content.xml (next to config.xml) remembers extensions turned off in its Extensions
+// menu, e.g. by "disable all" when switching game versions; X4 then skips the mod. Returns the
+// text with x4vr_hud turned back on, and whether it was off.
+inline std::string enable_hud_extension(const std::string& content, bool& was_disabled) {
+    static const std::regex disabled(R"re((<extension\s+id="x4vr_hud"\s+enabled=")false")re");
+    was_disabled = std::regex_search(content, disabled);
+    return std::regex_replace(content, disabled, "$1true\"");
+}
+
 // The base game's copy of each path (later catalogs win). X4's .cat lines are "path size time md5",
 // the .dat holds the files back to back.
 inline std::map<std::string, std::string> read_game_files(const std::filesystem::path& game, const std::set<std::string>& paths) {
