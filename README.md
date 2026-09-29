@@ -15,6 +15,11 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
 > aren't signed. All of the code is in this repository, and you can
 > [build it yourself](#building-from-source) instead.
 
+> [!NOTE]
+> Quest players: stream with Virtual Desktop, not Steam Link. Over Steam Link the right eye
+> jitters when you turn your head, with both the OpenVR and the OpenXR option. See
+> [Limitations](#limitations).
+
 ## What works
 
 - Flying from the cockpit in stereo with full head tracking. The world, the cockpit and the HUD
