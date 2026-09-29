@@ -169,6 +169,10 @@ int wmain(int argc, wchar_t** argv) {
     startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
     startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
     PROCESS_INFORMATION process{};
+    // A process started under a debugger gets Windows' debug heap (NtGlobalFlag 0x70: no
+    // low-fragmentation heap, every allocation checked under one lock). X4's many-threaded
+    // loading then crawled: 7+ minutes on 8.00 with mods, versus normal speed without us.
+    SetEnvironmentVariableW(L"_NO_DEBUG_HEAP", L"1");
     if (!CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, TRUE,
         DEBUG_ONLY_THIS_PROCESS | CREATE_NO_WINDOW, nullptr, exe.parent_path().c_str(), &startup, &process)) {
         log << "create_failed error=" << GetLastError() << '\n'; return 3;
