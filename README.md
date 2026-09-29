@@ -46,8 +46,9 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
 
 It was developed and tested with X4 9.00 from Steam, a Varjo Aero (Varjo Base + SteamVR), an
 NVIDIA RTX 3090 holding a steady 90 fps at 3840×2160, and Windows 11. Other SteamVR headsets
-(Index, Vive, Quest through Link or Virtual Desktop in SteamVR mode, and so on) should work but
-haven't been tested. X4 8.00 is supported too; on versions the mod doesn't know, some parts
+(Index, Vive, Quest through Virtual Desktop, and so on) should work but haven't been tested by
+the developer. Players report Quest 3 working through Virtual Desktop; Steam Link makes the right eye jitter
+(see [Limitations](#limitations)). X4 8.00 is supported too; on versions the mod doesn't know, some parts
 fall back to safer behavior (see [Limitations](#limitations)).
 
 OpenXR is available as an experimental option in the launcher. It lets the mod use a headset's
@@ -269,7 +270,13 @@ extension moves the cockpit HUD, but small popup menus in the cockpit, such as t
 menu, stay at X4's original close distance.
 
 On wide-FOV headsets there is a small black band at the very bottom of the view, because X4's
-maximum FOV is a bit smaller than the Varjo Aero's.
+maximum FOV is a bit smaller than the Varjo Aero's. Quest 3 players see it too.
+
+Quest over Steam Link: the right eye jitters on head movement while the left eye stays smooth.
+Each eye is rendered at a different moment and sent with its own head pose, but Steam Link
+corrects both eyes with the left eye's pose. The OpenXR option doesn't help, because SteamVR's
+OpenXR runtime goes through Steam Link too. Use Virtual Desktop instead: it corrects each eye
+with its own pose, with both the OpenVR and the OpenXR option.
 
 VR only works when X4 is started through the launcher or `play.ps1`. A normal Steam launch runs
 the game flat.
@@ -296,6 +303,7 @@ Logs are written to `X4_VR\reports\captures\debug-*\debug-events.log`; search fo
 | Headset shows only SteamVR's grey room | SteamVR must be running before the launch. The log should show `X4VR presenter: first stereo pair submitted`. |
 | Blurry | Display Mode Fullscreen at 3840×2160 (DSR enabled). |
 | Low frame rate or judder | Use a smaller DSR factor (e.g. 2560×1440) or lower graphics settings; 90 fps is needed. |
+| Quest: only the right eye jitters when turning the head | Stream with Virtual Desktop instead of Steam Link (see [Limitations](#limitations)). |
 | World too big or too small | Adjust World scale in the launcher (`ipd_scale` in `stereo.txt`). |
 | View off-center | Look straight ahead and press Ctrl+F12. |
 | HUD too close or too far | Change the factor in the launcher's HUD distance box (X4 closed) and press *Apply*. |
