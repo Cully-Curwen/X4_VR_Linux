@@ -1,3 +1,4 @@
+#include <x4vr/code_scan.hpp>
 #include <x4vr/runtime_bootstrap.hpp>
 #include "openxr_runtime.hpp"
 #include <windows.h>
@@ -417,15 +418,18 @@ bool take_request(const char* name) {
     return std::exchange(found->second, false);
 }
 namespace {
-// X4 9.00 double-buffers per-frame render data in two halves selected by a global that
-// flips once per frame (RVA 0x6b66280; the producer writes half^1, see code at 0x77a47f).
+// X4 double-buffers per-frame render data in two halves selected by a global that flips once
+// per frame (9.00: RVA 0x6b66280; the producer writes half^1, see code at 0x77a47f).
 // The half follows a frame from pose sampling to presentation whatever the queue depth.
 const volatile int32_t* frame_half_global() {
     static const volatile int32_t* global = []() -> const volatile int32_t* {
-        static constexpr unsigned char expected[] = {0x48,0x63,0x05,0xfa,0xbd,0x3e,0x06,0x48,0x83,0xf0,0x01};
-        const auto base = reinterpret_cast<const unsigned char*>(GetModuleHandleW(nullptr));
-        return std::memcmp(base+0x77a47f, expected, sizeof(expected)) ? nullptr
-            : reinterpret_cast<const volatile int32_t*>(base+0x6b66280);
+        const unsigned char* found = nullptr;
+        for (const auto* reader : code::find_all(GetModuleHandleW(nullptr), code::parse(code::x4::frame_half))) {
+            const auto target = code::rip_target(reader, 3, 7);
+            if (found && target != found) return nullptr; // readers disagree: not the code we know
+            found = target;
+        }
+        return reinterpret_cast<const volatile int32_t*>(found);
     }();
     return global;
 }

@@ -95,9 +95,10 @@ struct Check {
 inline std::vector<Check> check_x4(const std::string& xml, int width, int height) {
     std::vector<Check> checks;
     const auto value = [&](const std::string& key) { std::string v; return xml_value(xml, key, v) ? v : std::string("(missing)"); };
-    const auto equals = [&](const char* label, const char* key, const char* want, bool required) {
+    // absent_ok: the setting doesn't exist in older X4 versions, so it can't be on there.
+    const auto equals = [&](const char* label, const char* key, const char* want, bool required, bool absent_ok = false) {
         const auto v = value(key);
-        checks.push_back({label, required, v == want, v, {{key, want}}});
+        checks.push_back({label, required, v == want || (absent_ok && v == "(missing)"), v, {{key, want}}});
     };
     equals("Display mode: Fullscreen", "fullscreen", "true", true);
     equals("Display mode: not borderless", "borderless", "false", true);
@@ -108,8 +109,8 @@ inline std::vector<Check> check_x4(const std::string& xml, int width, int height
                       aa, {{"antialiasing", "none"}}});
     // DLSS upscaling is allowed: tested up to Ultra Performance (2026-09-27) without the eyes
     // mixing. Frame generation inserts frames between two different eyes, so it stays off.
-    equals("DLSS frame generation off", "dlssg", "off", true);
-    equals("AMD FSR frame generation off", "fsr3g", "off", true);
+    equals("DLSS frame generation off", "dlssg", "off", true, true);
+    equals("AMD FSR frame generation off", "fsr3g", "off", true, true); // new in 9.00
     equals("Upscaling off", "upmode", "none", true);
     equals("VSync off", "presentmode", "immediate", true);
     // The mod paces X4 to the headset, so a cap at or above 90 does nothing in alternate mode

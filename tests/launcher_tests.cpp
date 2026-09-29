@@ -42,6 +42,9 @@ int main() {
     CHECK(failing(check_x4(fixed, 0, 0)) == 0); // resolution unchecked when the profile has none
     CHECK(failing(check_x4(xml_set(xml_set(fixed, "frameratelimit", "true"), "frameratetarget", "180"), 2560, 1440)) == 1); // any cap: the mod paces, and under 180 fps a cap defeats pair mode
     CHECK(failing(check_x4(xml_set(xml_set(fixed, "dlss", "true"), "dlssmode", "ultra_performance"), 2560, 1440)) == 0); // DLSS allowed
+    std::string without_fsr = fixed;
+    without_fsr.erase(without_fsr.find("  <fsr3g>"), std::string("  <fsr3g>off</fsr3g>\n").size());
+    CHECK(failing(check_x4(without_fsr, 2560, 1440)) == 0); // X4 8.00 has no FSR frame generation setting
     const auto inserted = xml_set("<root>\n</root>\n", "enableopentrack", "true");
     CHECK(xml_value(inserted, "enableopentrack", v) && v == "true");
 

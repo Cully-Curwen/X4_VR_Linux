@@ -33,7 +33,7 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
 
 ## What you need
 
-- Windows 10 or 11 (64-bit), Steam, and X4: Foundations 9.00.
+- Windows 10 or 11 (64-bit), Steam, and X4: Foundations 9.00 or 8.00 (see [Limitations](#limitations)).
 - SteamVR plus your headset's own software, for example Varjo Base with SteamVR support
   enabled. With the experimental OpenXR option, the headset's OpenXR runtime replaces SteamVR.
 - A GPU that can hold your headset's refresh rate (for example 90 fps). Every displayed frame
@@ -47,8 +47,8 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
 It was developed and tested with X4 9.00 from Steam, a Varjo Aero (Varjo Base + SteamVR), an
 NVIDIA RTX 3090 holding a steady 90 fps at 3840×2160, and Windows 11. Other SteamVR headsets
 (Index, Vive, Quest through Link or Virtual Desktop in SteamVR mode, and so on) should work but
-haven't been tested. The calibration is specific to X4 9.00; on other versions some parts fall
-back to safer behavior (see [Limitations](#limitations)).
+haven't been tested. X4 8.00 is supported too; on versions the mod doesn't know, some parts
+fall back to safer behavior (see [Limitations](#limitations)).
 
 OpenXR is available as an experimental option in the launcher. It lets the mod use a headset's
 own OpenXR runtime, for example Varjo Base's, without going through SteamVR. On a Varjo Aero it
@@ -274,10 +274,17 @@ maximum FOV is a bit smaller than the Varjo Aero's.
 VR only works when X4 is started through the launcher or `play.ps1`. A normal Steam launch runs
 the game flat.
 
-Only X4 9.00 is fully supported. The mod changes three spots in X4's code in memory at runtime:
-one allows leaning backwards, and two allow head tracking on foot. Before each change it checks
-the exact code bytes. On other versions it skips the changes, so leaning backwards stays blocked
-and walking is shown on the virtual screen.
+X4 9.00 and 8.00 are supported. To play an older version, pick it in Steam under X4's
+Properties > Game Versions & Betas, then start it through the launcher, which rebuilds the HUD
+distance extension for that version's files. The mod finds the X4 code it relies on by its
+bytes, not by address, and knows the code of both versions. It changes three spots in memory at
+runtime (one allows leaning backwards, two allow head tracking on foot) and hooks X4's head
+tracker to pick each frame's eye. On a version whose code it doesn't know, it leaves that code
+alone: leaning backwards stays blocked, walking is shown on the virtual screen, or eyes are
+picked at the tracker read (occasional stutter). The log says which (`patched` or `signature
+mismatch`). Developers can check any `X4.exe` without starting it:
+`build\Release\code_scan_tests.exe <path to X4.exe>`. The calibration values were measured on
+9.00.
 
 ## Troubleshooting
 
@@ -293,7 +300,7 @@ Logs are written to `X4_VR\reports\captures\debug-*\debug-events.log`; search fo
 | View off-center | Look straight ahead and press Ctrl+F12. |
 | HUD too close or too far | Change the factor in the launcher's HUD distance box (X4 closed) and press *Apply*. |
 | A view or menu doesn't work in VR | Press Ctrl+F11 for the virtual screen, and Ctrl+F11 again to return. |
-| Walking shows the virtual screen instead of stereo | The log should show `on-foot head-pose zeroing patched` and `on-foot camera offset patched`. A `signature mismatch` means your X4 version isn't supported for walking yet. |
+| Walking shows the virtual screen instead of stereo | The log should show `on-foot head-pose zeroing patched` and `on-foot camera offset patched`. A `signature mismatch` means X4 changed that code in your version, so walking isn't supported there yet. |
 | Game froze at startup (rare) | Close it and launch again. Disabling overlay hooks (Overwolf, OBS game capture) can help. |
 
 ## Reporting a bug

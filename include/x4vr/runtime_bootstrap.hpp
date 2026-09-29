@@ -151,7 +151,7 @@ void record_render_pose(const Matrix& head, uint32_t eye, bool flat = false, boo
 // Recentred seated origin (position + yaw), published by the pose source; false until set.
 void publish_view_origin(const Matrix& origin);
 bool view_origin(Matrix& origin);
-int frame_half(); // X4 9.00 per-frame double-buffer half (0/1), -1 if unavailable
+int frame_half(); // X4 per-frame double-buffer half (0/1), -1 if unavailable
 // Layer: once per present. Returns the present number; pose lookup by number.
 // Diagnostics: create trace.request to dump the last 16384 events to trace.txt
 // ("kind value half time_us thread a b c"). Kinds: P present, L/R pose read for that eye,
