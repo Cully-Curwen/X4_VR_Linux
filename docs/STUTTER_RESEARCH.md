@@ -1,8 +1,8 @@
 # Frame stutter: research and fix plan
 
-## Implementation status (2026-09-28, after the research)
+## Implementation status (updated 2026-09-29)
 
-Done, built and unit-tested, not yet verified in the headset:
+Done, built and unit-tested; the first headset check follows the list:
 
 - Item 1: no unbounded wait between `WaitGetPoses` and `Submit`. A fence per submission (4)
   replaces the `read` wait; the images of unfinished submissions stay held. `p.mutex` is a
@@ -114,7 +114,15 @@ same as before the changes. Items 1-5 fixed missed compositor frames, which were
 - Seen in passing: at 4K the frame rate fell from ~89 to ~73 fps mid-session with no settings
   change (scene load), which showed as 2x the eye-image fallbacks.
 
-Next: items 6 and 8-12. The mouse cursor bug is in the backlog (STATUS.md).
+### Shelved and next (2026-09-29)
+
+- Item 11 is shelved. With the eye picked at use, alternate eyes plus the optional pair mode
+  are good enough, no player has reported rendering problems, and engine hooks would need
+  rework with every X4 update. Revisit only if players report object doubling or depth errors.
+- The player-side settings are in the README (*Smoother frames*).
+- The mouse cursor bug is fixed (67ca5c6, STATUS.md).
+
+Next: items 6, 8-10 and 12.
 
 ## Research (2026-09-28)
 
@@ -424,7 +432,7 @@ without a deadline can push the submission past the latch.
 Ordered by expected effect per effort. Each item says how to check it; the `pair_stats` columns,
 `trace.request` and `tools/flicker_ab.py` already cover most of this.
 
-### 1. No unbounded waits between `WaitGetPoses` and `Submit`
+### 1. No unbounded waits between `WaitGetPoses` and `Submit` (done)
 
 Stutter kind A. Files: `observe_layer.cpp` (`compositor_loop`, present hook).
 
@@ -443,7 +451,7 @@ Stutter kind A. Files: `observe_layer.cpp` (`compositor_loop`, present hook).
 - Check: `waited_max` p99 under about 2.5 ms in every frame-rate bucket, and missed compositor
   frames in the 60–88 fps buckets down to the ≥ 88 fps level (about 0.1 per window).
 
-### 2. Submission thread priority
+### 2. Submission thread priority (done)
 
 Stutter kind A.
 
@@ -453,7 +461,7 @@ Stutter kind A.
 - Recommend a High-performance power plan to players, against core parking.
 - Check: the tails of `blocked_max` and `interval_max` in CPU-bound windows (< 60 fps).
 
-### 3. SteamVR handoff and visibility
+### 3. SteamVR handoff and visibility (done)
 
 Stutter kind A.
 
@@ -466,7 +474,7 @@ Stutter kind A.
 - Check: which call carries the ~11 ms wait, and whether `m_nNumMisPresented` and
   `m_nNumDroppedFrames` line up with the `late` column.
 
-### 4. Don't penalize late frames
+### 4. Don't penalize late frames (done)
 
 Stutter kind B. File: `observe_layer.cpp:1306` (`pace_to_compositor`).
 
@@ -484,7 +492,7 @@ Stutter kind B. File: `observe_layer.cpp:1306` (`pace_to_compositor`).
 - Check: fewer windows in the 60–88 fps buckets, and no ~22 ms mode in the present intervals
   (`trace.request`) while X4 runs at 80–89 fps.
 
-### 5. Play mode without capture overhead
+### 5. Play mode without capture overhead (partly done: `MemoryTracker` unchanged)
 
 Stutter kinds B and D. File: `observe_layer.cpp`.
 
@@ -510,7 +518,7 @@ Stutter kind A.
   from `WaitGetPoses` to `Submit` every frame, so only keep it together with item 4.
 - Check: fallbacks and misses in the 80–88 fps bucket.
 
-### 7. One pacer
+### 7. One pacer (done)
 
 Stutter kind B.
 
@@ -565,7 +573,7 @@ Stutter kind C, and every repeated frame.
 - Depth corrects head translation for the stale eye and for repeated frames. It doesn't correct
   object motion.
 
-### 11. Synchronized eyes and native stereo (large)
+### 11. Synchronized eyes and native stereo (large, shelved)
 
 Stutter kind C.
 
@@ -589,10 +597,11 @@ Stutter kind C.
   (turn compensation extended over time), using depth to separate near cockpit pixels from far
   world pixels.
 
-### Player-side settings (README candidates)
+### Player-side settings (in the README since 2026-09-29)
 
 - NVIDIA Control Panel, X4 profile: Power management "Prefer maximum performance", a large or
-  unlimited Shader Cache Size, Max Frame Rate off, Low Latency Mode off.
+  unlimited Shader Cache Size, Max Frame Rate off. Low Latency Mode doesn't matter: it only
+  applies to DirectX 9 and 11, and X4 uses Vulkan.
 - X4: frame limiter off, VSync off (already required), and a higher autosave interval factor if
   autosaves hitch.
 - Windows: High-performance power plan, and no overlays that hook Vulkan (RTSS, OBS game capture,
@@ -614,8 +623,9 @@ Stutter kind C.
 
 ## Open questions
 
-- Where does SteamVR block with the Varjo driver: in the second `Submit` or in
-  `PostPresentHandoff`? Does the latch stay at 3.2–4.5 ms under GPU load?
+- Answered: with the Varjo driver SteamVR blocks in `Submit`/`PostPresentHandoff` while the
+  handoff is called, and in `WaitGetPoses` without it (see Implementation status). Still open:
+  does the latch stay at 3.2–4.5 ms under GPU load?
 - Does Varjo's OpenXR runtime use `XR_KHR_composition_layer_depth` for positional timewarp the way
   its native API does? `openxr_probe` lists the extension; confirm it visually.
 - Is Reflex active in X4 9.00 with DLSS on? Without it, no (see [One pacer](#one-pacer-item-7-2026-09-29)).

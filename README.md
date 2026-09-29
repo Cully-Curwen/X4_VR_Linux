@@ -262,6 +262,22 @@ are calibrated for X4 9.00; keys you leave out use their defaults.
 | `cursor`, `cursor_distance` | 1, 5 | Mouse cursor on (1) or off (0), and how far it floats in the stereo view, in metres. |
 | `turn_comp` | 1 | Mouse-turn compensation: 1 = on foot, 0 = off, 2 = also in the cockpit (there it keeps the world aligned during ship turns but shifts the cockpit interior instead). |
 
+## Smoother frames (optional)
+
+None of these are required. They target short hitches rather than the average frame rate, so
+keep what helps on your system.
+
+| Where | Setting | Why |
+| --- | --- | --- |
+| NVIDIA Control Panel > Manage 3D settings > Program Settings > X4 | Power management mode: Prefer maximum performance | Keeps the GPU clock from dropping between frames. |
+| Same place | Shader Cache Size: 10 GB or Unlimited | X4 keeps compiling shaders while you play. A bigger cache keeps them for the next session. |
+| Control Panel > Power Options | High performance | Avoids CPU core parking, a known cause of hitches at 90 Hz. |
+| Your mouse software | Polling rate 250–500 Hz | Players report less camera stutter in X4 than at 1000 Hz. |
+| X4's options | A longer autosave interval | Only if you notice a hitch at every autosave. |
+
+Also close tools that hook the game's graphics: RTSS (MSI Afterburner's on-screen display), OBS
+game capture, Overwolf, and on some systems the Steam overlay.
+
 ## Limitations
 
 Each eye gets 45 Hz, because frames alternate between the eyes. SteamVR reprojection keeps
@@ -307,7 +323,7 @@ Logs are written to `X4_VR\reports\captures\debug-*\debug-events.log`; search fo
 | No head tracking, or nothing in the headset | OpenTrack Support is On and X4 was started with the launcher or `play.ps1`. If the launcher's Status box says the head-tracking DLL path is not set, press *Fix head-tracking path* and start X4 again. The log should show `X4VR freetrack: first headset pose delivered`. |
 | Headset shows only SteamVR's grey room | SteamVR must be running before the launch. The log should show `X4VR presenter: first stereo pair submitted`. |
 | Blurry | Display Mode Fullscreen at 3840×2160 (DSR enabled). |
-| Low frame rate or judder | Use a smaller DSR factor (e.g. 2560×1440) or lower graphics settings; 90 fps is needed. |
+| Low frame rate or judder | Use a smaller DSR factor (e.g. 2560×1440) or lower graphics settings; 90 fps is needed. For short hitches, see [Smoother frames](#smoother-frames-optional). |
 | Quest: only the right eye jitters when turning the head | Stream with Virtual Desktop instead of Steam Link (see [Limitations](#limitations)). |
 | World too big or too small | Adjust World scale in the launcher (`ipd_scale` in `stereo.txt`). |
 | View off-center | Look straight ahead and press Ctrl+F12. |
