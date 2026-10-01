@@ -20,9 +20,9 @@ int main() try {
     const auto root = fs::temp_directory_path()/("x4vr-background-"+std::to_string(GetCurrentProcessId()));
     fs::create_directories(root);
     SetEnvironmentVariableW(L"X4VR_CAPTURE_DIR", root.wstring().c_str());
-    std::ofstream(root/"stereo.txt") << "submit_budget_ms=3.5\nhandoff=1\nrelease_late=1\ndelay_walk=3\n";
+    std::ofstream(root/"stereo.txt") << "submit_budget_ms=3.5\nhandoff=1\nrelease_late=0\ndelay_walk=3\n";
     const auto first = x4vr::stereo_settings(); // the first call loads synchronously
-    check(first.submit_budget_ms == 3.5f && first.handoff && first.release_late && first.delay_walk == 3, "settings loaded on first call");
+    check(first.submit_budget_ms == 3.5f && first.handoff && !first.release_late && first.delay_walk == 3, "settings loaded on first call");
     check(!x4vr::take_request("probe.request"), "no request before the file exists");
     std::ofstream(root/"stereo.txt") << "submit_budget_ms=1\n";
     std::ofstream(root/"probe.request") << "go";
@@ -32,7 +32,7 @@ int main() try {
     check(eventually([] { return x4vr::take_request("probe.request"); }), "request seen");
     check(!fs::exists(root/"probe.request"), "request file deleted");
     check(!x4vr::take_request("probe.request"), "request taken once");
-    check(eventually([] { const auto s = x4vr::stereo_settings(); return s.submit_budget_ms == 1 && !s.handoff && !s.release_late; }), "settings reloaded");
+    check(eventually([] { const auto s = x4vr::stereo_settings(); return s.submit_budget_ms == 1 && !s.handoff && s.release_late; }), "settings reloaded");
     check(eventually([&] { return read(root/"out.txt") == "a\nb\nc\n"; }), "writes in order, first one replaces");
     x4vr::write_file_later(root/"out.txt", "d\n", false);
     check(eventually([&] { return read(root/"out.txt") == "d\n"; }), "replace after appends");

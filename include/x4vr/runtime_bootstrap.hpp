@@ -107,9 +107,10 @@ struct StereoSettings { bool stereo = true; int delay = 2, recenter = 0; float i
     // can't follow the present, and here it follows at once (openvr #1401: the call itself blocked).
     bool handoff = false;
     // 1: a game frame that ends after a compositor tick releases X4 at once instead of waiting
-    // for the next tick. Off: in the headset (2026-09-28, GPU-bound ~75 fps) waiting was steadier;
-    // tick-aligned frames keep X4's simulation steps in step with the display.
-    bool release_late = false;
+    // for the next tick. 0 snaps every frame between 11.1 and 22.2 ms to 45 fps: with 10 ms CPU
+    // load per frame (2026-10-01, OpenVR and OpenXR) 45 vs 67 fps, 0 missed compositor frames
+    // either way, and 1 looked smoother in the headset.
+    bool release_late = true;
     // Diagnostics: stall the game's render thread for hitch_ms once every hitch_every presents.
     float hitch_ms = 0; int hitch_every = 90;
     // Eye association by X4's per-frame render-data half instead of present counting.

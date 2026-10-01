@@ -34,6 +34,15 @@ First headset check (2026-09-28, OpenVR, cockpit, `flicker_ab.py 20 stutter` + `
   `handoff=0` stays the default.
 - `release_late` made no measurable difference here: X4 was GPU-bound (~75 fps either way), and
   the GPU queue absorbs the wait. It should matter in CPU-bound scenes; not yet tested there.
+- CPU-bound check (2026-10-01, `flicker_ab.py 20 cpu`: 10 ms busy-wait on every present, 1440p,
+  cockpit, ship still): `release_late=0` held X4 at exactly 45.0 fps, `release_late=1` gave
+  67 fps, on OpenVR and on OpenXR (Varjo). `late` stayed 0 in both; with 1, 27-43 fallbacks per
+  2 s window and `waited_max` up to 3.0 ms. The user saw 1 as smoother. Players report late-game
+  saves with big fleets as CPU-bound, so `release_late=1` is now the default.
+- The same without added load (`flicker_ab.py 20 late`, OpenXR, ~90 fps): 88.3-88.8 vs
+  89.8-90.0 fps, similar fallbacks, 1 missed compositor frame in each mode. The user's favourites
+  were one segment of each mode, with minimal difference, so the 2026-09-28 preference for
+  waiting didn't reproduce.
 - Minimizing X4 (fullscreen at a DSR resolution) stalled the submission thread for 2.4 s in
   one of the post-submit steps (likely the GPU-side mode switch); X4 stops presenting while
   minimized. Not stutter during play.

@@ -43,7 +43,9 @@ lean), correct depth and scale.
    `reflect_capture.py`/`analyze_uniforms.py`); otherwise only pipeline creations over 2 ms
    (`slow_pipelines`). Live keys: `handoff=1` restores `PostPresentHandoff` after Submit;
    `release_late=0` makes a game frame that ends after a tick wait for the next one again
-   (it halved 80-89 fps to 45; `x4_late` column counts released frames).
+   (it halved 80-89 fps to 45; `x4_late` column counts released frames). Default 1 since
+   2026-10-01: with 10 ms CPU load per frame, 45 vs 67 fps on OpenVR and OpenXR
+   (`flicker_ab.py … cpu`; the hitch injector busy-waits, `Sleep` rounded to the timer).
    `submit.request` writes the thread's last 2048 frames to `submit_trace.txt`
    (`tools/submit_trace.py` requests and summarizes it; `flicker_ab.py … stutter` A/Bs the keys).
 

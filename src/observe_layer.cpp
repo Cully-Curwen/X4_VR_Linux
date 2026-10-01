@@ -1522,8 +1522,13 @@ EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkP
     const auto settings = x4vr::stereo_settings();
     if (async) pace_to_compositor(settings, eye);
     static uint64_t presents{};
-    if (settings.hitch_ms > 0 && settings.hitch_every > 0 && ++presents % uint64_t(settings.hitch_every) == 0)
-        Sleep(DWORD(settings.hitch_ms)); // diagnostics: simulated game hitch
+    if (settings.hitch_ms > 0 && settings.hitch_every > 0 && ++presents % uint64_t(settings.hitch_every) == 0) {
+        // diagnostics: simulated game hitch, or CPU load with hitch_every=1. Busy-wait like game
+        // work: Sleep rounds up to the timer resolution (up to 15.6 ms).
+        const auto until = std::chrono::steady_clock::now()+std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double, std::milli>(settings.hitch_ms));
+        while (std::chrono::steady_clock::now() < until) YieldProcessor();
+    }
     const auto frame = ++present_count;
     if (frame <= 5 || frame % 300 == 0) log([&](auto& s) {
         s << "{\"event\":\"present\",\"number\":" << frame << ",\"result\":" << result << ",\"tick\":" << GetTickCount64() << '}';

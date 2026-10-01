@@ -1,14 +1,14 @@
 """Timed in-headset A/B of presentation modes; segment n starts with n beeps.
 Waits for X4 to be the foreground window, then runs each mode for SECONDS and prints the
 layer's pair_stats.txt lines per segment. Restores stereo.txt afterwards.
-usage: flicker_ab.py [seconds] [async|hitch|content|pose|stutter|still|eyeuse|delay]"""
+usage: flicker_ab.py [seconds] [async|hitch|content|pose|stutter|cpu|late|still|eyeuse|delay]"""
 import sys, time, ctypes as C, winsound
 from ctypes import wintypes as W
 from pathlib import Path
 
 CAPTURES = Path(__file__).resolve().parents[1]/'reports'/'captures'
 BASE = dict(pair=0, pair_wait=1, eye_from_half=1, half_xor_render=0, half_xor_present=1, submit_pose=1, async_submit=1, hitch_ms=0,
-            handoff=0, release_late=0, eye_at_use=1)
+            handoff=0, release_late=1, eye_at_use=1)
 MODE_SETS = {
     # the 2026-09-26 finding: inline submission shows every late game frame (grey flashes in
     # pair mode, ghosting on stalls); async submission hides them
@@ -31,8 +31,17 @@ MODE_SETS = {
     # STUTTER_RESEARCH.md items 3 and 4: compare the late/x4_late/waited_max columns
     'stutter': [('no handoff, late frames go on at once', dict(release_late=1)),
                 ('PostPresentHandoff after Submit', dict(handoff=1, release_late=1)),
-                ('late frames wait for the next tick', {}),
+                ('late frames wait for the next tick', dict(release_late=0)),
                 ('no handoff, late frames go on at once', dict(release_late=1))],
+    # CPU-bound X4 (late-game saves): 10 ms busy on every present. With release_late=0 a frame
+    # that ends after a tick waits for the next one, so X4 drops to 45 fps at 90 Hz.
+    'cpu': [('CPU load, late frames wait for the next tick', dict(hitch_ms=10, hitch_every=1, release_late=0)),
+            ('CPU load, late frames go on at once', dict(hitch_ms=10, hitch_every=1)),
+            ('CPU load, late frames wait for the next tick', dict(hitch_ms=10, hitch_every=1, release_late=0)),
+            ('CPU load, late frames go on at once', dict(hitch_ms=10, hitch_every=1))],
+    # the same without added load (the 2026-09-28 verdict for release_late=0 was at ~75 fps)
+    'late': [('late frames wait for the next tick', dict(release_late=0)), ('late frames go on at once', {}),
+             ('late frames wait for the next tick', dict(release_late=0)), ('late frames go on at once', {})],
     # 2026-09-28: stutter with head and ship still; which part of the stereo path causes it
     'still': [('alternate eyes', {}),
               ('mono: both eyes the same image, every frame', dict(stereo=0)),
@@ -78,8 +87,13 @@ def main():
     stats = [l for l in (CAPTURES/'pair_stats.txt').read_text().splitlines() if l and l[0].isdigit()]
     for n, ((start, name), (end, _)) in enumerate(zip(marks, marks[1:]), 1):
         print(f'== segment {n}: {name}')
-        for line in stats:
-            if start+2500 <= int(line.split()[0]) <= end+500: print(line)
+        fps = []
+        for i, line in enumerate(stats):
+            c = line.split()
+            if i and start+2500 <= int(c[0]) <= end+500:
+                print(line)  # X4 fps = new eye images (one per game frame) over the window
+                fps.append((2*int(c[1])-int(c[2])-int(c[3]))*1000/(int(c[0])-int(stats[i-1].split()[0])))
+        if fps: print(f'   X4 fps median {sorted(fps)[len(fps)//2]:.1f}')
 
 if __name__ == '__main__':
     main()
