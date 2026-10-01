@@ -78,7 +78,8 @@ On its first start the launcher points X4's head-tracker setting, the per-user r
 `HKCU\Software\FreeTrack\FreeTrackClient\Path`, at `X4_VR\build\Release`. That is where X4 looks
 for a FreeTrack head tracker. If you already use opentrack or TrackIR, the launcher leaves that
 value alone, and you switch it with the launcher's *Fix head-tracking path* button. The old value
-is backed up, and the uninstaller restores it.
+is backed up, and the uninstaller restores it. While X4 loads the mod's head tracker, the mod turns
+off X4's TrackIR and Tobii head tracking, which would otherwise replace the headset pose.
 
 #### Building from source
 

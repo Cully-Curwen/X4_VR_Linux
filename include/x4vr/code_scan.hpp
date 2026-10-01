@@ -107,6 +107,28 @@ inline constexpr OnFoot on_foot[] = {
      0x878},
 };
 
+// X4's head-tracker pick, every frame: each tracker's block calls vtable slot 0x30 (enabled), then
+// 0x08 (update), and if both pass stores it as the active tracker (9.00: [manager+0x3b8], 8.00:
+// [manager+0x4f0]). Order:
+// OpenTrack, FreeTrack, TrackIR, Tobii, so the last one with data wins.
+struct RivalTrackers {
+    const char* version;
+    std::string_view trackir; // TrackIR block (tracker at manager+0): `je` past it at +11
+    std::string_view tobii;   // Tobii block (`lea rdi, [manager+offset]`): `je` past it at +18
+};
+inline constexpr RivalTrackers rival_trackers[] = {
+    {"9.00", // 0xfa34fc, 0xfa353c
+     "48 8b 03 48 8b cb ff 50 30 84 c0 74 33 48 8b 03 48 8b cb ff 50 08 84 c0 74 26 "
+     "48 8b 03 48 8b cb ff 50 28 84 c0 75 09 48 89 9b b8 03 00 00",
+     "48 8d bb c0 02 00 00 48 8b 07 48 8b cf ff 50 30 84 c0 74 14 48 8b 07 48 8b cf ff 50 08 84 c0 74 07 "
+     "48 89 bb b8 03 00 00"},
+    {"8.00", // 0xf474fb, 0xf4753b
+     "48 8b 03 48 8b cb ff 50 30 84 c0 74 33 48 8b 03 48 8b cb ff 50 08 84 c0 74 26 "
+     "48 8b 03 48 8b cb ff 50 28 84 c0 75 09 48 89 9b f0 04 00 00",
+     "48 8d bb 80 03 00 00 48 8b 07 48 8b cf ff 50 30 84 c0 74 14 48 8b 07 48 8b cf ff 50 08 84 c0 74 07 "
+     "48 89 bb f0 04 00 00"},
+};
+
 // X4's FreeTrack tracker (RTTI VR::FreeTrack).
 struct Tracker {
     const char* version;

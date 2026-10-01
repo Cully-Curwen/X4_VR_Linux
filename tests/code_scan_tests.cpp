@@ -58,6 +58,10 @@ int main(int argc, char** argv) {
         }
         return update && accessors;
     });
+    versions("rival trackers off", x4::rival_trackers, [](const x4::RivalTrackers& row) {
+        const bool trackir = unique("trackir", row.trackir);
+        return unique("tobii", row.tobii) && trackir;
+    });
     const auto half = find_all(base, parse(x4::frame_half));
     bool agree = !half.empty();
     for (const auto* reader : half) agree = agree && rip_target(reader, 3, 7) == rip_target(half[0], 3, 7);

@@ -75,6 +75,21 @@ void log_mismatch(const char* what) {
 void unclamp_backward_position() {
     if (!patch_code("backward head-position clamp", x4vr::code::x4::backward_clamp, 15, {0xeb})) log_mismatch("backward head-position clamp");
 }
+// X4 takes the head pose from the last tracker in its pick with data (9.00: 0xfa3489), and TrackIR
+// and Tobii come after FreeTrack. A foreign NPClient64.dll (vorpX's, loaded via the registry even
+// with vorpX closed) or an eye tracker then replaced the headset pose, and since eye at use the
+// missing FreeTrack reads also left the theater screen on (issue #2). Turn the `je` that skips
+// each disabled one into `jmp`, so neither updates or wins. A later row may share the TrackIR
+// code: its patch then counts as done.
+void disable_rival_trackers() {
+    for (const auto& version : x4vr::code::x4::rival_trackers) {
+        if (patch_code("TrackIR tracker skip", version.trackir, 11, {0xeb}) && patch_code("Tobii tracker skip", version.tobii, 18, {0xeb})) {
+            OutputDebugStringA(("X4VR freetrack: TrackIR and Tobii trackers off, X4 "+std::string(version.version)+" code\n").c_str());
+            return;
+        }
+    }
+    log_mismatch("TrackIR or Tobii tracker pick");
+}
 // X4's camera manager; [manager+0x3d0] is the rendered camera.
 const unsigned char* const* camera_manager{};
 size_t camera_mode{}; // Camera field: 0 while walking (9.00: +0x868)
@@ -233,6 +248,7 @@ extern "C" __declspec(dllexport) BOOL __cdecl FTGetData(FreeTrackData* data) {
         if (!runtime) {
             runtime = x4vr::acquire_runtime_bootstrap();
             unclamp_backward_position();
+            disable_rival_trackers();
             on_foot_tracking = enable_on_foot_tracking();
             // X4 smooths tracker input with alpha = 1/strength; its menu minimum is 5,
             // which lags rotation and averages alternating eye offsets away. The
