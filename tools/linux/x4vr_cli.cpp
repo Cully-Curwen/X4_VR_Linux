@@ -288,23 +288,56 @@ bool x4_running() {
 // minus "fullscreen, not borderless": on Windows that is for NVIDIA DSR; on Linux X4's borderless
 // window at the desktop resolution is fine.
 // X4's resolution: the smallest common 16:9 mode at least as large as what SteamVR uses (saved by
-// the mod in x4_resolution.txt while X4 ran), so X4 doesn't render pixels SteamVR throws away.
-// X4VR_RESOLUTION=WxH sets it, X4VR_RESOLUTION=0 leaves it alone; none known yet (first start): no check.
+// SteamVR directly when it runs, else saved by the mod in x4_resolution.txt while X4 ran), so X4
+// doesn't render pixels SteamVR throws away. X4VR_RESOLUTION=WxH sets it, =0 leaves it alone.
 std::filesystem::path settings_file();
-std::pair<int, int> wanted_resolution() {
+// What the mod computes at startup (vr_layer.cpp, presenter_initialize): X4's image spans
+// 2*tan_x by 2*tan_y (tan_y = game_tan_y, X4's FOV), at the pixels per tangent SteamVR recommends.
+// Asked as a background app: it doesn't start SteamVR or show up as a running game.
+bool steamvr_resolution(const std::string& xml, int& w, int& h) {
+    if (std::getenv("X4VR_NO_STEAMVR_QUERY")) return false;
+    auto error = vr::VRInitError_None;
+    auto* system = vr::VR_Init(&error, vr::VRApplication_Background);
+    if (!system || error != vr::VRInitError_None) return false;
+    uint32_t rec_w = 0, rec_h = 0;
+    system->GetRecommendedRenderTargetSize(&rec_w, &rec_h);
+    double want_x = 0, want_y = 0;
+    for (int e = 0; e < 2; ++e) {
+        float l, r, t, b;
+        system->GetProjectionRaw(vr::EVREye(e), &l, &r, &t, &b);
+        if (r > l) want_x = std::max(want_x, rec_w/double(r-l));
+        if (b != t) want_y = std::max(want_y, rec_h/std::fabs(double(b-t)));
+    }
+    vr::VR_Shutdown();
+    double tan_y = 0.8675; // stereo.txt game_tan_y
+    std::ifstream settings(settings_file());
+    for (std::string line; std::getline(settings, line);) if (line.rfind("game_tan_y=", 0) == 0) tan_y = std::atof(line.c_str()+11);
+    std::string rw, rh;
+    const double aspect = x4vr::launcher::xml_value(xml, "res_width", rw) && x4vr::launcher::xml_value(xml, "res_height", rh) &&
+                          std::atoi(rh.c_str()) > 0 ? std::atof(rw.c_str())/std::atof(rh.c_str()) : 16.0/9;
+    w = int(std::lround(2*tan_y*aspect*want_x));
+    h = int(std::lround(2*tan_y*want_y));
+    return w > 0 && h > 0;
+}
+std::pair<int, int> wanted_resolution(const std::string& xml) {
     int w = 0, h = 0;
     if (const char* set = std::getenv("X4VR_RESOLUTION"); set && *set) {
         if (std::sscanf(set, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) return {w, h};
         return {0, 0};
     }
-    std::ifstream in(settings_file().parent_path()/"x4_resolution.txt");
-    if (!(in >> w) || in.get() != 'x' || !(in >> h) || w <= 0 || h <= 0) return {0, 0};
+    const auto saved = settings_file().parent_path()/"x4_resolution.txt";
+    if (steamvr_resolution(xml, w, h)) {
+        std::ofstream(saved, std::ios::trunc) << w << 'x' << h << '\n';
+    } else { // SteamVR not running: what the mod saved last time
+        std::ifstream in(saved);
+        if (!(in >> w) || in.get() != 'x' || !(in >> h) || w <= 0 || h <= 0) return {0, 0};
+    }
     static constexpr std::pair<int, int> modes[] = {{1920, 1080}, {2560, 1440}, {2880, 1620}, {3200, 1800}, {3840, 2160}};
     for (const auto& mode : modes) if (mode.first >= w && mode.second >= h) return mode;
     return modes[std::size(modes)-1];
 }
 std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
-    const auto [width, height] = wanted_resolution();
+    const auto [width, height] = wanted_resolution(xml);
     auto checks = x4vr::launcher::check_x4(xml, width, height);
     std::erase_if(checks, [](const auto& c) { return c.label.rfind("Display mode", 0) == 0; });
     return checks;

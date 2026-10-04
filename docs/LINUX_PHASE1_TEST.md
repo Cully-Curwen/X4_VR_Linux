@@ -48,10 +48,10 @@ You can also type them in a terminal.
 `x4vr-run` sets what VR needs in X4's `config.xml` before every start (X4 isn't running yet at that
 point, so it can't overwrite them): FOV 120°, anti-aliasing not temporal, upscaling and frame
 generation off, VSync off, frame-rate limit off, OpenTrack Support on, chromatic aberration off,
-and the resolution: while X4 runs the mod saves the size SteamVR uses (its render resolution
-setting, per app too) in `~/.local/state/x4vr/x4_resolution.txt`, and the next start sets X4 to
-the smallest common 16:9 mode at least that large (2880x1620 for the Frame at SteamVR's default),
-so X4 doesn't render pixels SteamVR throws away. `X4VR_RESOLUTION=WxH` in front of the launch
+and the resolution: `x4vr-run` asks SteamVR (already running) for the size it uses (its render
+resolution setting, per app too) and sets X4 to the smallest common 16:9 mode at least that large (2880x1620 for the Frame at SteamVR's default),
+so X4 doesn't render pixels SteamVR throws away. Without SteamVR it uses the size the mod saved last
+time (`~/.local/state/x4vr/x4_resolution.txt`). `X4VR_RESOLUTION=WxH` in front of the launch
 option picks one, `X4VR_RESOLUTION=0` leaves X4's resolution alone.
 Everything else stays as it is; the first change keeps the original as `config.xml.x4vr-backup`
 next to it. What it changed is listed at the top of `x4vr.log`.
