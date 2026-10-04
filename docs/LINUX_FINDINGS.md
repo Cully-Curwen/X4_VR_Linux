@@ -268,3 +268,39 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
    function bodies decide (what each reads and writes in the tracker object).
 3. The bridge's code (backward clamp on Windows) is around `0x1918000`–`0x191d000`, a small area
    to search for stage D.
+
+---
+
+## 0.7 Probe layer inside X4 (2026-10-04)
+
+### Facts
+
+- `x4vr-probe-run` as the Steam launch option works: **the layer loads in X4 inside the Steam
+  Linux Runtime container** through `VK_ADD_LAYER_PATH` with `/nix/store` paths, and the
+  preloaded socket probe is active in the X4 process (Steam's overlay is preloaded after it).
+- Instance: app "X4", API 1.2, surface extensions for Xlib, XCB and Wayland. X4 creates an
+  **Xlib surface: X11 through Xwayland** on the Hyprland desktop.
+- Device: RX 7900 XT. **X4 takes queue 0 of family 0 (graphics) and queue 0 of family 1
+  (compute/transfer, 4 queues)**; it presents from its main thread (`Main()`, tid = pid) on
+  family 0, queue 0. Device extensions: `VK_KHR_swapchain`, `VK_KHR_buffer_device_address`,
+  `VK_KHR_push_descriptor`, `VK_EXT_memory_budget`, `VK_EXT_memory_priority`,
+  `VK_EXT_descriptor_indexing`, `VK_KHR_external_memory_fd`, `VK_KHR_external_semaphore_fd`,
+  `VK_KHR_timeline_semaphore`.
+- Swapchain: 3840x2160, `B8G8R8A8_UNORM`, colour space sRGB nonlinear, at least 4 images,
+  present mode **IMMEDIATE** (VSync off), usage `0x1b` (includes transfer source, so the layer can
+  copy from it as on Windows). It is recreated a few times during start-up.
+- Frame rate at the main menu: ~100 per second with the window focused, **~12.8 per second
+  unfocused** (X4's background throttle, as on Windows without `-nocputhrottle`).
+- No UDP socket yet: OpenTrack Support was still off (only a TCP socket for online services).
+
+### Consequences
+
+1. Loading through the wrapper is proven; plan section 9.1's approach holds, no copying of
+   libraries needed.
+2. **Private queue on AMD:** family 1 has 4 queues and X4 uses only index 0, so the layer can add
+   one more queue to X4's family-1 request (index 1) at `vkCreateDevice`. Copies and submission
+   run there; eye textures need a queue-family ownership transfer from family 0 or concurrent
+   sharing (plan 8.2, option 1).
+3. The swapchain format and usage match the Windows capture path. 8-bit UNORM goes to its SRGB
+   twin for OpenXR, as on Windows.
+4. Launch with `-nocputhrottle` in VR runs (the window isn't focused while wearing the headset).
