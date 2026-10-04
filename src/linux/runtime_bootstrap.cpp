@@ -37,6 +37,7 @@ std::atomic<bool> submit_right_first{false};
 // Linux-only diagnostic (stereo.txt `pose_from_eye=0|1`): submits both eyes with that eye's pose, to
 // see whether the runtime uses one eye's pose for both (-1, default: each eye its own).
 std::atomic<int> pose_from_eye{-1};
+std::atomic<bool> shared_pose_setting{true};
 thread_local bool runtime_thread = false;
 struct RuntimeCall {
     bool previous = runtime_thread;
@@ -303,6 +304,7 @@ StereoSettings read_settings() {
     if (root.empty()) return next;
     bool right_first = false;
     int from_eye = -1;
+    bool shared = true;
     std::ifstream file(root+"/stereo.txt");
     for (std::string line; std::getline(file, line);) {
         const auto split = line.find('=');
@@ -312,6 +314,7 @@ StereoSettings read_settings() {
         if (key == "stereo") next.stereo = value != 0;
         else if (key == "submit_right_first") right_first = value != 0;
         else if (key == "pose_from_eye") from_eye = value < 0 ? -1 : int(value) & 1;
+        else if (key == "shared_pose") shared = value != 0;
         else if (key == "delay") next.delay = static_cast<int>(value);
         else if (key == "ipd_scale") next.ipd_scale = static_cast<float>(value);
         else if (key == "yaw_gain") next.yaw_gain = static_cast<float>(value);
@@ -356,6 +359,7 @@ StereoSettings read_settings() {
     }
     submit_right_first = right_first;
     pose_from_eye = from_eye;
+    shared_pose_setting = shared;
     return next;
 }
 struct Background {
@@ -459,6 +463,7 @@ const volatile int32_t* frame_half_global() {
 }
 }
 namespace linux_port {
+bool shared_pose() { return shared_pose_setting.load(); }
 bool in_executable(uintptr_t address, size_t size) {
     struct Query { uintptr_t address; size_t size; bool found; } query{address, size, false};
     dl_iterate_phdr([](dl_phdr_info* info, size_t, void* data) {

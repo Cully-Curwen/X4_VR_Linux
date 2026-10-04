@@ -443,3 +443,19 @@ are found in the headset as on Windows.
 with `half_xor_present=0` (`half_xor_render=0`) removes the HUD doubling, the A-menu flicker and
 the swap flash every few seconds (`half_xor_present=1` doubles the HUD). Linux defaults set to
 that. Left: some jitter/ghosting in the right eye on head movement (pose pairing, `delay`).
+
+## Right-eye ghosting: the Frame link uses the left eye's pose for both eyes
+
+With the eyes and poses paired correctly (trace: 98 % of presents matched to the pose one frame
+old, the rest split evenly between the eyes; per-eye optics mirror-symmetric, no cant), the right
+eye still ghosted on head movement: with no eye offset (`ipd_scale=0`), swapped offsets, swapped
+halves, right eye submitted first, and in pair mode; mono (same image and pose in both eyes) was
+clean. `pose_from_eye=1` (both eyes submitted with the right eye's pose) moved the ghosting to the
+left eye, `pose_from_eye=0` kept it in the right: **SteamVR's link to the Frame reprojects both
+eyes with the left eye's pose.**
+
+Fix (`shared_pose=1`, default): the pose sender skips the packet before each right-eye frame, so X4
+builds both eyes of a pair from one head pose (eye offsets still added at use), and the layer
+submits pairs with identical poses, stepping the newer eye back to its image with the other eye's
+pose when needed. The log reports how many pairs needed that and how many still went out with
+different poses.

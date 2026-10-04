@@ -211,6 +211,8 @@ void sender_loop() {
         // Eye at use: the packet carries the centre; the accessor hook adds the eye's offset (in
         // packet units here, times X4's position scale there) and records the pose.
         const bool at_use = eye_hook && !settings.synth;
+        // Shared pose: no new packet before a right-eye frame, so X4 builds it from the left eye's packet.
+        if (at_use && settings.stereo && !flat && shared_pose() && eye == 1) continue;
         seq = seq % 255+1;
         if (at_use) {
             SentPacket packet{tracking_head, {}, flat, true};

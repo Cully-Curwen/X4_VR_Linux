@@ -34,4 +34,10 @@ void start_pose_sender();
 // Whether [address, address+size) lies in the main executable's loaded segments (X4 is non-PIE:
 // its code and data addresses are fixed). Checked before reading or patching X4 at known addresses.
 bool in_executable(uintptr_t address, size_t size);
+
+// SteamVR's link to the Steam Frame applies the left eye's submitted pose to both eyes (measured
+// with pose_from_eye, docs/LINUX_FINDINGS.md). With shared_pose (stereo.txt, default 1) X4 builds
+// both eyes of a pair from one head pose (the pose sender skips the packet before a right-eye
+// frame) and the layer submits matching pairs, so one pose is right for both images.
+bool shared_pose();
 }

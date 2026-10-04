@@ -11,3 +11,4 @@ game_tan_y=0.8675
 valve_bounds=1
 eye_from_half=1
 half_xor_present=0
+shared_pose=1
