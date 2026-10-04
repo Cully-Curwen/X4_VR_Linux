@@ -48,14 +48,11 @@ You can also type them in a terminal.
 `x4vr-run` sets what VR needs in X4's `config.xml` before every start (X4 isn't running yet at that
 point, so it can't overwrite them): FOV 120°, anti-aliasing not temporal, upscaling and frame
 generation off, VSync off, frame-rate limit off, OpenTrack Support on, chromatic aberration off,
-and the resolution: `x4vr-run` asks SteamVR (already running) for the size it uses (its render
-resolution setting, per app too) and sets X4 to the smallest common 16:9 mode at least that large (2880x1620 for the Frame at SteamVR's default),
-so X4 doesn't render pixels SteamVR throws away. Without SteamVR it uses the size the mod saved last
-time (`~/.local/state/x4vr/x4_resolution.txt`). Linux X4 only renders its resolution setting in a
-window (fullscreen and borderless use the desktop size), so the display mode becomes Windowed;
-on Hyprland, which tiles windows to its own size, `x4vr-run` then floats X4's window at that
-resolution (`X4VR_HYPRLAND_FLOAT=0` leaves it tiled). The window on the desktop is smaller than
-the screen; the headset doesn't care. `X4VR_RESOLUTION=WxH` in front of the launch
+and nothing else. **X4's resolution (opt-in):** with `X4VR_RESOLUTION=auto` in front of the launch
+option, `x4vr-run` asks SteamVR (already running) for the size it uses and sets X4 to the smallest
+common 16:9 mode at least that large, in Windowed mode (Linux X4 renders fullscreen and borderless
+at the desktop size); on Hyprland it floats X4's window at that size. Off by default: on a tiling
+desktop the window handling is fiddly. Without it the mod still scales X4's image to SteamVR's size. `X4VR_RESOLUTION=WxH` in front of the launch
 option picks one, `X4VR_RESOLUTION=0` leaves X4's resolution alone.
 Everything else stays as it is; the first change keeps the original as `config.xml.x4vr-backup`
 next to it. What it changed is listed at the top of `x4vr.log`.

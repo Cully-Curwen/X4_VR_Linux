@@ -66,8 +66,8 @@ fi
 "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" hud --refresh >> "$dir/x4vr.log" 2>&1
 # Hyprland tiles X4's window and X4 then renders at the tile's size, ignoring its resolution
 # setting (windowed mode). Float the window at the resolution fix-settings chose, once it appears.
-# X4VR_HYPRLAND_FLOAT=0 leaves the window alone.
-if [ -n "${HYPRLAND_INSTANCE_SIGNATURE-}" ] && [ "${X4VR_HYPRLAND_FLOAT:-1}" != 0 ]; then
+# Only with X4VR_RESOLUTION set (opt-in); X4VR_HYPRLAND_FLOAT=0 leaves the window alone.
+if [ -n "${HYPRLAND_INSTANCE_SIGNATURE-}" ] && [ "${X4VR_HYPRLAND_FLOAT:-1}" != 0 ] && [ -n "${X4VR_RESOLUTION-}" ] && [ "${X4VR_RESOLUTION}" != 0 ]; then
     hyprctl=$(command -v hyprctl || ls /run/current-system/sw/bin/hyprctl "/etc/profiles/per-user/$USER/bin/hyprctl" 2>/dev/null | head -n 1)
     config=$(ls -t "$HOME"/.config/EgoSoft/X4/*/config.xml 2>/dev/null | head -n 1)
     width=$(sed -n 's:.*<res_width>\([0-9]*\)</res_width>.*:\1:p' "$config" 2>/dev/null | head -n 1)
