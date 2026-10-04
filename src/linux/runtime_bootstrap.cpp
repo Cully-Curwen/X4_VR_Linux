@@ -31,6 +31,9 @@
 
 namespace x4vr {
 namespace {
+// Linux-only diagnostic (stereo.txt `submit_right_first=1`): submits the right eye before the left,
+// to see whether the runtime applies each eye's own pose (docs/LINUX_FINDINGS.md, stage C).
+std::atomic<bool> submit_right_first{false};
 thread_local bool runtime_thread = false;
 struct RuntimeCall {
     bool previous = runtime_thread;
@@ -170,7 +173,9 @@ std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureD
     session_.adopt_bootstrap_thread();
     vr::EVRCompositorError error{};
     auto descriptors = images;
-    for (int i = 0; i < 2; ++i) {
+    const bool right_first = submit_right_first.load();
+    for (int k = 0; k < 2; ++k) {
+        const int i = right_first ? 1-k : k;
         vr::VRTextureWithPose_t texture{};
         texture.handle = &descriptors[i]; texture.eType = vr::TextureType_Vulkan; texture.eColorSpace = vr::ColorSpace_Auto;
         for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) texture.mDeviceToAbsoluteTracking.m[r][c] = poses[i].m[r][c];
@@ -292,6 +297,7 @@ StereoSettings read_settings() {
     StereoSettings next;
     const auto root = capture_dir();
     if (root.empty()) return next;
+    bool right_first = false;
     std::ifstream file(root+"/stereo.txt");
     for (std::string line; std::getline(file, line);) {
         const auto split = line.find('=');
@@ -299,6 +305,7 @@ StereoSettings read_settings() {
         const auto key = line.substr(0, split);
         const auto value = std::atof(line.c_str()+split+1);
         if (key == "stereo") next.stereo = value != 0;
+        else if (key == "submit_right_first") right_first = value != 0;
         else if (key == "delay") next.delay = static_cast<int>(value);
         else if (key == "ipd_scale") next.ipd_scale = static_cast<float>(value);
         else if (key == "yaw_gain") next.yaw_gain = static_cast<float>(value);
@@ -341,6 +348,7 @@ StereoSettings read_settings() {
             for (auto& v : target) in >> v;
         }
     }
+    submit_right_first = right_first;
     return next;
 }
 struct Background {
