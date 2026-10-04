@@ -232,3 +232,39 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
    confirms that.
 3. Render target: 2644x2644 per eye at the headset's recommendation. With alternate-eye rendering
    each eye comes from X4's swapchain, so X4's resolution sets the pixel density (as on Windows).
+
+---
+
+## 0.3 (continued) Tracker classes from RTTI: `x4vr elf-classes X4 Track` (2026-10-04)
+
+### Facts
+
+15 classes match "Track", 61 match "Camera". The ones that matter:
+
+| Class | Base | type_info | vtable address point | Slots |
+|---|---|---|---|---|
+| `VR::OpenTrack` | `VR::TrackerInterface` | `0x3c61bb0` | `0x3c62520` | 74 |
+| `VR::OpenTrackRunnable` | `XLib::Runnable` | `0x3c61b98` | `0x3b169a8` | 3 (the reader thread's body) |
+| `U::HeadTrackerCameraBridge` | `UI::XAnark::ICamera` | `0x3c62c20` | `0x3b1c240` | 5 |
+| `VR::TrackerInterface` | | `0x3c61760` | none (abstract) | |
+
+- `VR::OpenTrack` slots 0 and 1 are the two Itanium destructors (`0x1a22860`, `0x1a1b690`). Many
+  slots share small stubs (`0x1089f10`, `0x1089ed0`, `0xb70c60`, `0x9b7140`), typical of the
+  default "not supported" answers of a tracker interface that several trackers implement.
+- `U::HeadTrackerCameraBridge`'s three own methods are `0x19185c0`, `0x191c330`, `0x191c270`.
+  `VR::OpenTrack` slots 32 (`0x19183f0`) and 47 (`0x1918430`) sit in the same code area.
+- A few names show a second "type_info" without a vtable at a low address (`0x4c0998`,
+  `0x495e88`, ...): data that happens to point at the same name string, not real type_infos.
+  They don't affect the classes above.
+
+### Consequences
+
+1. **The tracker vtable is found without the game running** (stage B's first step).
+2. Mapping from the Windows hooks, as a hypothesis to verify by disassembly: MSVC puts one
+   destructor entry first and Itanium two, so with the destructor declared first, MSVC slot `k`
+   would be Itanium slot `k+1`. Windows' position accessor (`0x108`, slot 33) would then be
+   **slot 34 (`+0x110`, `0x1a0dda0`)** and the still check (`0x28`, slot 5) **slot 6 (`+0x30`,
+   `0x1398960`)**. MSVC also orders overloaded virtuals differently, so this can be off; the
+   function bodies decide (what each reads and writes in the tracker object).
+3. The bridge's code (backward clamp on Windows) is around `0x1918000`–`0x191d000`, a small area
+   to search for stage D.
