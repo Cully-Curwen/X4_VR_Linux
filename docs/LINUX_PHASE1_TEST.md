@@ -64,6 +64,20 @@ add `X4VR_FIX_SETTINGS=0` in front of the launch option's command.
 
 Your borderless window at 4K is fine on Linux (the Windows mod's "fullscreen" rule is for NVIDIA DSR).
 
+## 3b. HUD distance (optional)
+
+Out of the box X4 puts the cockpit HUD about a hand's width from your face. With X4 closed:
+
+```bash
+~/code/X4_VR_Linux/result/bin/x4vr hud 2.5
+```
+
+moves it 2.5 times further away at the same apparent size (any factor from 1 to 6;
+`x4vr hud remove` undoes it, `x4vr hud status` shows it). This writes the extension
+`extensions/x4vr_hud` in X4's folder, built from your own game files, as the Windows launcher does;
+`x4vr-run` rebuilds it after a game update. Small cockpit pop-ups (the interaction menu) stay at
+X4's distance.
+
 ## 4. Launch option
 
 X4 → Properties → General → Launch Options:

@@ -116,6 +116,11 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   target_compile_options(opentrack_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME opentrack_packet COMMAND opentrack_tests)
 
+  add_executable(md5_tests ${X4VR_ROOT}/tests/linux/md5_tests.cpp)
+  target_include_directories(md5_tests PRIVATE ${X4VR_ROOT}/src/linux)
+  target_compile_options(md5_tests PRIVATE ${X4VR_WARNINGS})
+  add_test(NAME md5 COMMAND md5_tests)
+
   # The scan reads absolute pointers from the file, as in Linux X4: the test inspects itself, so
   # it is linked without PIE like the game.
   add_executable(elf_classes_tests ${X4VR_ROOT}/tests/linux/elf_classes_tests.cpp)
