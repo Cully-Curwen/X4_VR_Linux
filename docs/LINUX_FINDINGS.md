@@ -93,3 +93,29 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
 3. **Two RADV GPUs.** X4 and SteamVR must use the 7900 XT. The layer already compares device
    UUIDs with the runtime's output device. Step 4 checks which GPU X4 picks.
    `MESA_VK_DEVICE_SELECT` can force it from the wrapper if needed.
+
+---
+
+## 0.1 SteamVR and the Steam Frame (2026-10-04, partial)
+
+### Facts
+
+- SteamVR runs with the Steam Frame on this machine, but **does not start on its own** when an
+  application asks for it (a known Linux issue). It has to be started by hand first. SteamVR's
+  desktop sharing doesn't work either.
+- `~/.config/openvr/openvrpaths.vrpath` registers the runtime at
+  `~/.local/share/Steam/steamapps/common/SteamVR`, with config and logs under
+  `~/.local/share/Steam/{config,logs}`. No external drivers.
+- `~/.config/openxr/1/active_runtime.json` points to SteamVR
+  (`SteamVR/bin/linux64/vrclient.so`), so `X4VR_RUNTIME=openxr` will also reach SteamVR.
+
+### Consequences
+
+1. Launch order is always SteamVR first, then X4. `x4vr-run` checks that SteamVR is running
+   (`vrserver` process) before starting X4 and says so clearly if it isn't. Without SteamVR
+   the mod can't find a headset, and X4 runs flat as without the mod.
+2. Desktop sharing isn't used by the mod. The theater screen and cursor are the mod's own
+   OpenVR overlays (or OpenXR quad layers). Their behaviour on Linux SteamVR is tested in 0.1
+   with `runtime_smoke`.
+3. Both runtime files live under the home directory, so a Steam container normally sees them.
+   Step 0.4 confirms this.
