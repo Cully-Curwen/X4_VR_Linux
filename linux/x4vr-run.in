@@ -73,14 +73,16 @@ if [ -n "${HYPRLAND_INSTANCE_SIGNATURE-}" ] && [ "${X4VR_HYPRLAND_FLOAT:-1}" != 
     width=$(sed -n 's:.*<res_width>\([0-9]*\)</res_width>.*:\1:p' "$config" 2>/dev/null | head -n 1)
     height=$(sed -n 's:.*<res_height>\([0-9]*\)</res_height>.*:\1:p' "$config" 2>/dev/null | head -n 1)
     if [ -n "$hyprctl" ] && [ -n "$width" ] && [ -n "$height" ]; then
+        # Without Steam's library path: a Nix-built hyprctl fails on the Steam runtime's older libstdc++.
+        hypr() { env -u LD_LIBRARY_PATH -u LD_PRELOAD "$hyprctl" "$@"; }
         (
             for _ in $(seq 180); do
                 sleep 1
-                if "$hyprctl" clients | grep -q '^[[:space:]]*class: X4$'; then
+                if hypr clients | grep -q '^[[:space:]]*class: X4$'; then
                     sleep 2 # let X4 finish creating its window
-                    "$hyprctl" dispatch setfloating 'class:^(X4)$'
-                    "$hyprctl" dispatch resizewindowpixel "exact $width $height,class:^(X4)\$"
-                    "$hyprctl" dispatch centerwindow
+                    hypr dispatch setfloating 'class:^(X4)$'
+                    hypr dispatch resizewindowpixel "exact $width $height,class:^(X4)\$"
+                    hypr dispatch centerwindow
                     echo "== Hyprland: X4 window floating at ${width}x${height}"
                     break
                 fi
