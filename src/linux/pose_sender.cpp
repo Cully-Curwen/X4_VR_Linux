@@ -200,8 +200,20 @@ void sender_loop() {
             recorded = eye_head;
         } else if (settings.stereo) {
             // Alternate-eye rendering: this game frame renders one eye; the layer submits the
-            // presented image to the same eye (shared counter). Read on first use.
-            static const auto eyes = runtime->eye_setup();
+            // presented image to the same eye (shared counter). The eye positions are SteamVR's
+            // (its IPD), re-read about once a second so an IPD change reaches X4 while playing.
+            static auto eyes = runtime->eye_setup();
+            static auto eyes_read = std::chrono::steady_clock::now();
+            if (const auto now = std::chrono::steady_clock::now(); now-eyes_read > std::chrono::seconds(1)) {
+                eyes_read = now;
+                const auto fresh = runtime->eye_setup();
+                const float before = eyes.head_from_eye[1].m[0][3]-eyes.head_from_eye[0].m[0][3];
+                const float after = fresh.head_from_eye[1].m[0][3]-fresh.head_from_eye[0].m[0][3];
+                if (std::fabs(after-before) > 0.0005f)
+                    log("X4VR pose: SteamVR IPD changed from "+std::to_string(int(std::lround(before*1000)))+" to "+
+                        std::to_string(int(std::lround(after*1000)))+" mm");
+                eyes = fresh;
+            }
             for (uint32_t e = 0; e < 2; ++e) {
                 auto head_from_eye = eyes.head_from_eye[e];
                 for (int r = 0; r < 3; ++r) head_from_eye.m[r][3] *= settings.ipd_scale;

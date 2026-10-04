@@ -351,9 +351,10 @@ struct Presenter {
     std::vector<VkImage> images;
     VkExtent2D extent{};
     VkFormat format{};
-    // Eye textures are padded so they span each eye's whole frustum at the game's
-    // pixels-per-tangent; the game image sits centred, the rest stays black.
-    VkExtent2D eye_extent{};
+    // Eye textures are padded so they span each eye's whole frustum; the game image sits
+    // centred (scaled to `placed`), the rest stays black. Linux: at the pixels per tangent SteamVR
+    // recommends (its render resolution setting), at most the game's own (no upscaling).
+    VkExtent2D eye_extent{}, placed{};
     VkOffset3D offset{};
     float span_x{}, span_y{};
     // Each eye rotates through a ring of texture objects, so the submission thread can keep
@@ -461,8 +462,30 @@ void presenter_initialize(const Device& d, uint32_t family) {
         p.span_x = std::fmax(p.span_x, std::fmax(std::fabs(t[0]), std::fabs(t[1])));
         p.span_y = std::fmax(p.span_y, std::fmax(std::fabs(t[2]), std::fabs(t[3])));
     }
-    p.eye_extent = {uint32_t(std::ceil(p.extent.width*p.span_x/tan_x)), uint32_t(std::ceil(p.extent.height*p.span_y/tan_y))};
-    p.offset = {int32_t(p.eye_extent.width-p.extent.width)/2, int32_t(p.eye_extent.height-p.extent.height)/2, 0};
+    // Pixels per tangent: the game's, or SteamVR's recommendation over each eye's frustum if lower.
+    const float game_x = float(p.extent.width)/(2*tan_x), game_y = float(p.extent.height)/(2*tan_y);
+    float want_x = 0, want_y = 0;
+    uint32_t recommended_w = 0, recommended_h = 0;
+    if (const char* native = std::getenv("X4VR_NATIVE_SIZE"); !(native && *native == '1') && !d.runtime->openxr())
+        if (auto* system = vr::VRSystem()) system->GetRecommendedRenderTargetSize(&recommended_w, &recommended_h);
+    for (const auto& t : p.eyes.tangents) {
+        if (t[1] > t[0]) want_x = std::fmax(want_x, float(recommended_w)/(t[1]-t[0]));
+        if (std::fabs(t[3]-t[2]) > 0) want_y = std::fmax(want_y, float(recommended_h)/std::fabs(t[3]-t[2]));
+    }
+    const float density_x = want_x > 0 ? std::fmin(want_x, game_x) : game_x, density_y = want_y > 0 ? std::fmin(want_y, game_y) : game_y;
+    p.placed = {uint32_t(std::lround(2*tan_x*density_x)), uint32_t(std::lround(2*tan_y*density_y))};
+    p.eye_extent = {uint32_t(std::ceil(2*p.span_x*density_x)), uint32_t(std::ceil(2*p.span_y*density_y))};
+    p.eye_extent.width = std::max(p.eye_extent.width, p.placed.width); p.eye_extent.height = std::max(p.eye_extent.height, p.placed.height);
+    p.offset = {int32_t(p.eye_extent.width-p.placed.width)/2, int32_t(p.eye_extent.height-p.placed.height)/2, 0};
+    if (recommended_w) {
+        std::ostringstream size;
+        size << "X4VR presenter: SteamVR recommends " << recommended_w << 'x' << recommended_h << " per eye; game image "
+             << p.extent.width << 'x' << p.extent.height << " placed at " << p.placed.width << 'x' << p.placed.height;
+        const uint32_t ideal_w = uint32_t(std::lround(2*tan_x*want_x)), ideal_h = uint32_t(std::lround(2*tan_y*want_y));
+        if (ideal_w < p.extent.width) size << " (X4 renders more than SteamVR uses: about " << ideal_w << 'x' << ideal_h << " would be enough)";
+        else size << " (SteamVR would use up to " << ideal_w << 'x' << ideal_h << ")";
+        log(size.str());
+    }
     // ponytail: EyeTargets also allocates an unused depth image per eye; fine for 3 slots
     for (auto& set : p.targets) set = x4vr::EyeTargets::create({d.device, d.physical, d.gdpa, memory, image_properties}, p.eye_extent, p.format);
     p.filled = {}; p.current = {}; p.held = {}; ++p.generation;
@@ -604,11 +627,20 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
             barrier(d, command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
         }
-        VkImageCopy copy{};
-        copy.srcSubresource = copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        copy.dstOffset = p.offset;
-        copy.extent = {p.extent.width, p.extent.height, 1};
-        d.CmdCopyImage(command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        if (p.placed.width == p.extent.width && p.placed.height == p.extent.height) {
+            VkImageCopy copy{};
+            copy.srcSubresource = copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.dstOffset = p.offset;
+            copy.extent = {p.extent.width, p.extent.height, 1};
+            d.CmdCopyImage(command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        } else { // scaled to SteamVR's pixel density
+            VkImageBlit blit{};
+            blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            blit.srcOffsets[1] = {int32_t(p.extent.width), int32_t(p.extent.height), 1};
+            blit.dstOffsets[0] = p.offset;
+            blit.dstOffsets[1] = {p.offset.x+int32_t(p.placed.width), p.offset.y+int32_t(p.placed.height), 1};
+            d.CmdBlitImage(command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        }
         barrier(d, command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
         p.filled[target][next] = p.fresh[target] = true;
@@ -989,9 +1021,9 @@ void compositor_loop(Device d) {
                 if (!p.ready) continue; // swapchain resized meanwhile
                 if (p.generation != generation) { generation = p.generation; shown = {UINT32_MAX, UINT32_MAX}; }
                 const auto width = float(p.eye_extent.width), height = float(p.eye_extent.height);
-                crop = {p.offset.x/width, p.offset.y/height, (p.offset.x+p.extent.width)/width, (p.offset.y+p.extent.height)/height};
+                crop = {p.offset.x/width, p.offset.y/height, (p.offset.x+p.placed.width)/width, (p.offset.y+p.placed.height)/height};
                 format = p.format; eye_extent = p.eye_extent;
-                game_extent = p.extent; game_offset = p.offset; eye_setup = p.eyes;
+                game_extent = p.placed; game_offset = p.offset; eye_setup = p.eyes;
                 // Shared pose (linux_runtime.hpp): submit a pair built from one head pose. When the
                 // newest images differ, the eye that is ahead steps back to its image with the other's pose.
                 std::array<uint32_t, 2> pick{p.current[0], p.current[1]};
