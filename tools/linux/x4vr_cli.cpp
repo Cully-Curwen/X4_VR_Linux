@@ -339,6 +339,15 @@ std::pair<int, int> wanted_resolution(const std::string& xml) {
 std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
     const auto [width, height] = wanted_resolution(xml);
     auto checks = x4vr::launcher::check_x4(xml, width, height);
+    // Linux X4 renders fullscreen and borderless windows at the desktop size whatever its
+    // resolution setting says; only a window keeps it (on Hyprland a floating one: x4vr-run).
+    if (width > 0 && height > 0) {
+        std::string fullscreen = "(missing)", borderless = "(missing)";
+        x4vr::launcher::xml_value(xml, "fullscreen", fullscreen);
+        x4vr::launcher::xml_value(xml, "borderless", borderless);
+        checks.push_back({"Display mode: windowed", true, fullscreen == "false" && borderless == "false",
+                          "fullscreen "+fullscreen+", borderless "+borderless, {{"fullscreen", "false"}, {"borderless", "false"}}});
+    }
     std::erase_if(checks, [](const auto& c) { return c.label.rfind("Display mode", 0) == 0; });
     return checks;
 }
