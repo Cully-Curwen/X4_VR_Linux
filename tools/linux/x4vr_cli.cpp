@@ -49,7 +49,7 @@ void usage() {
         "  check\n"
         "      Checks X4's settings (config.xml) for VR: FOV, anti-aliasing, upscaling, frame\n"
         "      generation, VSync, frame rate limit, OpenTrack support, and the resolution SteamVR\n"
-        "      uses, opt-in: X4VR_RESOLUTION=auto (windowed X4 at SteamVR's size) or WxH.\n"
+        "      uses, in windowed mode (X4VR_RESOLUTION=WxH or 0 overrides).\n"
         "\n"
         "  fix-settings [--auto]\n"
         "      Sets what check reports, keeping everything else (backup: config.xml.x4vr-backup,\n"
@@ -319,13 +319,9 @@ bool steamvr_resolution(const std::string& xml, int& w, int& h) {
     h = int(std::lround(2*tan_y*want_y));
     return w > 0 && h > 0;
 }
-// Opt-in (X4VR_RESOLUTION=auto or WxH): Linux X4 only honours it in a window, and tiling window
-// managers resize that window (Hyprland: x4vr-run floats it), so it's off unless asked for.
 std::pair<int, int> wanted_resolution(const std::string& xml) {
     int w = 0, h = 0;
-    const char* set = std::getenv("X4VR_RESOLUTION");
-    if (!set || !*set || std::string_view(set) == "0") return {0, 0};
-    if (std::string_view(set) != "auto") {
+    if (const char* set = std::getenv("X4VR_RESOLUTION"); set && *set) {
         if (std::sscanf(set, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) return {w, h};
         return {0, 0};
     }
@@ -345,7 +341,7 @@ std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
     auto checks = x4vr::launcher::check_x4(xml, width, height);
     std::erase_if(checks, [](const auto& c) { return c.label.rfind("Display mode", 0) == 0; }); // Windows' fullscreen rule
     // Linux X4 renders fullscreen and borderless windows at the desktop size whatever its
-    // resolution setting says; only a window keeps it (on Hyprland a floating one: x4vr-run).
+    // resolution setting says; only a window keeps it (tiling window managers may resize it).
     if (width > 0 && height > 0) {
         std::string fullscreen = "(missing)", borderless = "(missing)";
         x4vr::launcher::xml_value(xml, "fullscreen", fullscreen);

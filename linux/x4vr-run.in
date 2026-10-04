@@ -64,34 +64,6 @@ if [ -z "${X4VR_GAME_DIR-}" ]; then
     done
 fi
 "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" hud --refresh >> "$dir/x4vr.log" 2>&1
-# Hyprland tiles X4's window and X4 then renders at the tile's size, ignoring its resolution
-# setting (windowed mode). Float the window at the resolution fix-settings chose, once it appears.
-# Only with X4VR_RESOLUTION set (opt-in); X4VR_HYPRLAND_FLOAT=0 leaves the window alone.
-if [ -n "${HYPRLAND_INSTANCE_SIGNATURE-}" ] && [ "${X4VR_HYPRLAND_FLOAT:-1}" != 0 ] && [ -n "${X4VR_RESOLUTION-}" ] && [ "${X4VR_RESOLUTION}" != 0 ]; then
-    hyprctl=$(command -v hyprctl || ls /run/current-system/sw/bin/hyprctl "/etc/profiles/per-user/$USER/bin/hyprctl" 2>/dev/null | head -n 1)
-    config=$(ls -t "$HOME"/.config/EgoSoft/X4/*/config.xml 2>/dev/null | head -n 1)
-    width=$(sed -n 's:.*<res_width>\([0-9]*\)</res_width>.*:\1:p' "$config" 2>/dev/null | head -n 1)
-    height=$(sed -n 's:.*<res_height>\([0-9]*\)</res_height>.*:\1:p' "$config" 2>/dev/null | head -n 1)
-    if [ -n "$hyprctl" ] && [ -n "$width" ] && [ -n "$height" ]; then
-        # Without Steam's library path: a Nix-built hyprctl fails on the Steam runtime's older libstdc++.
-        hypr() { env -u LD_LIBRARY_PATH -u LD_PRELOAD "$hyprctl" "$@"; }
-        (
-            for _ in $(seq 180); do
-                sleep 1
-                if hypr clients | grep -q '^[[:space:]]*class: X4$'; then
-                    sleep 2 # let X4 finish creating its window
-                    hypr dispatch setfloating 'class:^(X4)$'
-                    hypr dispatch resizewindowpixel "exact $width $height,class:^(X4)\$"
-                    hypr dispatch centerwindow
-                    echo "== Hyprland: X4 window floating at ${width}x${height}"
-                    break
-                fi
-            done
-        ) >> "$dir/x4vr.log" 2>&1 &
-    else
-        echo "Hyprland: hyprctl or X4's resolution not found; X4's window left tiled" >> "$dir/x4vr.log"
-    fi
-fi
 # X4's own arguments go after Steam's command; testandlaunch passes them on to X4. Without
 # -nocputhrottle X4 drops to ~12 fps whenever its window isn't focused (while wearing the headset).
 if [ "${X4VR_GAME_ARGS-unset}" = unset ]; then
