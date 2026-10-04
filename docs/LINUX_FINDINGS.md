@@ -383,7 +383,12 @@ layer in Phase 3.
    window for its flat "theater" stream; X4 then loses its window (`Base::ShowCursor() - failed
    to show cursor: Invalid window`) and quits, also later when the Frame reconnects. Plain X4
    fails the same way, so it isn't the mod. `x4vr-run` unsets both; X4 must be started from Steam
-   on the PC (starting it from the headset's library may stream it again).
+   on the PC (starting it from the headset's library may stream it again). Later (Steam beta
+   client) Steam captured X4 through its overlay anyway: the Frame showed the splash screen in 2D
+   for a moment and X4 quit (exit status 130) as soon as the mod submitted its first frame, also
+   after a reboot. Without the overlay (`gameoverlayrenderer.so` dropped from `LD_PRELOAD`,
+   `DISABLE_VK_LAYER_VALVE_steam_overlay_1=1`) it runs; `x4vr-run` does both
+   (`X4VR_STEAM_OVERLAY=1` keeps the overlay).
 2. **Stereo in the cockpit works:** 3D, head turning and leaning match the head (Windows gains
    and `pos_scale` 3.6 unchanged). The cockpit may look slightly too large (ipd/scale calibration).
    120 submits/s, each eye 60 new images/s, almost no late frames (`pair_stats.txt`).

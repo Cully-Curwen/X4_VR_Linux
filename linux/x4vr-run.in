@@ -24,6 +24,18 @@ for log in x4vr stderr; do [ -f "$dir/$log.log" ] && mv -f "$dir/$log.log" "$dir
 # and takes over their window; X4 then loses it ("Invalid window") and quits. The mod renders to
 # SteamVR itself, so X4 must start as a normal desktop game.
 unset StreamForOpenVR SteamStreamingVRPairedInvite
+# Steam's overlay (preloaded gameoverlayrenderer.so and its Vulkan layer) also captures the game
+# for that stream; with it loaded X4 quits as soon as the mod submits its first frame.
+# X4VR_STEAM_OVERLAY=1 keeps it.
+if [ "${X4VR_STEAM_OVERLAY:-0}" != 1 ]; then
+    preload=
+    IFS=': ' read -r -a libs <<< "${LD_PRELOAD-}" # entries separated by colons or spaces
+    for lib in "${libs[@]}"; do
+        case "$lib" in *gameoverlayrenderer.so) ;; *) preload="${preload:+$preload:}$lib" ;; esac
+    done
+    if [ -n "$preload" ]; then export LD_PRELOAD="$preload"; else unset LD_PRELOAD; fi
+    export DISABLE_VK_LAYER_VALVE_steam_overlay_1=1
+fi
 export X4VR_CAPTURE_DIR="$dir"
 export X4VR_RUNTIME="${X4VR_RUNTIME:-openvr}"
 export VK_ADD_LAYER_PATH="@CMAKE_INSTALL_FULL_DATADIR@/vulkan/explicit_layer.d${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}"
