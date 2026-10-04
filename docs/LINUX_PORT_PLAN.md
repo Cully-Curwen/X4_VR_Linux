@@ -480,6 +480,35 @@ the Steam Runtime. Check in 0.1 and 0.7 that this works from inside the game's e
 
 ## 12. Later work
 
+### Open items after Phase 1 (2026-10-05)
+
+Working: stereo in the cockpit with the right eye at use (stages B, C), no ghosting on the Steam
+Frame (shared pose per eye pair), the virtual screen drawn into the eye images, X4's settings and
+resolution fixed before each start, eye images at SteamVR's recommended size.
+
+Features the Windows mod has:
+1. **Mouse cursor in VR** (in progress): X4's cursor isn't in its swapchain; overlays don't show on
+   the Frame, so it is drawn into the image.
+2. **In-game hotkeys** (Ctrl+F12 recentre, Ctrl+F11 flat): Linux uses `x4vr ctl` bound in the desktop.
+3. **On foot**: head tracking while walking (Windows: on-foot patches); Linux shows the virtual screen.
+4. **Stage D, leaning back**: paused, the zeroing is downstream of the head-tracker bridge
+   (`docs/LINUX_FINDINGS.md`); needs a runtime approach.
+5. **OpenXR**: Linux is OpenVR only; not needed for the Frame.
+
+Tuning:
+6. **Calibrate `pos_scale` and the turn gains** (Windows values; the cockpit feels slightly large).
+
+Known limits, accepted for now:
+7. **HUD distance** (`x4vr hud`): the HUD moves back but shrinks (X4 loads the precompiled `.xpl`).
+8. **Tiling window managers** resize X4's window; float it (class `X4`) to keep the resolution.
+
+Before an upstream PR:
+9. Remove or document the diagnostic switches (`submit_right_first`, `pose_from_eye`).
+10. Fix the Phase 0 probe's `-Wmaybe-uninitialized` error with newer GCC.
+11. Update this plan and the README with a Linux section (install with Nix, launch option, Frame findings).
+12. Rebuild Windows once to confirm it is unchanged.
+
+
 - **Both eyes from one simulation step:** clock gating in the preload shim (`clock_gettime` on the
   main thread, `world_gate=0/1`), or a hook on the simulation step. `pair=1` stays the
   no-gating alternative (needs 180 fps).
