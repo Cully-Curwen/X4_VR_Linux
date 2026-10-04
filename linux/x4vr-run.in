@@ -20,6 +20,10 @@ mkdir -p "$dir"
 chmod u+w "$dir/stereo.txt" 2>/dev/null
 for log in x4vr stderr; do [ -f "$dir/$log.log" ] && mv -f "$dir/$log.log" "$dir/$log.previous.log"; done
 
+# With SteamVR running, Steam launches non-VR games "streamed" onto a virtual screen in the headset
+# and takes over their window; X4 then loses it ("Invalid window") and quits. The mod renders to
+# SteamVR itself, so X4 must start as a normal desktop game.
+unset StreamForOpenVR SteamStreamingVRPairedInvite
 export X4VR_CAPTURE_DIR="$dir"
 export X4VR_RUNTIME="${X4VR_RUNTIME:-openvr}"
 export VK_ADD_LAYER_PATH="@CMAKE_INSTALL_FULL_DATADIR@/vulkan/explicit_layer.d${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}"
@@ -48,4 +52,9 @@ else
     # shellcheck disable=SC2086 # word splitting intended
     set -- "$@" $X4VR_GAME_ARGS
 fi
-exec "$@" 2>> "$dir/stderr.log"
+# Not exec: the exit status tells a clean quit (0) from a crash (134 abort, 139 segfault) or a kill
+# (143 SIGTERM, 137 SIGKILL).
+"$@" 2>> "$dir/stderr.log"
+status=$?
+echo "== $(date '+%F %T') X4 exited with status $status" >> "$dir/x4vr.log"
+exit "$status"
