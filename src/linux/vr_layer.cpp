@@ -492,6 +492,15 @@ void presenter_initialize(const Device& d, uint32_t family) {
       << p.eye_extent.width << 'x' << p.eye_extent.height << " per eye, format " << p.format << ", eyes at x="
       << p.eyes.head_from_eye[0].m[0][3] << ',' << p.eyes.head_from_eye[1].m[0][3] << "); alternate-eye submission active";
     log(s.str());
+    for (int e = 0; e < 2; ++e) { // per-eye optics: frustum tangents and head-from-eye (rotation = display cant)
+        std::ostringstream o;
+        const auto& t = p.eyes.tangents[e];
+        const auto& m = p.eyes.head_from_eye[e].m;
+        o << "X4VR presenter: eye " << e << " tangents l,r,t,b " << t[0] << ',' << t[1] << ',' << t[2] << ',' << t[3]
+          << "; head_from_eye rows";
+        for (int r = 0; r < 3; ++r) o << " [" << m[r][0] << ' ' << m[r][1] << ' ' << m[r][2] << ' ' << m[r][3] << ']';
+        log(o.str());
+    }
     p.ready = true;
     static std::once_flag started;
     if (d.vr_queue) std::call_once(started, [&] {

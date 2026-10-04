@@ -104,6 +104,7 @@ void position_at_use(void* tracker, float* x, float* y, float* z) {
     original_position(tracker, x, y, z);
     for (int i = 0; i < 3; ++i) position[i] = centre[i];
     x4vr::record_render_pose(packet.head, eye, packet.flat, false);
+    x4vr::trace_event('U', x4vr::frame_tag(), float(eye), float(taken_seq), float(field<uint8_t>(tracker, field_fresh))); // use
 }
 
 bool swap_slot(void** slot, void* replacement, void** original) {

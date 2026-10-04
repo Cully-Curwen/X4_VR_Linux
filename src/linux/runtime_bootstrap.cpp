@@ -521,7 +521,9 @@ bool presented_frame(uint64_t present, uint32_t& eye, Matrix& head, bool& flat, 
         for (uint64_t i = pose_count; i-- > (pose_count > poses.size() ? pose_count-poses.size() : 0);) {
             const auto& entry = poses[i % poses.size()];
             if (entry.tag+(entry.walking ? walk_start : start) <= present && entry.tag >= oldest && entry.eye == eye) {
-                head = entry.head; flat = entry.flat; walking = entry.walking; return true;
+                head = entry.head; flat = entry.flat; walking = entry.walking;
+                trace_event('M', present, float(eye), float(entry.tag), float(present-entry.tag)); // matched pose
+                return true;
             }
         }
         return false;
