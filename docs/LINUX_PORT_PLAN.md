@@ -9,7 +9,7 @@ Read `README.md` and `STATUS.md` first. They describe the Windows pipeline, the 
 and the calibration values this plan refers to. Anything marked **verify** is an assumption that
 has not yet been checked against the code or the game.
 
-Revision 2 (2026-10-04). It replaces the first draft. Main changes:
+Revision 2 (2026-10-04), updated with the first Phase 0 results (`docs/LINUX_FINDINGS.md`). It replaces the first draft. Main changes:
 
 - The port follows the **current** Windows design: eye at use, frame half, code patches. It does not
   fall back to an older eye-per-read scheme.
@@ -122,7 +122,7 @@ Taken from the current code, not the README.
 | Mechanism (Windows code) | What it does | Linux equivalent |
 |---|---|---|
 | `FTGetData` (`freetrack_client.cpp`), called by X4 several times per frame on the game thread | Sends the head-centre pose as FreeTrack data (radians, millimetres, with gains). On its first call: acquires the runtime, applies the patches, turns smoothing off. Also handles hotkeys, theater state, recentering and diagnostics. | X4 on Linux reads **OpenTrack UDP** (127.0.0.1:4242, 6 little-endian doubles; **verify** units, signs and scale in 0.5). `libx4vr_pose.so`, loaded with `LD_PRELOAD`, provides the centre pose over that socket. The once-only setup and per-frame logic move to a hook point that runs on the game thread (section 6.3). |
-| Locating the tracker object: `tracker = data - layout.data`, where `data` is the buffer X4 passes to `FTGetData` | Finds X4's FreeTrack tracker so its vtable can be hooked | The buffer X4 passes to `recvfrom`/`recvmsg` on the tracker socket is the analogue: `tracker = buffer - layout.data` (**verify** in 0.6). Confirm by checking the object's vtable slots against signatures, as Windows does. |
+| Locating the tracker object: `tracker = data - layout.data`, where `data` is the buffer X4 passes to `FTGetData` | Finds X4's FreeTrack tracker so its vtable can be hooked | Not needed: the binary keeps C++ RTTI, so `VR::OpenTrack`'s vtable is found from its type name (findings 0.3). Swapping slots in the vtable hooks every instance; the object arrives as `this`. Slots are still signature-checked. |
 | Eye at use: vtable slot `0x108` (tracker position accessor) → `position_at_use` | Adds the eye offset of the frame X4 is building **now**, then restores the centre. Avoids the 2–38 % wrong-eye frames of choosing the eye at the read. | The same hook on the Linux tracker class's position accessor. The slot offset will differ (Itanium ABI vtable layout, different class) and must be found. |
 | Vtable slot `0x28` (tracker "still" check) → `still_at_use` | Stops X4 from ignoring a centre pose that barely moves | Same, with the Linux slot. |
 | Frame half global (RVA `0x6b66280`, reader signature at `0x77a47f`), `frame_half()` | The eye for a frame, from pose to present, whatever the queue depth. Used by both the pose side and the layer. | Find the same global in the ELF: same mechanism, ELF scan, Linux signature. Without it, the fallback is the present counter plus `delay` (re-measured, see 0.7). |
@@ -131,7 +131,7 @@ Taken from the current code, not the README.
 | On-foot patches (`enable_on_foot_tracking`) | Head tracking while walking | Second milestone. |
 | `SetActiveHeadTrackerHeadFilterStrength(1)` via `GetProcAddress` | Turns tracker smoothing off | `dlsym(RTLD_DEFAULT, …)`, if exported (0.3). Must run on the game thread. |
 | `IsFullscreenMenuDisplayed`, `IsPlayerControllingShip` (and `IsHeadTrackingActive`, `IsFullscreenCutsceneActive` for diagnostics) | Theater screen for menus and views without ship controls | `dlsym`, if exported (0.3). |
-| Ctrl+F11 / Ctrl+F12 via `GetAsyncKeyState` (pose DLL and `observe_layer.cpp:1361`) | Flat-screen toggle, recenter | See section 9.3. |
+| Ctrl+F11 / Ctrl+F12 via `GetAsyncKeyState` (pose DLL and `observe_layer.cpp:1361`) | Flat-screen toggle, recenter | X4 links SDL3 dynamically: wrap `SDL_PollEvent` in the preload shim (section 9.3). |
 | `x4_openvr.dll`, shared by the pose DLL and the layer | One VR session per process | `libx4vr_runtime.so`, a shared library loaded by both. |
 | Vulkan layer (`observe_layer.cpp`) | Capture, per-eye texture ring, submission thread on a private queue | Same code behind the platform header, plus a Linux layer manifest. |
 | Launcher → `crash_watch` → X4 | Environment, debugger | `x4vr-run %command%` as the Steam launch option. No debugger: a preloaded library's constructor runs before `main`. Core dumps come from systemd-coredump. |
@@ -330,7 +330,7 @@ The layer adds one queue to the game's **graphics** family and gives up if the f
   the flicker it fixed;
 - with OpenXR, the layer throws ("OpenXR needs a private queue").
 
-Options, to be decided after 0.2:
+0.2 confirmed it: the 7900 XT's graphics family has one queue; family 1 has four compute queues. Option 1 is the chosen route (findings 0.2). Options considered:
 1. A queue from a **compute** family for the copies and submission. The copy is a plain
    image copy and doesn't need graphics. Needs queue-family ownership transfers between the
    game's graphics queue and the compute queue, and a check that SteamVR accepts a compute queue
@@ -366,7 +366,7 @@ Nothing is written to the Nix store.
 ### 9.3 Hotkeys (Ctrl+F11, Ctrl+F12)
 
 Windows polls with `GetAsyncKeyState` (confirmed in the code). On Linux, in order of preference:
-1. If X4 links SDL2 dynamically (0.3): wrap `SDL_PollEvent`/`SDL_PeepEvents` in the preload shim.
+1. X4 links **SDL3** dynamically (findings 0.3): wrap SDL3's `SDL_PollEvent`/`SDL_PeepEvents` in the preload shim.
 2. `x4vr ctl recenter|flat`, which bumps keys in `stereo.txt` (Windows already has `recenter=`;
    add a matching `flat=` counter). Bindable to a desktop shortcut or a SteamVR binding.
 3. evdev (needs `input` group). Avoid.
