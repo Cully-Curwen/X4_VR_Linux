@@ -84,6 +84,11 @@ saved while the mod is on is flagged permanently**, even if later loaded without
 separate save for VR, or `x4vr hud remove` (X4 closed) before playing saves you want to keep
 online.
 
+X4 also asks about **Protected UI Mode**: with protection on it doesn't load the replaced HUD
+scripts (`ui/core/lua/*.lua`, whose only change is the HUD's size factors), so the HUD moves back
+but shrinks. For the full effect choose *Disable protection* (also in X4's Extension Settings
+menu). The protection covers all extensions, so keep it on if you use UI mods you don't trust.
+
 ## 4. Launch option
 
 X4 → Properties → General → Launch Options:

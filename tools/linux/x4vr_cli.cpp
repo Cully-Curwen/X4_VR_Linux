@@ -420,6 +420,7 @@ int hud(const std::vector<std::string_view>& args) {
     if (!install_hud(game, scale, error)) { std::cerr << "Could not build the HUD mod: " << error << '\n'; return 1; }
     std::cout << "HUD distance mod installed: factor " << x4vr::launcher::format_number(scale) << " (" << extension.string() << ")\n";
     std::cout << "X4 will report a modified game: online features are off, and saves made with the mod stay flagged.\n";
+    std::cout << "X4's Protected UI Mode blocks the HUD's size factors: turn it off in X4 (Extension Settings), else the HUD only moves back and shrinks.\n";
     // X4's per-user content.xml (next to config.xml) remembers extensions turned off in its menu.
     if (const auto config = x4_config(); !config.empty()) {
         const auto content_path = config.parent_path()/"content.xml";

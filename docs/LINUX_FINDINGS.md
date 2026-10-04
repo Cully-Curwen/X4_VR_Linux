@@ -459,3 +459,10 @@ builds both eyes of a pair from one head pose (eye offsets still added at use), 
 submits pairs with identical poses, stepping the newer eye back to its image with the other eye's
 pose when needed. The log reports how many pairs needed that and how many still went out with
 different poses.
+
+## HUD distance extension on Linux X4 9.00
+
+`x4vr hud` (the Windows launcher's HUD mod) works, with two prompts from X4: "Modified game
+detected" (online features off, saves made with it stay flagged) and **Protected UI Mode**, which
+lists the extension and, while on, doesn't load its replaced Lua scripts: the anchors move (HUD
+farther) but the size factors don't (HUD smaller). Disabling protection gives the full effect.
