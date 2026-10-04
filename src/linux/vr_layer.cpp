@@ -510,13 +510,14 @@ void barrier(const Device& d, VkCommandBuffer command, VkImage image, VkImageLay
                          0, nullptr, 0, nullptr, 1, &b);
 }
 // Theater mode: fullscreen menus and frames without a head pose (main menu, loading, modes that
-// don't poll the head tracker) go to a virtual screen. Switching takes 10 flat or 3 stereo frames
-// in a row, so one missing pose doesn't flash the screen. Returns whether this frame is shown;
+// don't poll the head tracker) go to a virtual screen. Switching takes 30 flat (~0.25 s; Windows:
+// 10, too few for X4's pop-up hints on Linux) or 3 stereo frames in a row, so one missing pose or
+// a brief pop-up doesn't flash the screen. Returns whether this frame is shown;
 // frames that don't match the current mode are skipped.
 bool update_theater(Presenter& p, const x4vr::StereoSettings& s, bool posed, bool flat) {
     const bool want = s.theater == 2 || (s.theater == 1 && (!posed || flat));
     if (want == p.theater) p.flat_run = p.stereo_run = 0;
-    else if (++(want ? p.flat_run : p.stereo_run) < (want ? 10u : 3u)) return false;
+    else if (++(want ? p.flat_run : p.stereo_run) < (want ? 30u : 3u)) return false;
     else {
         p.theater = want; p.flat_run = p.stereo_run = 0;
         log(!want ? "X4VR theater: off" : !posed ? "X4VR theater: on (no head pose)"

@@ -175,6 +175,13 @@ void sample_game_state() {
     std::lock_guard lock(state_mutex);
     if (next.head_tracking != state.head_tracking)
         log(next.head_tracking ? "X4VR pose: X4 applies head tracking (cockpit)" : "X4VR pose: X4 doesn't apply head tracking (menu, loading or on foot)");
+    // What sends the cockpit to the theater screen (fullscreen_menu, !controlling_ship), logged
+    // on each change with a millisecond clock: short pop-ups (hints) showed up as either.
+    if (next.head_tracking && (next.fullscreen_menu != state.fullscreen_menu || next.controlling_ship != state.controlling_ship)) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        log("X4VR game: " + std::to_string(ms) + " ms: fullscreen_menu=" + std::to_string(next.fullscreen_menu) +
+            " controlling_ship=" + std::to_string(next.controlling_ship));
+    }
     state = next;
 }
 GameState game_state() {
