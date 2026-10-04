@@ -59,7 +59,8 @@ void usage() {
         "      2.5 is a good start): writes the extension extensions/x4vr_hud, built from your own game\n"
         "      files, as the Windows launcher does. X4 must be closed. --refresh rebuilds it after a\n"
         "      game update (x4vr-run does that before every start). Game folder: $X4VR_GAME_DIR, else\n"
-        "      Steam's default library.\n"
+        "      Steam's default library. X4 then counts as modified (no online features; saves made\n"
+        "      with it stay flagged).\n"
         "\n"
         "  ctl recenter | flat\n"
         "      While X4 runs with x4vr-run: recentre the view (and the virtual screen), or switch\n"
@@ -418,6 +419,7 @@ int hud(const std::vector<std::string_view>& args) {
     std::string error;
     if (!install_hud(game, scale, error)) { std::cerr << "Could not build the HUD mod: " << error << '\n'; return 1; }
     std::cout << "HUD distance mod installed: factor " << x4vr::launcher::format_number(scale) << " (" << extension.string() << ")\n";
+    std::cout << "X4 will report a modified game: online features are off, and saves made with the mod stay flagged.\n";
     // X4's per-user content.xml (next to config.xml) remembers extensions turned off in its menu.
     if (const auto config = x4_config(); !config.empty()) {
         const auto content_path = config.parent_path()/"content.xml";

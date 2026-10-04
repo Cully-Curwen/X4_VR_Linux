@@ -78,6 +78,12 @@ moves it 2.5 times further away at the same apparent size (any factor from 1 to 
 `x4vr-run` rebuilds it after a game update. Small cockpit pop-ups (the interaction menu) stay at
 X4's distance.
 
+**X4 then counts as modified**, like with any third-party extension: it says "Modified game
+detected", turns off its online features (Ventures, online leaderboards), and **every savegame
+saved while the mod is on is flagged permanently**, even if later loaded without it. Use a
+separate save for VR, or `x4vr hud remove` (X4 closed) before playing saves you want to keep
+online.
+
 ## 4. Launch option
 
 X4 → Properties → General → Launch Options:
