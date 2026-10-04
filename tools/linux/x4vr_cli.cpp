@@ -23,6 +23,7 @@
 #include <iostream>
 #include <iterator>
 #include <mutex>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -61,6 +62,10 @@ void usage() {
         "      game update (x4vr-run does that before every start). Game folder: $X4VR_GAME_DIR, else\n"
         "      Steam's default library. X4 then counts as modified (no online features; saves made\n"
         "      with it stay flagged).\n"
+        "\n"
+        "  game-grep <text-regex> [path-regex]\n"
+        "      Searches the game's catalog files (the base game's copy of each file) whose path matches\n"
+        "      [path-regex] (default: UI scripts and assets) and prints path:line: text for each match.\n"
         "\n"
         "  ctl recenter | flat\n"
         "      While X4 runs with x4vr-run: recentre the view (and the virtual screen), or switch\n"
@@ -443,6 +448,44 @@ int hud(const std::vector<std::string_view>& args) {
     return 0;
 }
 
+// ---- game-grep --------------------------------------------------------------------------------
+int game_grep(const std::vector<std::string_view>& args) {
+    if (args.empty() || args.size() > 2) { usage(); return 2; }
+    const auto game = game_dir();
+    if (game.empty()) { std::cerr << "X4's game folder not found: set X4VR_GAME_DIR to the folder with 01.cat.\n"; return 1; }
+    std::regex text, path_filter;
+    try {
+        text = std::regex(std::string(args[0]));
+        path_filter = std::regex(args.size() > 1 ? std::string(args[1]) : std::string(R"(^(ui/|assets/ui/).*\.(lua|xpl|xml)$)"));
+    } catch (const std::regex_error& error) { std::cerr << "Bad regex: " << error.what() << '\n'; return 2; }
+    // Every catalog's index, later catalogs replacing earlier copies of a path (as read_game_files).
+    std::set<std::string> paths;
+    for (int index = 1; index <= 99; ++index) {
+        char name[8];
+        std::snprintf(name, sizeof(name), "%02d.cat", index);
+        std::ifstream cat(game/name);
+        for (std::string line; std::getline(cat, line);) {
+            int spaces = 0; size_t cut = line.size();
+            while (spaces < 3 && cut != std::string::npos && cut > 0) { cut = line.rfind(' ', cut-1); ++spaces; }
+            if (spaces == 3 && cut != std::string::npos) {
+                auto path = line.substr(0, cut);
+                if (std::regex_search(path, path_filter)) paths.insert(std::move(path));
+            }
+        }
+    }
+    int matches = 0;
+    for (const auto& [path, blob] : x4vr::launcher::read_game_files(game, paths)) {
+        std::istringstream in(blob);
+        int number = 0;
+        for (std::string line; std::getline(in, line);) {
+            ++number;
+            if (std::regex_search(line, text)) { std::cout << path << ':' << number << ": " << line << '\n'; ++matches; }
+        }
+    }
+    std::cerr << matches << " matches in " << paths.size() << " files\n";
+    return 0;
+}
+
 // ---- ctl ------------------------------------------------------------------------------------
 std::filesystem::path settings_file() {
     if (const char* dir = std::getenv("X4VR_DIR"); dir && *dir) return std::filesystem::path(dir)/"stereo.txt";
@@ -508,6 +551,7 @@ int main(int argc, char** argv) {
         if (command == "elf-classes") return elf_classes(args);
         if (command == "ctl") return ctl(args);
         if (command == "hud") return hud(args);
+        if (command == "game-grep") return game_grep(args);
         if (command == "check" && args.empty()) return check_settings(false, false);
         if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))
             return check_settings(true, !args.empty());
