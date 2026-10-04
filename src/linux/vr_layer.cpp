@@ -66,7 +66,7 @@ struct Device {
 // Resolved for the VR presenter but not intercepted.
 #define PRESENTER_FUNCTIONS(F) \
     F(CreateCommandPool) F(AllocateCommandBuffers) F(BeginCommandBuffer) F(EndCommandBuffer) \
-    F(CmdPipelineBarrier) F(CmdCopyImage) F(CreateSemaphore) F(CreateFence) \
+    F(CmdPipelineBarrier) F(CmdCopyImage) F(CmdBlitImage) F(CreateSemaphore) F(CreateFence) \
     F(WaitForFences) F(ResetFences) F(GetSwapchainImagesKHR) F(CmdClearColorImage) \
     F(CmdCopyImageToBuffer) F(GetBufferMemoryRequirements) F(GetFenceStatus) F(DestroyFence) F(DestroyCommandPool) \
     F(CreateBuffer) F(AllocateMemory) F(BindBufferMemory) F(MapMemory) F(UnmapMemory)
@@ -766,6 +766,25 @@ std::unique_ptr<x4vr::EyeTargets> make_black(const Device& d, VkExtent2D extent,
     d.DestroyCommandPool(d.device, pool, nullptr);
     return black;
 }
+// Linux: SteamVR accepts the theater overlay but never shows it (black), so the virtual screen is
+// drawn into the eye textures instead: the flat image, theater_width wide and theater_distance
+// ahead, submitted with the head pose of when the screen was placed. SteamVR's reprojection then
+// keeps it fixed in space while the head moves. X4VR_THEATER_OVERLAY=1 uses the overlay again.
+// The part of the screen inside one eye's frustum, as blit rectangles (source in the game image,
+// target in the eye texture); false when out of view. Vertical tangents as in eye_bounds (valve):
+// texture v=0 at raw tangent `bottom`, v=1 at `top`.
+bool screen_rects(const std::array<float, 4>& t, float eye_x, float half_w, float half_h, float distance,
+                  VkExtent2D target, VkOffset3D game_offset, VkExtent2D game, std::array<VkOffset3D, 2>& from,
+                  std::array<VkOffset3D, 2>& to) {
+    const float u0 = ((-half_w-eye_x)/distance-t[0])/(t[1]-t[0]), u1 = ((half_w-eye_x)/distance-t[0])/(t[1]-t[0]);
+    const float v0 = (half_h/distance-t[3])/(t[2]-t[3]), v1 = (-half_h/distance-t[3])/(t[2]-t[3]); // screen top, bottom
+    const float cu0 = std::max(u0, 0.f), cu1 = std::min(u1, 1.f), cv0 = std::max(v0, 0.f), cv1 = std::min(v1, 1.f);
+    if (!(u1 > u0 && v1 > v0 && cu1 > cu0 && cv1 > cv0)) return false;
+    to = {VkOffset3D{int32_t(cu0*target.width), int32_t(cv0*target.height), 0}, VkOffset3D{int32_t(cu1*target.width), int32_t(cv1*target.height), 1}};
+    from = {VkOffset3D{game_offset.x+int32_t((cu0-u0)/(u1-u0)*game.width), game_offset.y+int32_t((cv0-v0)/(v1-v0)*game.height), 0},
+            VkOffset3D{game_offset.x+int32_t((cu1-u0)/(u1-u0)*game.width), game_offset.y+int32_t((cv1-v0)/(v1-v0)*game.height), 1}};
+    return to[1].x > to[0].x && to[1].y > to[0].y && from[1].x > from[0].x && from[1].y > from[0].y;
+}
 // Per-frame timeline of the submission thread (diagnostics): creating submit.request in the
 // capture folder writes the last 2048 frames to submit_trace.txt. Times in microseconds on the
 // steady clock. SteamVR's timing (OpenVR only) is of the compositor frame before.
@@ -837,6 +856,69 @@ void compositor_loop(Device d) {
     uint64_t generation{};
     std::unique_ptr<x4vr::EyeTargets> black;
     bool screen_visible{}, ready{}, theater{};
+    // The screen drawn into the eye textures (see screen_rects): its own command buffer and fence.
+    const char* overlay_env = std::getenv("X4VR_THEATER_OVERLAY");
+    const bool scene_screen = !(overlay_env && *overlay_env == '1');
+    bool placed{}; // scene_screen: screen_origin set for this theater period
+    bool drawn{}; // scene_screen: `black` holds the screen with game image drawn_seq
+    uint64_t drawn_seq{};
+    VkCommandPool screen_pool{};
+    VkCommandBuffer screen_command{};
+    VkFence screen_done{};
+    if (scene_screen) {
+        VkCommandPoolCreateInfo info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; info.queueFamilyIndex = d.vr_family;
+        VkCommandBufferAllocateInfo allocate{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; allocate.commandBufferCount = 1;
+        VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        if (d.CreateCommandPool(d.device, &info, nullptr, &screen_pool) != VK_SUCCESS) return;
+        allocate.commandPool = screen_pool;
+        if (d.AllocateCommandBuffers(d.device, &allocate, &screen_command) != VK_SUCCESS ||
+            (d.set_loader_data && d.set_loader_data(d.device, screen_command) != VK_SUCCESS) ||
+            d.CreateFence(d.device, &fence, nullptr, &screen_done) != VK_SUCCESS) return;
+        log("X4VR theater: virtual screen drawn into the eye images (X4VR_THEATER_OVERLAY=1: SteamVR overlay)");
+    }
+    // Draws the game image (`source`, the flat image in eye 0's ring) onto the screen in both
+    // black eye textures, on the VR queue; waits for it (menus aren't latency-critical).
+    const auto draw_screen = [&](VkImage source, VkOffset3D game_offset, VkExtent2D game, VkExtent2D target,
+                                 const x4vr::RuntimeBootstrap::EyeSetup& eyes, const x4vr::StereoSettings& s) {
+        check(d.ResetFences(d.device, 1, &screen_done), "vkResetFences");
+        VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        check(d.BeginCommandBuffer(screen_command, &begin), "vkBeginCommandBuffer");
+        const VkClearColorValue color{};
+        const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        const float half_w = s.theater_width/2, half_h = half_w*float(game.height)/float(game.width);
+        for (uint32_t e = 0; e < 2; ++e) {
+            const auto image = black->eyes()[e].color.image;
+            // After the runtime's copy of the last submission (earlier on this queue).
+            barrier(d, screen_command, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+            d.CmdClearColorImage(screen_command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &all);
+            barrier(d, screen_command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+            std::array<VkOffset3D, 2> from{}, to{};
+            if (screen_rects(eyes.tangents[e], eyes.head_from_eye[e].m[0][3], half_w, half_h, s.theater_distance,
+                             target, game_offset, game, from, to)) {
+                VkImageBlit blit{};
+                blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                blit.srcOffsets[0] = from[0]; blit.srcOffsets[1] = from[1];
+                blit.dstOffsets[0] = to[0]; blit.dstOffsets[1] = to[1];
+                d.CmdBlitImage(screen_command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1, &blit, VK_FILTER_LINEAR);
+            }
+            barrier(d, screen_command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        }
+        check(d.EndCommandBuffer(screen_command), "vkEndCommandBuffer");
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit.commandBufferCount = 1; submit.pCommandBuffers = &screen_command;
+        {
+            const auto queue_lock = lock_vr_queue(d);
+            check(d.QueueSubmit(d.vr_queue, 1, &submit, screen_done), "vkQueueSubmit");
+        }
+        check(d.WaitForFences(d.device, 1, &screen_done, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+    };
     int screen_recenter = x4vr::stereo_settings().recenter;
     auto screen_origin = x4vr::Matrix::identity(), screen = screen_origin; // seated_from_screen
     std::vector<SubmitRecord> timeline(2048);
@@ -850,6 +932,7 @@ void compositor_loop(Device d) {
         }
         if (!ready) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); continue; }
         if (screen_visible && !theater) { d.runtime->hide_theater(); screen_visible = false; }
+        if (!theater) placed = false;
         auto& record = timeline[frames++ % timeline.size()];
         record = {};
         record.theater = theater;
@@ -872,7 +955,9 @@ void compositor_loop(Device d) {
         const uint32_t eyes = theater ? 1 : 2; // theater: eye 0's ring holds the flat image
         vr::VRTextureBounds_t crop{}; // the game image inside the padded texture
         VkFormat format{};
-        VkExtent2D eye_extent{};
+        VkExtent2D eye_extent{}, game_extent{};
+        VkOffset3D game_offset{};
+        x4vr::RuntimeBootstrap::EyeSetup eye_setup{};
         bool resubmit{};
         {
             std::unique_lock lock(p.mutex, budget);
@@ -883,6 +968,7 @@ void compositor_loop(Device d) {
                 const auto width = float(p.eye_extent.width), height = float(p.eye_extent.height);
                 crop = {p.offset.x/width, p.offset.y/height, (p.offset.x+p.extent.width)/width, (p.offset.y+p.extent.height)/height};
                 format = p.format; eye_extent = p.eye_extent;
+                game_extent = p.extent; game_offset = p.offset; eye_setup = p.eyes;
                 for (uint32_t e = 0; e < eyes; ++e) {
                     for (auto& h : p.held[e]) h = false;
                     newest[e] = p.current[e];
@@ -935,12 +1021,13 @@ void compositor_loop(Device d) {
                     wait_reads(); // the runtime is done with the old images
                     black.reset();
                     black = make_black(d, eye_extent, format);
+                    drawn = false;
                 }
                 // The screen stands theater_distance ahead of the recentred origin (else the current
                 // head), placed when theater mode starts and again on each recenter (Windows: Ctrl+F12).
                 const bool recentred = s.recenter != screen_recenter;
                 screen_recenter = s.recenter;
-                if (!screen_visible || recentred) {
+                if (scene_screen ? !placed || recentred : !screen_visible || recentred) {
                     x4vr::Matrix head;
                     if (recentred || !x4vr::view_origin(screen_origin))
                         screen_origin = d.runtime->predicted_tracking(head, 0) == x4vr::FrameStatus::ready ? x4vr::seated_origin(head) : x4vr::Matrix::identity();
@@ -948,9 +1035,18 @@ void compositor_loop(Device d) {
                 auto ahead = x4vr::Matrix::identity();
                 ahead.m[2][3] = -s.theater_distance;
                 screen = x4vr::multiply(screen_origin, ahead);
-                const auto queue_lock = lock_vr_queue(d); // SteamVR copies the overlay texture on the VR queue
-                error = d.runtime->show_theater(fresh[0] || !screen_visible ? &textures[0] : nullptr, crop, screen, s.theater_width);
-                screen_visible = true;
+                if (scene_screen) {
+                    if (!placed || recentred) drawn = false;
+                    placed = true;
+                    if (!drawn || drawn_seq != shown_seq[0]) {
+                        draw_screen(reinterpret_cast<VkImage>(textures[0].m_nImage), game_offset, game_extent, eye_extent, eye_setup, s);
+                        drawn = true; drawn_seq = shown_seq[0];
+                    }
+                } else {
+                    const auto queue_lock = lock_vr_queue(d); // SteamVR copies the overlay texture on the VR queue
+                    error = d.runtime->show_theater(fresh[0] || !screen_visible ? &textures[0] : nullptr, crop, screen, s.theater_width);
+                    screen_visible = true;
+                }
             }
             if (theater) {
                 auto dark = textures;
@@ -958,7 +1054,9 @@ void compositor_loop(Device d) {
                     dark[e] = textures[0];
                     dark[e].m_nImage = reinterpret_cast<uint64_t>(black->eyes()[e].color.image);
                 }
-                last = {dark, {{{0, 0, 1, 1}, {0, 0, 1, 1}}}, poses, false, true, {shown[0], UINT32_MAX}, generation};
+                // The drawn screen is seen from the head pose it was placed for; SteamVR reprojects it.
+                if (scene_screen) last = {dark, {{{0, 0, 1, 1}, {0, 0, 1, 1}}}, {screen_origin, screen_origin}, true, true, {UINT32_MAX, UINT32_MAX}, generation};
+                else last = {dark, {{{0, 0, 1, 1}, {0, 0, 1, 1}}}, poses, false, true, {shown[0], UINT32_MAX}, generation};
             } else {
                 last = {textures, bounds, poses, s.submit_pose != 0, true, shown, generation};
             }
@@ -998,6 +1096,8 @@ void compositor_loop(Device d) {
     }
     if (screen_visible) d.runtime->hide_theater();
     wait_reads(); // the runtime's last copies
+    if (screen_done) d.DestroyFence(d.device, screen_done, nullptr);
+    if (screen_pool) d.DestroyCommandPool(d.device, screen_pool, nullptr);
     for (const auto& r : reads) d.DestroyFence(d.device, r.fence, nullptr);
 }
 void stop_submission(VkDevice device) {

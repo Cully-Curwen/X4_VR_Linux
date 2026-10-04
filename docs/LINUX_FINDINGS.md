@@ -375,3 +375,32 @@ Done: 0.1 (OpenVR with the Frame, tracking), 0.2, 0.3, 0.4, 0.5 (qualitative), 0
 Open: 0.5 exact scale factors and 0.8 camera uniform layout, both by reading the camera matrices
 once the layer does more than logging. Frame submission to the Frame is tested with the ported
 layer in Phase 3.
+
+## Phase 1, first headset runs (stage A)
+
+1. **Steam streams X4 into the headset unless told not to.** With SteamVR running, Steam launches
+   non-VR games with `StreamForOpenVR=1` (and `SteamStreamingVRPairedInvite`) and takes over their
+   window for its flat "theater" stream; X4 then loses its window (`Base::ShowCursor() - failed
+   to show cursor: Invalid window`) and quits, also later when the Frame reconnects. Plain X4
+   fails the same way, so it isn't the mod. `x4vr-run` unsets both; X4 must be started from Steam
+   on the PC (starting it from the headset's library may stream it again).
+2. **Stereo in the cockpit works:** 3D, head turning and leaning match the head (Windows gains
+   and `pos_scale` 3.6 unchanged). The cockpit may look slightly too large (ipd/scale calibration).
+   120 submits/s, each eye 60 new images/s, almost no late frames (`pair_stats.txt`).
+3. **The right eye jitters when the head moves** (still: fine; worse with faster turns; with
+   `predict=0` or `0.06` worse, ghosting between old and new position; `submit_pose=0` less jitter
+   but both eyes misaligned). This is stage A's eye-per-packet limitation (Phase 0 finding 4):
+   some right-eye frames are built from another packet than the pose they're submitted with.
+   Fixed by stage B (eye at use).
+4. **SteamVR's overlay shows nothing on Linux.** The theater overlay is created and
+   `SetOverlayTexture` succeeds, but the screen is invisible (black) anywhere in the headset. The
+   Linux layer now draws the virtual screen into the eye images instead, submitted with the head
+   pose of when it was placed, so SteamVR's reprojection keeps it fixed in space
+   (`X4VR_THEATER_OVERLAY=1` for the overlay). The cursor overlay will need the same treatment.
+5. **SteamVR asks for 4202x4266 per eye but the Frame link downsamples above 3458x3458**
+   (`vrcompositor.txt`): lower X4's per-app resolution in SteamVR, later cap it in the mod.
+6. **A wireless dropout leaves SteamVR in standby:** vrlink logged video stream resets, then
+   `Connection inactive` and `entering standby`; after reconnecting SteamVR stayed in standby and
+   the Frame showed a flat stream. Only restarting SteamVR (and X4) recovered. The mod kept
+   submitting (SteamVR blocked each submit ~150-200 ms). Recovering without restarting X4 needs
+   the mod to reconnect to a restarted SteamVR.
