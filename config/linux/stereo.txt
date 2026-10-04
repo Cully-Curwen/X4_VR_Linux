@@ -9,4 +9,5 @@ roll_gain=3.1416
 predict=0.035
 game_tan_y=0.8675
 valve_bounds=1
-eye_from_half=0
+eye_from_half=1
+half_xor_present=0

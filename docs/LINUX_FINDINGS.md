@@ -438,3 +438,8 @@ leave one fitting candidate: **the int at `0x72a0fa0`**, returned xor 1 by the f
 `xor 1` (`0x218e237`, `0x21988d7`). The layer uses it with `eye_from_half=1` and logs how often
 it flips per present ("stage C check"); the xor settings (`half_xor_render`, `half_xor_present`)
 are found in the headset as on Windows.
+
+**Confirmed in the headset:** the global flips on 997 of 1000 presents, and `eye_from_half=1`
+with `half_xor_present=0` (`half_xor_render=0`) removes the HUD doubling, the A-menu flicker and
+the swap flash every few seconds (`half_xor_present=1` doubles the HUD). Linux defaults set to
+that. Left: some jitter/ghosting in the right eye on head movement (pose pairing, `delay`).
