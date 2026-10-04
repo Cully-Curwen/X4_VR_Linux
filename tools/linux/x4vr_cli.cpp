@@ -1,6 +1,7 @@
 // x4vr: the Linux port's command-line tool. Subcommands so far are the Phase 0 measurements of
 // docs/LINUX_PORT_PLAN.md; settings, HUD and report commands join them later.
 #include "elf_classes.hpp"
+#include "../launcher/launcher_settings.hpp"
 #include "opentrack.hpp"
 #include <x4vr/session.hpp>
 #include <arpa/inet.h>
@@ -17,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -39,6 +41,15 @@ void usage() {
         "  udp-send [--host 127.0.0.1] [--port 4242] [--rate 90]\n"
         "      Sends OpenTrack UDP head poses (as X4 expects with OpenTrack Support on) and reads\n"
         "      commands from the terminal. Type 'help' once it runs.\n"
+        "\n"
+        "  check\n"
+        "      Checks X4's settings (config.xml) for VR: FOV, anti-aliasing, upscaling, frame\n"
+        "      generation, VSync, frame rate limit, OpenTrack support.\n"
+        "\n"
+        "  fix-settings [--auto]\n"
+        "      Sets what check reports, keeping everything else (backup: config.xml.x4vr-backup,\n"
+        "      made once). Refuses while X4 runs: X4 rewrites config.xml when it exits. --auto: quiet\n"
+        "      unless something changed (x4vr-run uses it before every start).\n"
         "\n"
         "  ctl recenter | flat\n"
         "      While X4 runs with x4vr-run: recentre the view (and the virtual screen), or switch\n"
@@ -233,6 +244,77 @@ int udp_send(const std::vector<std::string_view>& args) {
     return 0;
 }
 
+// ---- check / fix-settings --------------------------------------------------------------------
+// Linux X4 keeps one config per Steam account under ~/.config/EgoSoft/X4/<id>/; use the newest.
+std::filesystem::path x4_config() {
+    const char* home = std::getenv("HOME");
+    const auto base = std::filesystem::path(home ? home : ".")/".config/EgoSoft/X4";
+    std::filesystem::path best;
+    std::filesystem::file_time_type newest{};
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(base, error)) {
+        const auto config = entry.path()/"config.xml";
+        const auto time = std::filesystem::last_write_time(config, error);
+        if (!error && (best.empty() || time > newest)) { best = config; newest = time; }
+    }
+    return best;
+}
+bool x4_running() {
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {
+        std::error_code link_error;
+        if (std::filesystem::read_symlink(entry.path()/"exe", link_error).filename() == "X4") return true;
+    }
+    return false;
+}
+// The Windows launcher's checks (tools/launcher/launcher_settings.hpp, tested in launcher_tests),
+// minus "fullscreen, not borderless": on Windows that is for NVIDIA DSR; on Linux X4's borderless
+// window at the desktop resolution is fine.
+std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
+    auto checks = x4vr::launcher::check_x4(xml, 0, 0);
+    std::erase_if(checks, [](const auto& c) { return c.label.rfind("Display mode", 0) == 0; });
+    return checks;
+}
+std::string read_text(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+int check_settings(bool fix, bool automatic) {
+    const auto path = x4_config();
+    if (path.empty()) { std::cerr << "X4's config.xml not found under ~/.config/EgoSoft/X4 (start X4 once).\n"; return automatic ? 0 : 1; }
+    const auto xml = read_text(path);
+    const auto checks = linux_checks(xml);
+    // Only settings that exist in this config.xml are changed: Linux X4 may name some differently,
+    // and a key X4 doesn't know would only clutter the file.
+    std::vector<x4vr::launcher::Check> fixable;
+    for (const auto& c : checks) {
+        std::string value;
+        const bool present = std::all_of(c.fix.begin(), c.fix.end(), [&](const auto& kv) { return x4vr::launcher::xml_value(xml, kv.first, value); });
+        if (!c.ok && present) fixable.push_back(c);
+        if (!automatic) std::printf("%-4s %-36s %s%s\n", c.ok ? "ok" : c.required ? "FIX" : "tip", c.label.c_str(), c.current.c_str(),
+                                    c.ok || present ? "" : "  (not in this config.xml: change it in the game)");
+    }
+    if (!fix) {
+        if (!automatic) std::cout << (fixable.empty() ? "Nothing to fix." : "Run 'x4vr fix-settings' with X4 closed to fix these.") << '\n';
+        return 0;
+    }
+    if (fixable.empty()) { if (!automatic) std::cout << "Nothing to fix.\n"; return 0; }
+    if (x4_running()) { std::cerr << "X4 is running: close it first (it rewrites config.xml when it exits).\n"; return 1; }
+    const auto backup = path.string()+".x4vr-backup";
+    std::error_code error;
+    if (!std::filesystem::exists(backup)) std::filesystem::copy_file(path, backup, error);
+    const auto temporary = path.string()+".x4vr-tmp";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        out << x4vr::launcher::fix_x4(xml, fixable);
+        if (!out) { std::cerr << "Can't write " << temporary << '\n'; return 1; }
+    }
+    std::filesystem::rename(temporary, path);
+    for (const auto& c : fixable) std::cout << "x4vr: X4 setting fixed for VR: " << c.label << " (was " << c.current << ")\n";
+    std::cout << "x4vr: " << path.string() << " updated; original kept as " << backup << '\n';
+    return 0;
+}
+
 // ---- ctl ------------------------------------------------------------------------------------
 std::filesystem::path settings_file() {
     if (const char* dir = std::getenv("X4VR_DIR"); dir && *dir) return std::filesystem::path(dir)/"stereo.txt";
@@ -297,6 +379,9 @@ int main(int argc, char** argv) {
         if (command == "udp-send") return udp_send(args);
         if (command == "elf-classes") return elf_classes(args);
         if (command == "ctl") return ctl(args);
+        if (command == "check" && args.empty()) return check_settings(false, false);
+        if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))
+            return check_settings(true, !args.empty());
         if (command == "help" || command == "--help" || command == "-h") { usage(); return 0; }
         usage();
         return 2;

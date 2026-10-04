@@ -43,11 +43,26 @@ bind = CTRL, F11, exec, /home/cully/code/X4_VR_Linux/result/bin/x4vr ctl flat
 
 You can also type them in a terminal.
 
-## 3. X4 settings (once)
+## 3. X4 settings (automatic)
 
-In X4: **FOV 120°** (Display Settings; the mod assumes the maximum), **Anti-Aliasing off** (or a
-non-temporal mode), **FSR off**, OpenTrack Support **On** (Controls). VSync off and the frame
-rate limit at 120 are fine.
+`x4vr-run` sets what VR needs in X4's `config.xml` before every start (X4 isn't running yet at that
+point, so it can't overwrite them): FOV 120°, anti-aliasing not temporal, upscaling and frame
+generation off, VSync off, frame-rate limit off, OpenTrack Support on, chromatic aberration off.
+Everything else stays as it is; the first change keeps the original as `config.xml.x4vr-backup`
+next to it. What it changed is listed at the top of `x4vr.log`.
+
+To see where you stand first (X4 closed or running, both fine):
+
+```bash
+~/code/X4_VR_Linux/result/bin/x4vr check
+```
+
+`FIX` lines get changed at the next `x4vr-run` start (or now with `x4vr fix-settings`, X4 closed);
+`tip` lines are recommended only. A line saying "not in this config.xml" means Linux X4 stores that
+setting under another name: set it in the game's options instead. To leave `config.xml` alone,
+add `X4VR_FIX_SETTINGS=0` in front of the launch option's command.
+
+Your borderless window at 4K is fine on Linux (the Windows mod's "fullscreen" rule is for NVIDIA DSR).
 
 ## 4. Launch option
 
@@ -83,6 +98,7 @@ Play for a few minutes. Things to notice and note down:
 Quit X4, then:
 
 ```bash
+~/code/X4_VR_Linux/result/bin/x4vr check
 cd ~/.local/state/x4vr
 cat x4vr.log
 tail -5 pair_stats.txt
