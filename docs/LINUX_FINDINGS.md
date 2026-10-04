@@ -409,3 +409,22 @@ layer in Phase 3.
    the Frame showed a flat stream. Only restarting SteamVR (and X4) recovered. The mod kept
    submitting (SteamVR blocked each submit ~150-200 ms). Recovering without restarting X4 needs
    the mod to reconnect to a restarted SteamVR.
+
+## Stage B: X4's OpenTrack tracker (Linux 9.00 disassembly)
+
+`VR::OpenTrack` (vtable address point `0x3c62520`, 74 slots):
+
+| Slot | Address | What it does |
+|---|---|---|
+| 2 (`+0x10`) | `0x1a1b720` | Per-frame update (game thread). If the reader thread left a new packet (`+0x20..+0x48`, flag `+0x50`): copies its six doubles to `+0x78..+0xa0`, sets `+0xa8`; else zeroes them and clears `+0xa8`. Position = xyz * `+0x114` (position scale; setter slot 49 clamps to [0.25, 1.25]) into `+0xb0` (minus `+0xc0` after a recentre, flag `+0x110`); angles = (-yaw, pitch, roll) * a constant (`0x2e27138`) * `+0x118` into `+0xe0`. Smoothing with alpha = 1/`+0x120` (strength) into `+0xd0` (position) and `+0x100` (angles). |
+| 33 (`+0x108`) | `0x1a0dd60` | Angle accessor: `+0x108`, -`+0x100`, `+0x104`, each / a constant (`0x2e27154`). |
+| 34 (`+0x110`) | `0x1a0dda0` | **Position accessor**: `+0xd0..+0xd8` / 180, clamped to [-1, 1] (so +-180 packet cm at scale 1). |
+| 49, 50 / 53, 54 / 57, 58 | | Set/get position scale `+0x114`, angle scale `+0x118`, smoothing strength `+0x120`. |
+| 67 (`+0x218`) | `0x1a0dca0` | Recentre: stores the current position/angles into `+0xc0` / `+0xf0`, sets `+0x110`. |
+| 6 (`+0x30`) | `0x1398960` | `return false` (a stub; not the Windows still check). |
+
+So the Windows eye-at-use hook maps directly: slot 34 is the position accessor (Windows `0x108`),
+and the eye offset in its fields is the packet offset times `+0x114`. The layer hooks slot 34;
+packets carry a sequence number in roll's low mantissa bits, read back from `+0xa0` when `+0xa8`
+is set, so the hook knows which packet (and headset pose) X4 used. Not found yet: a "still" check
+like Windows' (X4 skipping the accessors when the pose barely changes), if Linux X4 has one.
