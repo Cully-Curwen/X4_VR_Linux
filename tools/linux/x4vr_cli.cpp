@@ -67,14 +67,17 @@ int vr_check(const std::vector<std::string_view>& args) {
     char path[4096]{};
     uint32_t needed = 0;
     if (vr::VR_GetRuntimePath(path, sizeof(path), &needed)) std::cout << "runtime_path=" << path << '\n';
-    const bool present = vr::VR_IsHmdPresent();
-    std::cout << "headset_present=" << present << '\n';
-    if (!present) {
-        std::cerr << "No headset found. Start SteamVR with the headset connected, then run this again.\n";
+    // Only informative: on Linux this quick check can report no headset while SteamVR has one
+    // (streamed headsets, or SteamVR's client library failing to load here). Connecting tells why.
+    std::cout << "headset_present=" << vr::VR_IsHmdPresent() << '\n' << std::flush;
+    x4vr::Session session;
+    try {
+        session.initialize();
+    } catch (const std::exception& error) {
+        std::cerr << "Connecting to SteamVR failed: " << error.what() << "\n"
+                     "Is SteamVR running with the headset? If it is, try again through steam-run (docs/LINUX_PHASE0.md, step 3).\n";
         return 4;
     }
-    x4vr::Session session;
-    session.initialize();
     std::cout << "headset_model=" << session.headset_model() << '\n';
     std::cout << "required_instance_extensions=";
     for (const auto& ext : session.instance_extensions()) std::cout << ext << ' ';
