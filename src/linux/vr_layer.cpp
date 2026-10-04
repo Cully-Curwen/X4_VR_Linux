@@ -466,8 +466,10 @@ void presenter_initialize(const Device& d, uint32_t family) {
     const float game_x = float(p.extent.width)/(2*tan_x), game_y = float(p.extent.height)/(2*tan_y);
     float want_x = 0, want_y = 0;
     uint32_t recommended_w = 0, recommended_h = 0;
-    if (const char* native = std::getenv("X4VR_NATIVE_SIZE"); !(native && *native == '1') && !d.runtime->openxr())
-        if (auto* system = vr::VRSystem()) system->GetRecommendedRenderTargetSize(&recommended_w, &recommended_h);
+    if (const char* native = std::getenv("X4VR_NATIVE_SIZE"); native && *native == '1')
+        log("X4VR presenter: X4VR_NATIVE_SIZE=1: eye images at the game's own pixel density");
+    else if (auto* system = d.runtime->openxr() ? nullptr : vr::VRSystem()) system->GetRecommendedRenderTargetSize(&recommended_w, &recommended_h);
+    else log("X4VR presenter: SteamVR's recommended size unavailable; eye images at the game's own pixel density");
     for (const auto& t : p.eyes.tangents) {
         if (t[1] > t[0]) want_x = std::fmax(want_x, float(recommended_w)/(t[1]-t[0]));
         if (std::fabs(t[3]-t[2]) > 0) want_y = std::fmax(want_y, float(recommended_h)/std::fabs(t[3]-t[2]));
