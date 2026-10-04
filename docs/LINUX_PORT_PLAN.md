@@ -103,15 +103,22 @@ cmake -B build                      # Windows build, exactly as today
 |---|---|
 | Windows-only entry points: `freetrack_client.cpp`, `native_pose_module.cpp`, `pose_detour.cpp`, `copy_call_hook.cpp`, `crash_watch.cpp`, `startup_module.cpp`, `tools/launcher/launcher.cpp`, `scripts/*.ps1` | **Not touched.** |
 | Already portable (no Win32 calls): `math.cpp`, `session.cpp`, `x4_camera.cpp`, `head_look.cpp`, `eye_targets.cpp`, `launcher_settings.hpp`, `hud_mod.hpp` | Compiled by the Linux build as they are. |
-| Shared with small Win32 use: `runtime_bootstrap.cpp` (environment variables, module handle), `openxr_runtime.cpp`, `observe_layer.cpp` (environment, `GetAsyncKeyState`, thread priority, paths), `code_scan.hpp` (PE section walk) | Each Win32 call moves behind a small function in `src/platform/platform.hpp`. `platform_win.cpp` holds the **current code, unchanged**. `platform_linux.cpp` holds the Linux version. The Windows branch must compile to the same behaviour; review each of these diffs against that rule. |
+| Windows files with Win32 calls that Linux needs: `runtime_bootstrap.cpp`, `openxr_runtime.cpp`, `observe_layer.cpp`, `freetrack_client.cpp` (its pose logic), `include/x4vr/code_scan.hpp` (PE section walk) | **Not touched.** Linux gets its own copy under `src/linux/` (decision below), with the Win32 calls replaced. Each copy's header names the Windows file and the commit it was copied from. |
 | New Linux-only code | `src/linux/` (pose shim, ELF scan, patches), `linux/` (CMake, layer manifest, wrapper script), `config/linux/` (Linux `stereo.txt` defaults), `tools/linux/` (the `x4vr` CLI), `tests/linux/`, `nix/` and the root `default.nix`. Tools are C++ in the same build, so they share code with the mod (the OpenTrack packet, the ELF scan) and run in the Nix check phase. |
 | X4 signature tables | Linux tables live next to the Windows ones in `code_scan.hpp`, under `x4vr::code::x4_linux`. The Windows rows are not edited. |
 
-The reason for not forking `observe_layer.cpp` (1,700 lines) into a Linux copy: fixes to the
-submission thread, the stutter work and the cursor overlays would then have to be made twice,
-and the upstream PR would carry two diverging presenters. The platform header keeps one copy of
-the logic. If upstream prefers zero edits to shared files, the fallback is a Linux copy, at the
-cost of that duplication. **Decide with upstream before Phase 1.**
+**Decision (2026-10-04): separate Linux copies for now.** Windows files stay byte-for-byte
+unchanged; the Linux build has its own copies of the files it needs to change. The cost is
+duplication: a fix to the presenter, the stutter handling or the overlays in a Windows file has to
+be carried over to the Linux copy by hand. To keep that manageable:
+- each copy starts with a comment naming its Windows original and the commit it was copied from;
+- copies change only what Linux needs (Win32 calls, paths, the AMD queue, the pose input), so a
+  diff against the original stays small and readable;
+- when Windows files change upstream, diff them against the recorded commit and port the change.
+
+If the port goes upstream, the copies can be merged back into one code base with a small platform
+header (the alternative considered: one copy, each Win32 call behind a function with a Windows and
+a Linux version).
 
 ---
 
@@ -252,9 +259,8 @@ where they are safe.
 
 The body of `FTGetData` (theater decision, recentering, synthetic poses, eye offsets, `head.txt`
 and `state.txt` traces) is mostly platform-free, apart from the FreeTrack packing and Win32
-calls. Move it into a shared function that both `freetrack_client.cpp` and the Linux shim call,
-**only if** that can be done without changing Windows behaviour. Otherwise the Linux shim gets its
-own copy, marked as mirroring `freetrack_client.cpp` at a given commit. **Decide in Phase 1.**
+calls. Following the decision in section 3, the Linux pose library gets its own copy of this logic,
+marked as mirroring `freetrack_client.cpp` at a given commit; `freetrack_client.cpp` is not changed.
 
 ### 6.4 Gains and defaults
 
@@ -452,7 +458,7 @@ the Steam Runtime. Check in 0.1 and 0.7 that this works from inside the game's e
 4. FHS, scout or pressure-vessel; is `/nix/store` visible? (0.4)
 5. UDP units, scaling, backward clamp, still check, smoothing. (0.5)
 6. Which thread reads the socket, and does the read buffer lead to the tracker object? (0.6)
-7. Does upstream accept a platform header in shared files, or want a Linux copy? (3)
+7. ~~Platform header or Linux copies?~~ Linux copies for now (section 3); revisit if the port goes upstream.
 8. Do `-nocputhrottle` and focus throttling behave the same on Linux?
 9. Does Linux X4 use the same `config.xml` keys, path and extension layout?
 
