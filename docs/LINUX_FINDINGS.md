@@ -465,4 +465,6 @@ different poses.
 `x4vr hud` (the Windows launcher's HUD mod) works, with two prompts from X4: "Modified game
 detected" (online features off, saves made with it stay flagged) and **Protected UI Mode**, which
 lists the extension and, while on, doesn't load its replaced Lua scripts: the anchors move (HUD
-farther) but the size factors don't (HUD smaller). Disabling protection gives the full effect.
+farther) but the size factors don't (HUD smaller). Disabling protection didn't change the size either: the game catalogs hold each UI script as
+`.lua`, `.xpl` and `.sig` signatures for both, and X4 loads the `.xpl`. The Linux `x4vr hud`
+therefore patches the `.xpl` copies too (same size-factor rewrite; refused if one isn't Lua text).

@@ -337,9 +337,12 @@ std::filesystem::path game_dir() {
         if (std::filesystem::exists(candidate/"01.cat")) return candidate;
     return {};
 }
+// Linux X4 9.00 ships each UI script as .lua and as .xpl (the one it loads, plain Lua text too)
+// and loads the .xpl: replacing only the .lua moved the HUD back but kept its size (2026-10-04).
+std::string xpl_of(const std::string& lua) { return lua.substr(0, lua.size()-4)+".xpl"; }
 std::map<std::string, std::string> hud_originals(const std::filesystem::path& game) {
     std::set<std::string> paths(x4vr::launcher::hud_anchor_files().begin(), x4vr::launcher::hud_anchor_files().end());
-    paths.insert(x4vr::launcher::hud_scripts().begin(), x4vr::launcher::hud_scripts().end());
+    for (const auto& script : x4vr::launcher::hud_scripts()) { paths.insert(script); paths.insert(xpl_of(script)); }
     return x4vr::launcher::read_game_files(game, paths);
 }
 std::string source_hash(const std::map<std::string, std::string>& originals) {
@@ -362,8 +365,16 @@ std::map<std::string, std::string> installed_hud(const std::filesystem::path& ex
 }
 bool install_hud(const std::filesystem::path& game, double scale, std::string& error) {
     const auto originals = hud_originals(game);
-    const auto files = x4vr::launcher::hud_files(originals, scale, error);
+    auto files = x4vr::launcher::hud_files(originals, scale, error);
     if (files.empty()) return false;
+    for (const auto& script : x4vr::launcher::hud_scripts()) {
+        const auto xpl = originals.find(xpl_of(script));
+        if (xpl == originals.end()) continue;
+        int count = 0;
+        auto patched = x4vr::launcher::scale_presentation_factors(xpl->second, scale, count);
+        if (count < 1) { error = "unexpected "+xpl->first+" (not Lua text?)"; return false; }
+        files[xpl->first] = std::move(patched);
+    }
     const auto extension = game/"extensions/x4vr_hud";
     std::error_code ignored;
     std::filesystem::remove_all(extension, ignored);
