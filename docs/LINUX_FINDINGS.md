@@ -203,3 +203,32 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
 5. Check whether *Head Movement Intensity* scales tracker input (keep it at 100 for calibration),
    and whether *VE Goggles Auto Reset* recenters on its own (it may need to be off, as X4's own
    reset breaks the calibration on Windows).
+
+---
+
+## 0.1 (continued) OpenVR from a Linux program: `x4vr vr-check` (2026-10-04)
+
+### Facts
+
+- Run directly on NixOS, OpenVR's `VR_IsHmdPresent` says **no headset** although SteamVR runs with
+  the Frame: SteamVR's `vrclient.so` expects the Steam runtime's libraries.
+- Through **`steam-run`** everything works: `headset_present=1`, model **`Deckard MP`** (the Steam
+  Frame), recommended render size **2644x2644 per eye**, eye offsets ±0.034 m (IPD about 68 mm),
+  60 of 60 head-pose samples tracked over 15 s, following look, pitch, roll and lean.
+- Vulkan instance extensions SteamVR requires: `VK_KHR_external_memory_capabilities`,
+  `VK_KHR_get_physical_device_properties2`, `VK_KHR_external_fence_capabilities`,
+  `VK_KHR_surface`, `VK_KHR_external_semaphore_capabilities` (the layer already merges
+  runtime-required extensions into X4's list).
+- The seated-space yaw was around +140° to +170° at the start: SteamVR's seated zero isn't where
+  the user faces. The mod recentres on its own at start and with Ctrl+F12, so this needs nothing.
+
+### Consequences
+
+1. **OpenVR works with the Steam Frame on Linux** through the mod's own `Session` code (plan 0.1,
+   tracking half). Frames to the headset are tested later with the layer.
+2. Programs started outside Steam (the `x4vr` tools) need `steam-run` to talk to SteamVR. X4
+   itself runs inside Steam's runtime container, which provides those libraries (Elite Dangerous
+   works the same way), so the mod inside X4 should not need anything extra; the layer test
+   confirms that.
+3. Render target: 2644x2644 per eye at the headset's recommendation. With alternate-eye rendering
+   each eye comes from X4's swapchain, so X4's resolution sets the pixel density (as on Windows).

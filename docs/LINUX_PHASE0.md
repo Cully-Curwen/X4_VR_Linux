@@ -58,22 +58,17 @@ Send both files. They hold only class names and addresses, no game code.
 
 ## 3. SteamVR from a Linux program (0.1, no game running, 2 minutes)
 
-Start SteamVR with the Frame connected, as you normally do. Then:
+Start SteamVR with the Frame connected, as you normally do. Then run the check through Steam's
+runtime (`steam-run`): SteamVR's client library needs it, and run directly the check reports no
+headset (docs/LINUX_FINDINGS.md, 0.1):
 
 ```bash
-~/src/x4_vr_linux/result/bin/x4vr vr-check --seconds 15 | tee vr-check.txt
+nix-shell -p steam-run --run "steam-run ~/src/x4_vr_linux/result/bin/x4vr vr-check --seconds 15" | tee vr-check.txt
 ```
 
 While it runs, turn your head left, right, up and down, and lean left and right. It prints the
 headset model, the render size per eye, both eye positions, and then the head pose four times a
 second.
-
-If it fails with an error about loading `vrclient.so` or missing libraries, run it through Steam's
-runtime and say which one worked:
-
-```bash
-nix-shell -p steam-run --run "steam-run ~/src/x4_vr_linux/result/bin/x4vr vr-check --seconds 15" | tee vr-check.txt
-```
 
 Send `vr-check.txt`.
 
