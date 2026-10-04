@@ -535,6 +535,18 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     if (!p.ready) presenter_initialize(d, family);
     const auto settings = x4vr::stereo_settings();
     const auto number = x4vr::next_present();
+    {
+        // Stage C check: X4's frame half should flip on every present (logged after 1000, then every 20000).
+        static int last_half = -1;
+        static uint64_t seen{}, flips{};
+        const int half = x4vr::frame_half();
+        if (half >= 0) {
+            if (last_half >= 0) { ++seen; flips += half != last_half; }
+            last_half = half;
+            if (seen == 1000 || (seen && seen % 20000 == 0))
+                log("X4VR presenter: frame half flipped on "+std::to_string(flips)+" of "+std::to_string(seen)+" presents (stage C check)");
+        }
+    }
     p.last_number = number;
     uint32_t eye{};
     auto rendered = x4vr::Matrix::identity();

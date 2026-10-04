@@ -17,7 +17,6 @@
 #include "opentrack.hpp"
 #include <arpa/inet.h>
 #include <dlfcn.h>
-#include <link.h>
 #include <sys/mman.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -107,21 +106,6 @@ void position_at_use(void* tracker, float* x, float* y, float* z) {
     x4vr::record_render_pose(packet.head, eye, packet.flat, false);
 }
 
-// The executable's mapped segments: the addresses above are only read inside them.
-bool in_executable(uintptr_t address, size_t size) {
-    struct Query { uintptr_t address; size_t size; bool found; } query{address, size, false};
-    dl_iterate_phdr([](dl_phdr_info* info, size_t, void* data) {
-        auto& q = *static_cast<Query*>(data);
-        if (info->dlpi_name && *info->dlpi_name) return 0; // the main program has an empty name
-        for (int i = 0; i < info->dlpi_phnum; ++i) {
-            const auto& h = info->dlpi_phdr[i];
-            const uintptr_t start = info->dlpi_addr+h.p_vaddr;
-            if (h.p_type == PT_LOAD && q.address >= start && q.address+q.size <= start+h.p_memsz) q.found = true;
-        }
-        return 1;
-    }, &query);
-    return query.found;
-}
 bool swap_slot(void** slot, void* replacement, void** original) {
     const long page = sysconf(_SC_PAGESIZE);
     auto* start = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(slot) & ~uintptr_t(page-1));

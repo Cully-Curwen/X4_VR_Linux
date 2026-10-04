@@ -428,3 +428,13 @@ and the eye offset in its fields is the packet offset times `+0x114`. The layer 
 packets carry a sequence number in roll's low mantissa bits, read back from `+0xa0` when `+0xa8`
 is set, so the hook knows which packet (and headset pose) X4 used. Not found yet: a "still" check
 like Windows' (X4 skipping the accessors when the pose barely changes), if Linux X4 has one.
+
+## Stage C: frame half candidate (Linux 9.00)
+
+The Windows reader pattern (`imul 0x270` after `xor 1`) only matches Detour's `dtCrowd` code on
+Linux (its agent struct is also 0x270 bytes). Reads of a rip-relative global followed by `xor 1`
+leave one fitting candidate: **the int at `0x72a0fa0`**, returned xor 1 by the function at
+`0x218e220` (`mov 0x72a0fa0,%eax; xor $1,%eax; ret`), next to a table at `0x454d9a0` indexed by
+`xor 1` (`0x218e237`, `0x21988d7`). The layer uses it with `eye_from_half=1` and logs how often
+it flips per present ("stage C check"); the xor settings (`half_xor_render`, `half_xor_present`)
+are found in the headset as on Windows.

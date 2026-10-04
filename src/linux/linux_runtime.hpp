@@ -1,4 +1,6 @@
 #pragma once
+#include <cstddef>
+#include <cstdint>
 // Linux-only additions to the shared runtime. include/x4vr/runtime_bootstrap.hpp stays the Windows
 // header, unchanged (docs/LINUX_PORT_PLAN.md, section 3); what Linux needs beyond it lives here.
 #include <x4vr/runtime_bootstrap.hpp>
@@ -28,4 +30,8 @@ GameState game_state();
 // Pose sender (stage A, docs/LINUX_PORT_PLAN.md section 7): sends the head pose to X4's OpenTrack
 // socket once per present. Started by the layer once the runtime exists; X4 only.
 void start_pose_sender();
+
+// Whether [address, address+size) lies in the main executable's loaded segments (X4 is non-PIE:
+// its code and data addresses are fixed). Checked before reading or patching X4 at known addresses.
+bool in_executable(uintptr_t address, size_t size);
 }

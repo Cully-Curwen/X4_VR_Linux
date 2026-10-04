@@ -5,6 +5,7 @@
 #include <x4vr/runtime_bootstrap.hpp>
 #include "linux_runtime.hpp"
 #include "openxr_runtime_stub.hpp"
+#include <link.h>
 #include <strings.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -421,9 +422,42 @@ bool take_request(const char* name) {
 }
 namespace {
 // X4 double-buffers per-frame render data in two halves selected by a global that flips once
-// per frame (Windows 9.00: RVA 0x6b66280). The Linux binary's global isn't located yet (plan
-// stage C): until then eyes follow the present count plus `delay`, as with eye_from_half=0.
-const volatile int32_t* frame_half_global() { return nullptr; }
+// per frame (Windows 9.00: RVA 0x6b66280). Linux 9.00 candidate (plan stage C, unconfirmed): the
+// int at 0x72a0fa0, returned xor 1 by the function at 0x218e220 (`mov global,%eax; xor $1,%eax;
+// ret`), next to a two-element table at 0x454d9a0 indexed by it xor 1. eye_from_half=1 uses it.
+const volatile int32_t* frame_half_global() {
+    static const volatile int32_t* global = []() -> const volatile int32_t* {
+        constexpr uintptr_t reader = 0x218e220, expected = 0x72a0fa0;
+        constexpr unsigned char head[] = {0x8b, 0x05}, tail[] = {0x83, 0xf0, 0x01, 0xc3};
+        if (!linux_port::in_executable(reader, 10)) return nullptr;
+        const auto* code = reinterpret_cast<const unsigned char*>(reader);
+        int32_t displacement;
+        std::memcpy(&displacement, code+2, 4);
+        if (std::memcmp(code, head, 2) || std::memcmp(code+6, tail, 4) || reader+6+uintptr_t(intptr_t(displacement)) != expected ||
+            !linux_port::in_executable(expected, 4)) {
+            linux_port::log("X4VR bootstrap: frame half global not found in this X4; eyes follow the present count");
+            return nullptr;
+        }
+        return reinterpret_cast<const volatile int32_t*>(expected);
+    }();
+    return global;
+}
+}
+namespace linux_port {
+bool in_executable(uintptr_t address, size_t size) {
+    struct Query { uintptr_t address; size_t size; bool found; } query{address, size, false};
+    dl_iterate_phdr([](dl_phdr_info* info, size_t, void* data) {
+        auto& q = *static_cast<Query*>(data);
+        if (info->dlpi_name && *info->dlpi_name) return 0; // the main program has an empty name
+        for (int i = 0; i < info->dlpi_phnum; ++i) {
+            const auto& h = info->dlpi_phdr[i];
+            const uintptr_t start = info->dlpi_addr+h.p_vaddr;
+            if (h.p_type == PT_LOAD && q.address >= start && q.address+q.size <= start+h.p_memsz) q.found = true;
+        }
+        return 1;
+    }, &query);
+    return query.found;
+}
 }
 int frame_half() { const auto global = frame_half_global(); return global ? (*global & 1) : -1; }
 uint32_t render_eye() {
