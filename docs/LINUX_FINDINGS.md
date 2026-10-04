@@ -328,12 +328,13 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
 | Where it works | **Only when piloting the ship.** Standing in the ship: no effect (as on Windows, where X4 zeroes the pose on foot). |
 | Focus | Keeps working while the terminal has focus. |
 | `yaw +30` / `-30` | **Right** / left |
-| `yaw 90` | Stops short of looking over the shoulder (scaled down or limited) |
+| `yaw 90` / `yaw 180` | 90 stops short of the shoulder; **180 gives roughly a real 90°**: angles are scaled down, as on Windows (angle/π × 85°) |
 | `pitch +20` | **Up** |
 | `roll +20` | **Anticlockwise** (head tilts left) |
 | `x +5` | Head moves **left** |
 | `y +5` | **Up** |
-| `z +5`, `z -5` | No visible movement either way (to be repeated with larger values) |
+| `z +5`, `z -5` | Too small to see |
+| `z -30` / `z +30` | **-z moves the head forward; +z (backward) stays at zero**: the backward clamp exists on Linux too |
 | `x 50` | Much further than `x 5` |
 | Small change after 5 s still (`yaw 30` → `31`) | Moves: no "still pose" freeze seen |
 | `yaw 30` held 30 s | No drift back to centre (*VE Goggles Auto Reset* on has no visible effect) |
@@ -347,13 +348,30 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
    the mod only needs to send packets (plan section 6.2).
 2. **Signs:** OpenTrack +yaw turns right, +pitch looks up, +roll tilts left, +x moves left, +y up.
    The mod's axis signs for Linux are set from this (the OpenVR seated pose uses +yaw = left).
-3. **Magnitudes need measuring, not eyeballing.** Yaw 90 falling short fits the Windows
-   behaviour (angle / π × 85°) or a clamp. The precise mapping (and z) comes from reading the
-   camera view matrix, as `tools/vr_calibrate.py` does on Windows; that needs the camera uniform
-   (0.8) or the layer's matrix logging.
+3. **The Windows quirks carry over.** Angles look scaled by 85/180 (Windows: `yaw_gain =
+   pitch_gain = 2.1177`, here in degrees the same factor 180/85), and **backward head position
+   (+z) is zeroed**, so stage D (backward clamp patch) is needed on Linux exactly as on Windows.
+   The precise numbers still come from reading the camera view matrix, as `tools/vr_calibrate.py`
+   does on Windows (0.8, or matrix logging in the layer), before setting Linux defaults.
 4. **The irregular shaking with alternating poses** shows that the game samples the latest packet
    at its own frame times, unsynchronised with the reader thread: which packet a frame uses is
    random. So the eye can't be picked per packet; it must be added when X4 builds the camera
    (eye at use, plan stage B), as on Windows. Smoothing 5 also blends the alternation.
-5. X4 holds the last pose when packets stop, and doesn't recentre on its own: the mod's own
+5. *Head motion smoothing* can't go below 5 in the menu (as on Windows); the mod sets 1 through
+   the exported `SetActiveHeadTrackerHeadFilterStrength`.
+6. X4 holds the last pose when packets stop, and doesn't recentre on its own: the mod's own
    recentring (`recenter=`, Ctrl+F12) behaves as on Windows.
+
+### Launch log (stderr.log)
+
+- The loader inserted `VK_LAYER_X4VR_probe` as instance and device layer from the `/nix/store`
+  path given by `VK_ADD_LAYER_PATH`; `VK_INSTANCE_LAYERS` was honoured inside the container.
+- The only `ERROR` lines are `ld.so ... wrong ELF class ... ignored` for the 32-bit Steam
+  helpers on the launch path (the same lines appear for Steam's own overlay library). Harmless.
+
+## Phase 0 status
+
+Done: 0.1 (OpenVR with the Frame, tracking), 0.2, 0.3, 0.4, 0.5 (qualitative), 0.6, 0.7.
+Open: 0.5 exact scale factors and 0.8 camera uniform layout, both by reading the camera matrices
+once the layer does more than logging. Frame submission to the Frame is tested with the ported
+layer in Phase 3.
