@@ -304,3 +304,56 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
 3. The swapchain format and usage match the Windows capture path. 8-bit UNORM goes to its SRGB
    twin for OpenXR, as on Windows.
 4. Launch with `-nocputhrottle` in VR runs (the window isn't focused while wearing the headset).
+
+---
+
+## 0.5 / 0.6 OpenTrack head tracking in the cockpit (2026-10-04)
+
+### How X4 reads the socket (socket probe)
+
+- Turning on *OpenTrack Support* starts thread **`OpenTrackThread`** (an SDL thread). It creates a
+  UDP socket and binds it to port 4242 (code at `0x1a22d65`/`0x1a22da4`), then loops:
+  **`select()` with a 1 s timeout (`0x1a22e3b`), then one blocking-style `recvfrom` of 48 bytes**
+  (`0x1a22e81`) per packet, into a **local buffer** (`0x753268ff5d50`, not the tracker object).
+  The loop sits in the function called from `0x1a37276`.
+- At 90 packets per second from `x4vr udp-send`: 90 `select` and 90 `recvfrom` per second, every
+  packet read, no backlog, no errors, total waiting time under 0.3 ms per 2 s.
+- The menu then shows "OpenTrack connection established" and a new **OpenTrack** section:
+  *head motion smoothing 5*, *head rotation factor 100%*, *head position factor 100%*.
+
+### What the camera does (by eye, test table in docs/LINUX_PHASE0.md)
+
+| Test | Result |
+|---|---|
+| Where it works | **Only when piloting the ship.** Standing in the ship: no effect (as on Windows, where X4 zeroes the pose on foot). |
+| Focus | Keeps working while the terminal has focus. |
+| `yaw +30` / `-30` | **Right** / left |
+| `yaw 90` | Stops short of looking over the shoulder (scaled down or limited) |
+| `pitch +20` | **Up** |
+| `roll +20` | **Anticlockwise** (head tilts left) |
+| `x +5` | Head moves **left** |
+| `y +5` | **Up** |
+| `z +5`, `z -5` | No visible movement either way (to be repeated with larger values) |
+| `x 50` | Much further than `x 5` |
+| Small change after 5 s still (`yaw 30` → `31`) | Moves: no "still pose" freeze seen |
+| `yaw 30` held 30 s | No drift back to centre (*VE Goggles Auto Reset* on has no visible effect) |
+| `alt yaw 10` (±10° every packet) | Irregular shaking, not a steady pattern |
+| `pause` (no packets) | View stays at the last pose |
+| *Head Movement Intensity* 50 | No visible difference: it doesn't scale the tracker |
+
+### Consequences
+
+1. **OpenTrack UDP is a working head-pose input on Linux.** The pull-shim idea is dropped for good:
+   the mod only needs to send packets (plan section 6.2).
+2. **Signs:** OpenTrack +yaw turns right, +pitch looks up, +roll tilts left, +x moves left, +y up.
+   The mod's axis signs for Linux are set from this (the OpenVR seated pose uses +yaw = left).
+3. **Magnitudes need measuring, not eyeballing.** Yaw 90 falling short fits the Windows
+   behaviour (angle / π × 85°) or a clamp. The precise mapping (and z) comes from reading the
+   camera view matrix, as `tools/vr_calibrate.py` does on Windows; that needs the camera uniform
+   (0.8) or the layer's matrix logging.
+4. **The irregular shaking with alternating poses** shows that the game samples the latest packet
+   at its own frame times, unsynchronised with the reader thread: which packet a frame uses is
+   random. So the eye can't be picked per packet; it must be added when X4 builds the camera
+   (eye at use, plan stage B), as on Windows. Smoothing 5 also blends the alternation.
+5. X4 holds the last pose when packets stop, and doesn't recentre on its own: the mod's own
+   recentring (`recenter=`, Ctrl+F12) behaves as on Windows.
