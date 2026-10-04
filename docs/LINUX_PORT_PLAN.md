@@ -401,6 +401,10 @@ NixOS generation). DSR advice becomes gamescope advice.
 
 ### glibc and libstdc++
 
+**Phase 0.4 result:** X4 runs in pressure-vessel (sniper), but the process uses the host's glibc 2.42 and
+Vulkan loader from `/nix/store`, and `/nix/store` is visible inside the container. Mitigation 1
+is therefore enough on this setup, and the copy step in 3 isn't needed. See findings 0.4.
+
 The injected libraries load into X4's process, which uses the Steam environment's glibc.
 1. Build with the system's own `pkgs`, the same nixpkgs as `programs.steam`.
 2. Link `libstdc++`/`libgcc` statically into the injected libraries. Check the needed glibc symbol

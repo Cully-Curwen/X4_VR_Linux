@@ -119,3 +119,50 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
    with `runtime_smoke`.
 3. Both runtime files live under the home directory, so a Steam container normally sees them.
    Step 0.4 confirms this.
+
+---
+
+## 0.4 How Steam runs native X4 on NixOS (2026-10-04)
+
+### Facts
+
+- Compatibility setting: default, **Steam Linux Runtime 3.0 (sniper)**.
+- Launch chain: NixOS Steam FHS `bwrap` → `steam` → `reaper SteamLaunch AppId=392160` →
+  `srt-bwrap` → `pv-adverb` → `testandlaunch` (an Egosoft **bash script** in the game folder) →
+  the game, started as `./X4` from the game folder. The game names its main thread `Main()`, so
+  `pgrep -x X4` finds nothing; use `pgrep -x 'Main\(\)'`.
+- `PRESSURE_VESSEL_RUNTIME=sniper_platform_3.0.20260805.254768`, `PRESSURE_VESSEL_COPY_RUNTIME=1`.
+- Loaded from the **host's Nix store** inside the container: `libc.so.6` from
+  `glibc-2.42-84`, `libvulkan.so.1.4.357` (vulkan-loader 1.4.357), and Mesa 26.2.3's
+  `libvulkan_radeon.so`. pressure-vessel took the host's newer glibc and graphics stack.
+- `/nix/store` is visible inside the container, and so is `~/.config/openvr/openvrpaths.vrpath`.
+- Environment set by pressure-vessel: `VK_LAYER_PATH` and `VK_IMPLICIT_LAYER_PATH` pointing at
+  `/usr/lib/pressure-vessel/overrides/share/vulkan/…`, `VK_ICD_FILENAMES`/`VK_DRIVER_FILES`, and
+  `LD_LIBRARY_PATH=lib:/usr/lib/pressure-vessel/overrides/…` (the game's own `lib/` first; the
+  game ships its own libraries there, SDL3 among them).
+- `LD_PRELOAD` already holds Steam's overlay (`/tmp/pressure-vessel-libs-…/${PLATFORM}/gameoverlayrenderer.so`).
+  pressure-vessel rewrites preload entries into paths it makes visible.
+- Session: Hyprland (Wayland), with Xwayland on `:0`. The game has both `WAYLAND_DISPLAY` and
+  `DISPLAY` set; which one SDL3 uses is checked in 0.7.
+- GPU: X4 opened `/dev/dri/renderD128`, which is PCI `0000:03:00.0`. The other GPU is
+  `0000:13:00.0` (`renderD129`).
+
+### Consequences
+
+1. **The glibc risk is gone for this setup.** The game process uses NixOS's own glibc 2.42, so
+   libraries built from the system's nixpkgs load without symbol-version problems. Static
+   `libstdc++` is still worth doing, because the game's `lib/` comes first in `LD_LIBRARY_PATH`.
+   This holds while pressure-vessel keeps choosing the host glibc (it picks the newer one), so
+   `x4vr-run` should log the glibc version it sees.
+2. **`/nix/store` paths work inside the container.** No copying to the home directory is needed.
+   `x4vr-run` can point `LD_PRELOAD` and the layer path straight at the Nix package.
+3. **Vulkan layer loading:** the loader is 1.4.357, so `VK_ADD_LAYER_PATH` is supported. It adds
+   to pressure-vessel's own `VK_LAYER_PATH` instead of replacing it. Whether pressure-vessel
+   passes `VK_ADD_LAYER_PATH` and `VK_INSTANCE_LAYERS` through unchanged is tested in 0.7.
+4. **`LD_PRELOAD`:** `x4vr-run` runs outside the container (as `x4vr-run %command%`, where
+   `%command%` includes the runtime's entry point), and prepends to the existing value. The
+   preload library will be loaded into `testandlaunch`'s bash, `pv-adverb` and others too. It must
+   stay inactive unless `/proc/self/exe` is the X4 binary (plan section 6.1).
+5. **SDL3 comes from the game's own `lib/`.** A preloaded `SDL_PollEvent` still takes precedence.
+6. The process name is `Main()`, not `X4`. Tools and the wrapper must look for it by
+   executable path, not by name.
