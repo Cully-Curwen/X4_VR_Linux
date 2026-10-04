@@ -342,13 +342,11 @@ std::filesystem::path game_dir() {
         if (std::filesystem::exists(candidate/"01.cat")) return candidate;
     return {};
 }
-// Linux X4 9.00 ships each UI script as .lua and as .xpl, precompiled bytecode, and loads the
-// .xpl: replacing only the .lua moved the HUD back but kept its size (2026-10-04). The extension
-// therefore also puts the patched Lua source at the .xpl path (Lua's loader takes source or bytecode).
-std::string xpl_of(const std::string& lua) { return lua.substr(0, lua.size()-4)+".xpl"; }
+// Same files as the Windows launcher. Known limit (docs/LINUX_FINDINGS.md): X4 9.00 loads the
+// scripts' precompiled .xpl copies, so the size factors don't apply and the HUD moves back but shrinks.
 std::map<std::string, std::string> hud_originals(const std::filesystem::path& game) {
     std::set<std::string> paths(x4vr::launcher::hud_anchor_files().begin(), x4vr::launcher::hud_anchor_files().end());
-    for (const auto& script : x4vr::launcher::hud_scripts()) { paths.insert(script); paths.insert(xpl_of(script)); }
+    paths.insert(x4vr::launcher::hud_scripts().begin(), x4vr::launcher::hud_scripts().end());
     return x4vr::launcher::read_game_files(game, paths);
 }
 std::string source_hash(const std::map<std::string, std::string>& originals) {
@@ -371,10 +369,8 @@ std::map<std::string, std::string> installed_hud(const std::filesystem::path& ex
 }
 bool install_hud(const std::filesystem::path& game, double scale, std::string& error) {
     const auto originals = hud_originals(game);
-    auto files = x4vr::launcher::hud_files(originals, scale, error);
+    const auto files = x4vr::launcher::hud_files(originals, scale, error);
     if (files.empty()) return false;
-    for (const auto& script : x4vr::launcher::hud_scripts())
-        if (originals.count(xpl_of(script))) files[xpl_of(script)] = files.at(script);
     const auto extension = game/"extensions/x4vr_hud";
     std::error_code ignored;
     std::filesystem::remove_all(extension, ignored);
@@ -431,7 +427,7 @@ int hud(const std::vector<std::string_view>& args) {
     if (!install_hud(game, scale, error)) { std::cerr << "Could not build the HUD mod: " << error << '\n'; return 1; }
     std::cout << "HUD distance mod installed: factor " << x4vr::launcher::format_number(scale) << " (" << extension.string() << ")\n";
     std::cout << "X4 will report a modified game: online features are off, and saves made with the mod stay flagged.\n";
-    std::cout << "X4's Protected UI Mode blocks the HUD's size factors: turn it off in X4 (Extension Settings), else the HUD only moves back and shrinks.\n";
+    std::cout << "Known limit on Linux X4 9.00: the HUD moves back but also looks smaller (X4 keeps its own size factors).\n";
     // X4's per-user content.xml (next to config.xml) remembers extensions turned off in its menu.
     if (const auto config = x4_config(); !config.empty()) {
         const auto content_path = config.parent_path()/"content.xml";

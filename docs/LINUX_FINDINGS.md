@@ -468,6 +468,7 @@ lists the extension and, while on, doesn't load its replaced Lua scripts: the an
 farther) but the size factors don't (HUD smaller). Disabling protection didn't change the size either: the game catalogs hold each UI script as
 `.lua`, `.xpl` and `.sig` signatures for both, and X4 loads the `.xpl`, which is precompiled
 bytecode (`x4vr game-grep` finds no source text in any of the 81 UI `.xpl` files). The Linux
-`x4vr hud` therefore also puts the patched Lua source at each `.xpl` path (Lua's loader accepts
-source or bytecode). With protection off (`<uisafemode>false</uisafemode>`) X4 only logged failed
-signature checks for the two XML anchor files, and used them.
+Windows launcher's mod only replaces the `.lua`. With protection off
+(`<uisafemode>false</uisafemode>`) X4 only logged failed signature checks for the two XML anchor
+files, and used them. **Left as is to stay with the Windows mod** (replacing the `.xpl` with
+patched source is untested); revisit together with Windows.
