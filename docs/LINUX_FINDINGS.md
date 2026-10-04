@@ -466,5 +466,8 @@ different poses.
 detected" (online features off, saves made with it stay flagged) and **Protected UI Mode**, which
 lists the extension and, while on, doesn't load its replaced Lua scripts: the anchors move (HUD
 farther) but the size factors don't (HUD smaller). Disabling protection didn't change the size either: the game catalogs hold each UI script as
-`.lua`, `.xpl` and `.sig` signatures for both, and X4 loads the `.xpl`. The Linux `x4vr hud`
-therefore patches the `.xpl` copies too (same size-factor rewrite; refused if one isn't Lua text).
+`.lua`, `.xpl` and `.sig` signatures for both, and X4 loads the `.xpl`, which is precompiled
+bytecode (`x4vr game-grep` finds no source text in any of the 81 UI `.xpl` files). The Linux
+`x4vr hud` therefore also puts the patched Lua source at each `.xpl` path (Lua's loader accepts
+source or bytecode). With protection off (`<uisafemode>false</uisafemode>`) X4 only logged failed
+signature checks for the two XML anchor files, and used them.
