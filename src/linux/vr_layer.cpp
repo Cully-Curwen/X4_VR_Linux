@@ -487,6 +487,11 @@ void presenter_initialize(const Device& d, uint32_t family) {
         if (ideal_w < p.extent.width) size << " (X4 renders more than SteamVR uses: about " << ideal_w << 'x' << ideal_h << " would be enough)";
         else size << " (SteamVR would use up to " << ideal_w << 'x' << ideal_h << ")";
         log(size.str());
+        // For the next start: x4vr-run (fix-settings) sets X4's resolution from this while X4 is closed.
+        if (const char* dir = std::getenv("X4VR_CAPTURE_DIR"); dir && *dir) {
+            std::ofstream out(std::string(dir)+"/x4_resolution.txt", std::ios::trunc);
+            out << ideal_w << 'x' << ideal_h << '\n';
+        }
     }
     // ponytail: EyeTargets also allocates an unused depth image per eye; fine for 3 slots
     for (auto& set : p.targets) set = x4vr::EyeTargets::create({d.device, d.physical, d.gdpa, memory, image_properties}, p.eye_extent, p.format);

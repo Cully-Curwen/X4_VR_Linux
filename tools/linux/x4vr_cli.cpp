@@ -48,7 +48,8 @@ void usage() {
         "\n"
         "  check\n"
         "      Checks X4's settings (config.xml) for VR: FOV, anti-aliasing, upscaling, frame\n"
-        "      generation, VSync, frame rate limit, OpenTrack support.\n"
+        "      generation, VSync, frame rate limit, OpenTrack support, and the resolution SteamVR\n"
+        "      uses (saved by the mod while X4 ran; X4VR_RESOLUTION=WxH or 0 overrides).\n"
         "\n"
         "  fix-settings [--auto]\n"
         "      Sets what check reports, keeping everything else (backup: config.xml.x4vr-backup,\n"
@@ -286,8 +287,25 @@ bool x4_running() {
 // The Windows launcher's checks (tools/launcher/launcher_settings.hpp, tested in launcher_tests),
 // minus "fullscreen, not borderless": on Windows that is for NVIDIA DSR; on Linux X4's borderless
 // window at the desktop resolution is fine.
+// X4's resolution: the smallest common 16:9 mode at least as large as what SteamVR uses (saved by
+// the mod in x4_resolution.txt while X4 ran), so X4 doesn't render pixels SteamVR throws away.
+// X4VR_RESOLUTION=WxH sets it, X4VR_RESOLUTION=0 leaves it alone; none known yet (first start): no check.
+std::filesystem::path settings_file();
+std::pair<int, int> wanted_resolution() {
+    int w = 0, h = 0;
+    if (const char* set = std::getenv("X4VR_RESOLUTION"); set && *set) {
+        if (std::sscanf(set, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) return {w, h};
+        return {0, 0};
+    }
+    std::ifstream in(settings_file().parent_path()/"x4_resolution.txt");
+    if (!(in >> w) || in.get() != 'x' || !(in >> h) || w <= 0 || h <= 0) return {0, 0};
+    static constexpr std::pair<int, int> modes[] = {{1920, 1080}, {2560, 1440}, {2880, 1620}, {3200, 1800}, {3840, 2160}};
+    for (const auto& mode : modes) if (mode.first >= w && mode.second >= h) return mode;
+    return modes[std::size(modes)-1];
+}
 std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
-    auto checks = x4vr::launcher::check_x4(xml, 0, 0);
+    const auto [width, height] = wanted_resolution();
+    auto checks = x4vr::launcher::check_x4(xml, width, height);
     std::erase_if(checks, [](const auto& c) { return c.label.rfind("Display mode", 0) == 0; });
     return checks;
 }
