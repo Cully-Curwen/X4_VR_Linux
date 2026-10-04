@@ -104,7 +104,7 @@ cmake -B build                      # Windows build, exactly as today
 | Windows-only entry points: `freetrack_client.cpp`, `native_pose_module.cpp`, `pose_detour.cpp`, `copy_call_hook.cpp`, `crash_watch.cpp`, `startup_module.cpp`, `tools/launcher/launcher.cpp`, `scripts/*.ps1` | **Not touched.** |
 | Already portable (no Win32 calls): `math.cpp`, `session.cpp`, `x4_camera.cpp`, `head_look.cpp`, `eye_targets.cpp`, `launcher_settings.hpp`, `hud_mod.hpp` | Compiled by the Linux build as they are. |
 | Shared with small Win32 use: `runtime_bootstrap.cpp` (environment variables, module handle), `openxr_runtime.cpp`, `observe_layer.cpp` (environment, `GetAsyncKeyState`, thread priority, paths), `code_scan.hpp` (PE section walk) | Each Win32 call moves behind a small function in `src/platform/platform.hpp`. `platform_win.cpp` holds the **current code, unchanged**. `platform_linux.cpp` holds the Linux version. The Windows branch must compile to the same behaviour; review each of these diffs against that rule. |
-| New Linux-only code | `src/linux/` (pose shim, ELF scan, patches), `linux/` (CMake, layer manifest, wrapper script), `config/linux/` (Linux `stereo.txt` defaults), `nix/`, root `default.nix` and `shell.nix`. |
+| New Linux-only code | `src/linux/` (pose shim, ELF scan, patches), `linux/` (CMake, layer manifest, wrapper script), `config/linux/` (Linux `stereo.txt` defaults), `tools/linux/` (the `x4vr` CLI), `tests/linux/`, `nix/` and the root `default.nix`. Tools are C++ in the same build, so they share code with the mod (the OpenTrack packet, the ELF scan) and run in the Nix check phase. |
 | X4 signature tables | Linux tables live next to the Windows ones in `code_scan.hpp`, under `x4vr::code::x4_linux`. The Windows rows are not edited. |
 
 The reason for not forking `observe_layer.cpp` (1,700 lines) into a Linux copy: fixes to the
@@ -143,9 +143,11 @@ Taken from the current code, not the README.
 ## 5. Phase 0: measurements on your machine
 
 This needs your machine with X4 running: in the main menu for some checks, and **in a game,
-sitting in a ship's cockpit** for others. The development session provides scripts and exact
-commands (a `shell.nix` with `strace`, `gdb`, `vulkan-tools` and `binutils`, a UDP sender, a
-trivial logging layer and a recv logger). You run them and send back the output. Results go into
+sitting in a ship's cockpit** for others. Session 1 needed only shell commands. Session 2 uses the
+probe kit built with `nix-build` (`docs/LINUX_PHASE0.md` has the step-by-step instructions):
+`x4vr udp-send` (OpenTrack sender), `x4vr vr-check` (SteamVR check), `x4vr elf-classes` (RTTI
+class and vtable list), the socket probe `libx4vr_probe.so` and the logging layer
+`VK_LAYER_X4VR_probe`, loaded by the `x4vr-probe-run` launch wrapper. Results go into
 `docs/LINUX_FINDINGS.md`.
 
 In the order to run them:
@@ -186,8 +188,8 @@ whether `/nix/store` and `~/.config/openvr` are visible from inside.
 
 ### 0.5 OpenTrack UDP head tracking (in the cockpit)
 
-Enable OpenTrack in X4's options (Controls → Head Tracking). Run `tools/linux/udp_pose_sender.py`,
-which sweeps one axis at a time. For each axis, record the units, sign, scale (does 30° sent give
+Enable OpenTrack in X4's options (Controls → Head Tracking). Run `x4vr udp-send`
+and set one axis at a time. For each axis, record the units, sign, scale (does 30° sent give
 30°?), clamping and smoothing, and whether X4 recenters on its own. Also test, as on Windows:
 - **backward position:** send +z (backwards). Is it zeroed, as with FreeTrack?
 - **a still pose:** send a constant pose for a few seconds, then move. Does X4 stop applying it
@@ -202,9 +204,9 @@ for UDP.
 1. `strace -f -tt -e trace=socket,bind,recvfrom,recvmsg,recvmmsg,recv,read,poll,ppoll,select,epoll_wait -p $(pidof X4)`.
    Record which thread binds and reads, how often it reads, whether reads are non-blocking or
    drain until `EAGAIN`, and whether it waits for readiness first.
-2. With the recv logger preloaded (a small `LD_PRELOAD` library, the analogue of Windows'
-   `ftgetdata_caller.txt`): log the **buffer address** X4 reads into, the thread ID, and a
-   backtrace of return addresses relative to the X4 load base.
+2. With the socket probe preloaded (`libx4vr_probe.so`, the analogue of Windows'
+   `ftgetdata_caller.txt`): the **buffer address** X4 reads into, the thread, the call pattern
+   and a backtrace with absolute addresses (X4 isn't PIE).
 
 This is less critical than in the first draft. With eye at use, read timing only affects the
 centre pose's latency, not which eye is shown. It is still needed to find the tracker object and
@@ -286,7 +288,7 @@ is playable, and each falls back exactly as Windows does when its signature does
   Anchors in the ELF: the float constants 1.4835 (85°) and 0.2, the 0.25 m clamp, the
   `HeadTracker` export names and their callers, and the recv call found in 0.6.
 - If the binary isn't stripped, symbol names make this much easier (0.3).
-- Ghidra (headless, from `shell.nix`) for disassembly. Matches between MSVC and GCC code are
+- Ghidra (headless, `nix-shell -p ghidra`) or `objdump` for disassembly. Matches between MSVC and GCC code are
   fuzzy; work from data flow, not byte shape.
 - The bytes of the game binary never enter the repository. Signatures are short masked byte
   patterns, like the Windows tables.
@@ -388,13 +390,14 @@ NixOS generation). DSR advice becomes gamescope advice.
 
 ## 10. Phase 6: Nix packaging (no flakes)
 
-- `nix/package.nix`: `callPackage`-style, builds with CMake, `-DX4VR_LINUX=ON
-  -DX4VR_USE_SYSTEM_DEPS=ON` (`vulkan-headers`, `openvr`, `openxr-loader` from nixpkgs; no
-  downloads). `doCheck = true` runs the portable CTest suites. Outputs: `lib/libx4vr_runtime.so`,
+- `nix/package.nix`: `callPackage`-style, builds with CMake and `-DX4VR_LINUX=ON`. The Linux
+  build always takes its dependencies from the system (`vulkan-headers`, `openvr`, later
+  `openxr-loader`, from nixpkgs); it never downloads. `doCheck = true` runs the portable CTest suites. Outputs: `lib/libx4vr_runtime.so`,
   `lib/libx4vr_pose.so`, the layer `.so` and its manifest, `bin/x4vr-run`, `bin/x4vr`,
   `share/x4vr/config/`.
-- `default.nix` (`nix-build` from the repository root) and `shell.nix` (adds `gdb`, `strace`,
-  `ltrace`, `vulkan-tools`, `binutils`, `ghidra`, `python3`).
+- `default.nix` for `nix-build` from the repository root. No `shell.nix`: plain `nix-shell` in the
+  repository gives the build environment from `default.nix`, and one-off tools come from
+  `nix-shell -p strace gdb …`.
 - `nix/module.nix`: `programs.x4vr.enable` adds the package to `environment.systemPackages`.
 - Install documentation (README Linux section): `pkgs.callPackage /path/to/fork/nix/package.nix {}`,
   or the module, from a local path or `fetchFromGitHub` pinned to a commit.
