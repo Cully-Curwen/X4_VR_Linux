@@ -472,3 +472,15 @@ Windows launcher's mod only replaces the `.lua`. With protection off
 (`<uisafemode>false</uisafemode>`) X4 only logged failed signature checks for the two XML anchor
 files, and used them. **Left as is to stay with the Windows mod** (replacing the `.xpl` with
 patched source is untested); revisit together with Windows.
+
+## Stage D (backward clamp): search so far, paused
+
+Windows patches a `jae` in the head-tracker bridge that zeroes backward head position. On Linux
+9.00 the bridge (`U::HeadTrackerCameraBridge`, vtable `0x3b1c240`: slots 0/1 constants, 2
+`0x19185c0` position, 3 `0x191c330` angles, 4 `0x191c270` FOV) has no such check: its position
+method calls `VR::OpenTrack` slot 34 and stores `(x, y, -z)` at `+0x10`, nothing else. It is the
+only caller of slot 34 (the other `call *0x110` with that shape, `0x15c80b8`, takes four outputs).
+Searches for the Windows shape (sign flip with the constant at `0x2e245d0`, compare, zero) found
+194 sites, none in camera code; callers of bridge slots 2 then 3 (54 sites) showed no clamp in the
+first candidates. The zeroing is downstream, wherever the camera reads the bridge's `+0x10`;
+finding it needs a different approach (e.g. watching the value at runtime). Paused 2026-10-04.
