@@ -166,3 +166,40 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
 5. **SDL3 comes from the game's own `lib/`.** A preloaded `SDL_PollEvent` still takes precedence.
 6. The process name is `Main()`, not `X4`. Tools and the wrapper must look for it by
    executable path, not by name.
+
+---
+
+## 0.4 (continued) GPU, launch script, in-game options (2026-10-04)
+
+### Facts
+
+- `0000:03:00.0` is the Navi 31 (RX 7900 XT); `0000:13:00.0` is the Raphael integrated GPU. X4
+  opens `renderD128` = the 7900 XT. In-game: *Auto-select GPU* on, graphics card
+  "AMD Radeon RX 7900 XT (RADV NAVI31)".
+- `testandlaunch` (Egosoft, bash): prepends `lib` to `LD_LIBRARY_PATH`, sets `GTK2_RC_FILES`,
+  sources `testcommon` and checks for missing libraries and CA certificates (dialogs on failure).
+  If an argument is `-prefer-wayland`, it sets `SDL_VIDEO_DRIVER=wayland,x11`; otherwise SDL3
+  chooses. On a Wayland session it unsets `SDL_GAMECONTROLLER_IGNORE_DEVICES` (Steam Input).
+  Finally `./X4 "$@"`: every argument reaches the game unchanged.
+- Controls → *Head Tracking Support* offers only **OpenTrack Support** (off). FreeTrack, TrackIR
+  and Tobii are not offered on Linux. The tracker filter, deadzone and factor options were not
+  visible while OpenTrack is off; check them once it's on (0.5).
+- Game settings → Camera: *Head Movement Intensity* 100, *VE Goggles Auto Reset* on. Both may act
+  on head-tracking input; checked in 0.5.
+- Display settings now: borderless window at the desktop's 3840x2160 (27" DP-1), TAA, FSR off,
+  VSync off, frame-rate limit 120, **FOV 90°**.
+
+### Consequences
+
+1. OpenTrack UDP is the only tracker input on Linux, as planned. No rival-trackers patch needed.
+2. Game arguments (`-skipintro -nocputhrottle`) can be passed through Steam's `%command%`;
+   `testandlaunch` forwards them.
+3. Whether the game uses Wayland or Xwayland by default is still to be logged in 0.7. The
+   `-prefer-wayland` argument forces Wayland if needed.
+4. Settings to change before VR tests, as on Windows: FOV to the maximum (120°, the
+   `game_tan_y` 0.8675 calibration), anti-aliasing off or non-temporal (TAA history crosses
+   eyes with alternate-eye rendering), FSR off. The desktop is already 4K, the resolution
+   Windows reaches with DSR, so gamescope supersampling is optional at first.
+5. Check whether *Head Movement Intensity* scales tracker input (keep it at 100 for calibration),
+   and whether *VE Goggles Auto Reset* recenters on its own (it may need to be off, as X4's own
+   reset breaks the calibration on Windows).
