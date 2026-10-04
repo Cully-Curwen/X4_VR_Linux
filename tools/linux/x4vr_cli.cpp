@@ -7,12 +7,15 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <sstream>
@@ -36,6 +39,11 @@ void usage() {
         "  udp-send [--host 127.0.0.1] [--port 4242] [--rate 90]\n"
         "      Sends OpenTrack UDP head poses (as X4 expects with OpenTrack Support on) and reads\n"
         "      commands from the terminal. Type 'help' once it runs.\n"
+        "\n"
+        "  ctl recenter | flat\n"
+        "      While X4 runs with x4vr-run: recentre the view (and the virtual screen), or switch\n"
+        "      the flat virtual screen on/off. Edits stereo.txt in $X4VR_DIR (default\n"
+        "      ~/.local/state/x4vr). Bind them to keys in your desktop (Ctrl+F12 / Ctrl+F11 on Windows).\n"
         "\n"
         "  elf-classes <executable> <filter>\n"
         "      Lists C++ classes whose type name contains <filter> (e.g. Track), with their base\n"
@@ -225,6 +233,40 @@ int udp_send(const std::vector<std::string_view>& args) {
     return 0;
 }
 
+// ---- ctl ------------------------------------------------------------------------------------
+std::filesystem::path settings_file() {
+    if (const char* dir = std::getenv("X4VR_DIR"); dir && *dir) return std::filesystem::path(dir)/"stereo.txt";
+    if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state) return std::filesystem::path(state)/"x4vr/stereo.txt";
+    const char* home = std::getenv("HOME");
+    return std::filesystem::path(home ? home : ".")/".local/state/x4vr/stereo.txt";
+}
+int ctl(const std::vector<std::string_view>& args) {
+    if (args.size() != 1 || (args[0] != "recenter" && args[0] != "flat")) { usage(); return 2; }
+    const auto path = settings_file();
+    std::ifstream in(path);
+    if (!in) { std::cerr << "No settings at " << path << " (start X4 once with x4vr-run)\n"; return 1; }
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(in, line);) lines.push_back(line);
+    in.close();
+    // recenter: bump the counter; flat: theater 2 (always the virtual screen) <-> 1 (automatic).
+    const std::string key = args[0] == "recenter" ? "recenter=" : "theater=";
+    auto found = std::find_if(lines.begin(), lines.end(), [&](const std::string& l) { return l.rfind(key, 0) == 0; });
+    const int current = found == lines.end() ? (args[0] == "recenter" ? 0 : 1) : std::atoi(found->c_str()+key.size());
+    const int next = args[0] == "recenter" ? current+1 : (current == 2 ? 1 : 2);
+    if (found == lines.end()) lines.push_back(key+std::to_string(next));
+    else *found = key+std::to_string(next);
+    // Replace atomically: X4 re-reads the file every half second.
+    const auto temporary = path.string()+".tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        for (const auto& line : lines) out << line << '\n';
+        if (!out) { std::cerr << "Can't write " << temporary << '\n'; return 1; }
+    }
+    std::filesystem::rename(temporary, path);
+    std::cout << (args[0] == "recenter" ? "recentred" : next == 2 ? "flat screen on" : "flat screen automatic") << '\n';
+    return 0;
+}
+
 // ---- elf-classes ----------------------------------------------------------------------------
 int elf_classes(const std::vector<std::string_view>& args) {
     if (args.size() != 2) { usage(); return 2; }
@@ -254,6 +296,7 @@ int main(int argc, char** argv) {
         if (command == "vr-check") return vr_check(args);
         if (command == "udp-send") return udp_send(args);
         if (command == "elf-classes") return elf_classes(args);
+        if (command == "ctl") return ctl(args);
         if (command == "help" || command == "--help" || command == "-h") { usage(); return 0; }
         usage();
         return 2;

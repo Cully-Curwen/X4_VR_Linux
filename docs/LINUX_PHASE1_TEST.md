@@ -1,0 +1,104 @@
+# Linux port: first headset test (Phase 1, stage A)
+
+What this build does: X4 in the Steam Frame through SteamVR, head tracking through X4's OpenTrack
+input, alternate-eye stereo, menus on a virtual screen. Known limits of stage A (plan section 7):
+
+- **Eye swaps:** the eye is chosen when the pose is sent, not when X4 builds the camera, so some
+  frames show the other eye's offset (on Windows this was 2 % at a steady 90 fps, more when the
+  frame rate wobbles). Fixed by stage B (eye at use).
+- **Looking sideways:** X4 zeroes backward head position, which pins the rear eye when you turn
+  your head. Fixed by stage D (backward clamp patch).
+- **Scale and angles are not calibrated yet:** the Windows values are used. Turning your head may
+  turn the view more or less than your head; leaning may move too far or too little.
+- **No mouse cursor in VR** yet, and no Ctrl+F11/Ctrl+F12: use `x4vr ctl` (below).
+- OpenVR only (no OpenXR yet).
+
+Everything below is safe to stop at any point: removing the launch option gives a normal X4.
+
+---
+
+## 1. Update and build
+
+```bash
+cd ~/code/X4_VR_Linux
+git pull
+nix-build
+```
+
+It ends with `100% tests passed out of 8` and a `/nix/store/...-x4vr-0.2.0-phase1` path.
+
+## 2. Hotkeys (optional, recommended)
+
+Until in-game hotkeys exist, bind the two control commands in Hyprland
+(`~/.config/hypr/hyprland.conf`, or wherever your binds live):
+
+```
+bind = CTRL, F12, exec, /home/cully/code/X4_VR_Linux/result/bin/x4vr ctl recenter
+bind = CTRL, F11, exec, /home/cully/code/X4_VR_Linux/result/bin/x4vr ctl flat
+```
+
+- `x4vr ctl recenter`: puts "forward" where you're looking now, and the virtual screen in front of you.
+- `x4vr ctl flat`: switches the flat virtual screen on (everything shown flat, like a big monitor)
+  and back to automatic (stereo in the cockpit, screen for menus).
+
+You can also type them in a terminal.
+
+## 3. X4 settings (once)
+
+In X4: **FOV 120°** (Display Settings; the mod assumes the maximum), **Anti-Aliasing off** (or a
+non-temporal mode), **FSR off**, OpenTrack Support **On** (Controls). VSync off and the frame
+rate limit at 120 are fine.
+
+## 4. Launch option
+
+X4 → Properties → General → Launch Options:
+
+```
+/home/cully/code/X4_VR_Linux/result/bin/x4vr-run %command%
+```
+
+(This replaces the probe wrapper.) It adds `-skipintro -nocputhrottle` to X4's arguments.
+
+## 5. Run
+
+1. Start SteamVR with the Frame, as for any VR game.
+2. Start X4 from Steam.
+3. Put the headset on. The main menu should appear on a virtual screen about 2 m in front of you
+   (theater mode). Press Ctrl+F12 (or `x4vr ctl recenter`) if it's behind you or off to the side.
+4. Load a game and sit in the pilot seat. The view should switch to stereo (the cockpit around
+   you), following your head.
+5. Open the map or another fullscreen menu: it should go back to the virtual screen, then return to
+   the cockpit when closed.
+
+Play for a few minutes. Things to notice and note down:
+
+- Does the cockpit look 3D (depth), and the right size?
+- Turning your head: does the view turn with it, too much, or too little?
+- Leaning forward/back and sideways: does the view follow?
+- Flicker, doubled images, or "swimming" (the world moving when you turn your head).
+- Smoothness: how it feels compared with Elite Dangerous.
+
+## 6. Send back
+
+Quit X4, then:
+
+```bash
+cd ~/.local/state/x4vr
+cat x4vr.log
+tail -5 pair_stats.txt
+grep -E 'ERROR|error' stderr.log | head -20
+```
+
+plus your notes. The settings for this test are in `~/.local/state/x4vr/stereo.txt`; you can edit
+it while X4 runs (it's re-read every half second), but leave it as it is for this first run.
+
+## If something goes wrong
+
+- **X4 runs flat on the monitor, nothing in the headset:** `x4vr.log` says why (no SteamVR, wrong
+  GPU, ...). Check SteamVR was running before X4 started.
+- **X4 doesn't start or crashes:** remove the launch option, start X4 normally, and send
+  `x4vr.log`, `x4vr.previous.log` and `stderr.log`.
+- **Black screen in the headset:** press Ctrl+F11 / `x4vr ctl flat`: the virtual screen should
+  appear. Send the logs.
+- **The view jumps or spins:** take the headset off, `x4vr ctl flat`, and send the logs and what you
+  saw. The sign of an axis may be wrong; it can be flipped without rebuilding.

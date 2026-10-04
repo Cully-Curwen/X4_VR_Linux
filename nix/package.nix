@@ -7,7 +7,7 @@
 
 stdenv.mkDerivation {
   pname = "x4vr";
-  version = "0.1.0-phase0";
+  version = "0.2.0-phase1";
 
   src = lib.cleanSourceWith {
     src = ../.;
@@ -20,12 +20,13 @@ stdenv.mkDerivation {
   };
 
   nativeBuildInputs = [ cmake ];
-  buildInputs = [ vulkan-headers openvr ];
-  cmakeFlags = [ "-DX4VR_LINUX=ON" ];
+  buildInputs = [ vulkan-headers ];
+  # OpenVR's client library is compiled into the mod from source (see linux/CMakeLists.txt).
+  cmakeFlags = [ "-DX4VR_LINUX=ON" "-DOPENVR_SOURCE_DIR=${openvr.src}" ];
   doCheck = true;
 
   meta = {
-    description = "Stereo VR for the native Linux build of X4: Foundations (work in progress: Phase 0 probes)";
+    description = "Stereo VR for the native Linux build of X4: Foundations (work in progress)";
     license = lib.licenses.mit;
     platforms = [ "x86_64-linux" ];
     mainProgram = "x4vr";

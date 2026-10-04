@@ -19,6 +19,45 @@ Revision 2 (2026-10-04), updated with the first Phase 0 results (`docs/LINUX_FIN
 
 ---
 
+## Status (2026-10-04)
+
+**Phase 0 done** (docs/LINUX_FINDINGS.md). **Phase 1 built, awaiting the first headset test**
+(docs/LINUX_PHASE1_TEST.md): stage A of section 7, i.e. the Windows pipeline on Linux without X4
+code patches. Design decisions taken while building it, which supersede the sections below where
+they differ:
+
+- **One library, `libx4vr.so`,** holds the Vulkan layer (`VK_LAYER_X4VR`), the VR runtime and the
+  OpenTrack pose sender. The Vulkan loader loads it into X4 (`x4vr-run` sets the layer variables);
+  **no `LD_PRELOAD`** is needed for stage A (sections 6.1 and 9.1). VR only starts in the X4 process.
+  The library pins itself (X4 creates and destroys instances while starting).
+- **Its own C++ runtime, nothing else exported.** libstdc++ and libgcc are linked in statically and a
+  version script exports only the three layer entry points; X4's container may provide older or
+  different libraries, and X4 exports thousands of symbols of its own.
+- **OpenVR's client library is compiled in from source** (nixpkgs `openvr.src`): the packaged
+  `libopenvr_api.so` loads libstdc++ and jsoncpp dynamically.
+- **The pose sender runs on its own thread** and sends one OpenTrack packet after each present (X4
+  reads OpenTrack on its own thread anyway, findings 0.6). X4's UI exports (menu, ship control,
+  head tracking active, smoothing) are called from the present hook, which runs on X4's main thread.
+- **AMD queue (section 8.2):** a spare graphics queue if there is one (as on Windows); otherwise the
+  layer **shares X4's graphics queue** and serialises every use of it (X4's submits and presents,
+  the layer's, SteamVR's through the loader). Chosen over a compute queue because SteamVR may need
+  graphics operations on the queue it's given. If sharing costs too much frame time, the compute
+  queue (option 1) is the next step.
+- **OpenXR is deferred:** the Linux build is OpenVR only (`openxr_runtime_stub.hpp`).
+- **No cursor overlay yet** (X4 draws an X11 cursor that never reaches the swapchain), **no in-game
+  hotkeys yet:** `x4vr ctl recenter|flat` edits `stereo.txt`, bindable to desktop keys.
+- **Settings and logs** both live in `~/.local/state/x4vr/` (`stereo.txt` read from the capture
+  directory, as on Windows), not split between config and state (section 9.2).
+- **Existing test suites** that are platform-independent run on Linux unchanged (launcher logic, eye
+  camera, eye targets, camera sampling, extension merge) next to the Linux ones: 8 suites in the Nix
+  check phase.
+
+Linux copies of Windows files (section 3): `src/linux/runtime_bootstrap.cpp` (from 5064391),
+`src/linux/vr_layer.cpp` (from `src/observe_layer.cpp` at 62569df), `src/linux/pose_sender.cpp`
+(counterpart of `src/freetrack_client.cpp` at be68c82).
+
+---
+
 ## 1. Target setup
 
 | Item | Value | Consequence |
