@@ -44,4 +44,7 @@ bool shared_pose();
 // The live controls of `x4vr ctl` ("recenter", "flat"), from the mod: Ctrl+F12 / Ctrl+F11 while X4
 // has focus (x11_cursor.cpp) and SteamVR's recentre (runtime_bootstrap.cpp). Edits stereo.txt.
 void control(const char* action, const char* source);
+
+// Diagnostic (X4VR_WATCH_HEAD=1, head_watch.cpp): logs which X4 code reads the head position.
+void start_head_watch();
 }

@@ -309,6 +309,6 @@ GameState game_state() {
 }
 void start_pose_sender() {
     static std::once_flag once;
-    std::call_once(once, [] { install_eye_hook(); std::thread(sender_loop).detach(); });
+    std::call_once(once, [] { install_eye_hook(); std::thread(sender_loop).detach(); start_head_watch(); });
 }
 }
