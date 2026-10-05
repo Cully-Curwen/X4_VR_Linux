@@ -576,8 +576,9 @@ It is rebuilt when the game's files change.
 - **Windows:** launcher buttons. Refreshed on Play.
 - **Linux:** `x4vr hud <factor>|remove|status|--refresh`, refreshed by `x4vr-run`. Same files
   (MD5 from `md5.hpp`). Limits:
-  - Linux X4 9.00 loads precompiled `.xpl` UI scripts, so the Lua scale changes don't apply:
-    the HUD moves back but also gets smaller. Accepted, to stay close to Windows.
+  - Linux X4 9.00 loads precompiled `.xpl` UI scripts, so the Lua scale changes alone don't
+    apply: the HUD moved back but got smaller. The extension now also puts the patched script
+    text at the `.xpl` paths (Linux only; being tested). Protected UI Mode must be off.
   - X4 reports the game as modified, and warns about Protected UI.
 
 `x4vr game-grep` searches X4's catalogs.

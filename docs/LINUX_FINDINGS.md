@@ -471,8 +471,10 @@ farther) but the size factors don't (HUD smaller). Disabling protection didn't c
 bytecode (`x4vr game-grep` finds no source text in any of the 81 UI `.xpl` files). The Linux
 Windows launcher's mod only replaces the `.lua`. With protection off
 (`<uisafemode>false</uisafemode>`) X4 only logged failed signature checks for the two XML anchor
-files, and used them. **Left as is to stay with the Windows mod** (replacing the `.xpl` with
-patched source is untested); revisit together with Windows.
+files, and used them. First left as is to stay with the Windows mod; taken up again 2026-10-05:
+`x4vr hud` puts the patched Lua source at each `.xpl` path as well (Lua's loader takes source or
+bytecode). `x4vr hud --refresh` rebuilds an installed extension with it, since the source hash
+now covers the `.xpl` files. Being tested.
 
 ## Stage D (backward clamp): search so far, paused
 
