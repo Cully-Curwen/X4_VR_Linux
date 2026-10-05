@@ -110,6 +110,9 @@ it applies:
   (automatic picks the smallest 16:9 size that covers what SteamVR renders; Custom adds Resolution
   Width and Height rows for any size; it needn't be 16:9).
 
+Keep **Stutter protection** on: off is for troubleshooting only, and loses the flat screen for
+menus and the Steam Frame's shared pose (right-eye ghosting).
+
 **Profiles** hold a set of these settings. "Steam Frame" is built in; change settings and use
 **Save as profile** to keep your own (in `~/.local/state/x4vr/profiles/`). ←→ on Profile loads
 another; "· changed" means the settings differ from the profile's.

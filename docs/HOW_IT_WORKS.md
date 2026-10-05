@@ -223,6 +223,10 @@ ships. Shader, memory and camera capture, the stack walks and the frame probe ar
 - **Pacing (`pace_to_compositor`):** X4's render thread waits for the compositor tick
   (`release_late=1` lets a late frame go at once). `pair=1` mode, `wait_mid_frame` and the
   inline path (`async_submit=0`) are optional.
+  - The inline path only sends the eye images: the flat screen (Windows: SteamVR overlay; Linux:
+    drawn into the eye images) and, on Linux, the shared pose live in the submission thread. With
+    `async_submit=0` menus get no flat screen (Linux: grey right eye) and the Steam Frame's
+    right-eye ghosting returns (2026-10-05). Both menus keep the option, for troubleshooting.
 
 ### Windows only
 
