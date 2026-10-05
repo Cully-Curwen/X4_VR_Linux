@@ -24,7 +24,7 @@ Last updated: 2026-10-05.
 | Async submission thread, pacing, late-frame fallback [4] | Yes | Works | |
 | Shared pose per eye pair [7] | No | Linux only, works | Fixes the Steam Frame's right-eye ghosting: its link reprojects both eyes with the left eye's pose. |
 | Image size from SteamVR's recommended resolution [4, 12] | No | Linux only, works | Also sets X4's resolution to match. |
-| Wait for the headset at start [4] | No | Linux only, untested | VR_Init failing with "headset not found / not connected yet" (108, 126, 215) is retried each second, up to `X4VR_HEADSET_WAIT` s (120). |
+| Wait for the headset at start [4] | No | Linux only, works | VR_Init failing with "headset not found / not connected yet" (108, 126, 215) is retried each second, up to `X4VR_HEADSET_WAIT` s (120). |
 | OpenXR runtime [3] | Yes | Missing | Only matters without SteamVR (Monado, WiVRn). |
 | Turn compensation (mouse turns) [4, 9] | Yes | Not needed | No double vision with the shared pose; Windows' method can't work on the Frame. |
 
@@ -75,12 +75,12 @@ Last updated: 2026-10-05.
 
 | Feature | Windows | Linux | Notes |
 |---|---|---|---|
-| Launcher window (status, settings, play) [2, 11b] | Win32 window | Untested | `x4vr` terminal menu: status with live frame rate, notices, launch, recentre/flat while running, settings tagged live / next launch. |
+| Launcher window (status, settings, play) [2, 11b] | Win32 window | Works | `x4vr` terminal menu: status with live frame rate, notices, launch, recentre/flat while running, settings tagged live / next launch. |
 | Settings profiles [11b] | No | Linux only, untested | Built-in "Steam Frame" plus the player's own (Save as profile). |
 | X4 resolution choice [12] | Launcher (`x4_width`/`x4_height`) | Untested | Menu: automatic, a 16:9 size or custom; same keys as Windows. |
 | In-game settings checklist [12] | README tables | Linux only, untested | Menu screen by X4 settings page, marked from `config.xml`. |
 | Notices (known issues, tips) [11b] | No | Linux only, untested | `share/x4vr/notices.txt`. |
-| One-step start [2, 11b] | Launcher "Play" | Untested | Menu "Launch X4 in VR": SteamVR if needed, then `steam -applaunch`. Steam's own Play starts the normal game. |
+| One-step start [2, 11b] | Launcher "Play" | Works | Menu "Launch X4 in VR": SteamVR if needed, then `steam -applaunch`. Steam's own Play starts the normal game. |
 | Bug report button (zip logs, GitHub issue) [2] | Yes | Untested | Menu / `x4vr report`: `~/x4vr-report-<time>.tar.gz` and the issue link. |
 | Crash recorder (minidumps, debug log) [2] | `crash_watch` | Missing | Exit status logged; system crash dumps via `coredumpctl`. |
 | Install / uninstall | `install.ps1` / `uninstall.ps1` | Untested | CMake install (any distro) or Nix; menu "Copy the launch option" and "Add to the app launcher"; menu / `x4vr uninstall`. Steam's launch option is set and cleared by the user. |
