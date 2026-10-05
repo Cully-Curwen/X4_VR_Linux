@@ -489,7 +489,8 @@ neither counts.
   frame half means flips. Windows maps it with `half_xor_use=1` in the cockpit and
   `half_xor_walk=0` on foot. Linux keeps that difference: on foot the eye (at send and at use)
   is flipped by `half_xor_use ^ half_xor_walk`, 1 by default. `half_xor_walk=1` turns it off.
-  Without it the eyes are swapped on foot (headset, 2026-10-05: worse for near objects).
+  Without it the eyes are swapped on foot (headset, 2026-10-05: worse for near objects); with it,
+  on foot "feels better" (confirmed).
 - Not ported: turn compensation (mouse turns on foot).
 
 ---
@@ -700,13 +701,15 @@ ghosting), the frame half (no eye swaps or HUD doubling), the theater screen for
 cursor, hotkeys, SteamVR recentre and "Exit game", sizing from SteamVR, and the HUD distance
 (with the `.xpl` shrink).
 
-**Applied, needs checking in the headset:** the backward clamp patch, walking detection and
-on-foot timing.
+**Applied, needs checking in the headset:** the backward clamp patch.
+
+**Confirmed on foot (2026-10-05):** walking detection (stereo with `theater=1`), the on-foot
+timing (less lag) and the on-foot eye flip.
 
 **Working on foot (2026-10-05):** head tracking with both Windows on-foot patches ported.
 
 **Open:**
-1. On foot: check the ported timing in the headset (prediction, `delay_walk`); turn compensation.
+1. On foot: turn compensation (mouse turns while walking).
 2. `pos_scale` and gain calibration on Linux. The cockpit looks slightly large.
 3. HUD `.xpl` scaling (left as is).
 4. OpenXR.
