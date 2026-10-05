@@ -600,3 +600,8 @@ when turning with the mouse on foot. The harshness reported was X4's turn speed,
 setting. Windows' method (rotate the older eye's submitted pose by the camera turn) can't work on
 the Steam Frame, which reprojects both eyes with the left eye's pose. If ever needed, shift the
 other eye's image by the turn while copying it.
+
+**Pattern scan (2026-10-05).** `x4vr patterns` and the mod's startup scan find all six sites
+on X4 9.00 at the known addresses (clamp `0xfeb72b`, zeroing `0xfec070`, camera offset
+`0x1929ff6`, player global `0x3db6948`, frame half `0x72a0fa0`, VR::OpenTrack vtable `0x3c62520`
+with slot 34 `0x1a0dda0`). The in-game scan takes 51 ms. Patches and hook applied; play unchanged.

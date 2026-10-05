@@ -35,7 +35,7 @@ Last updated: 2026-10-05.
 | Head smoothing off (strength 1) [6] | Yes | Works | |
 | Backward clamp patch (lean back) [8] | Yes | Works | |
 | Rival tracker patch (TrackIR, Tobii) [8] | Yes | Not needed | The Linux build only has OpenTrack. Don't run the opentrack app alongside. |
-| Code found by byte pattern (survives X4 updates) [8] | Yes, 8.00 and 9.00 | Untested | Linux 2026-10-05: patterns and RTTI instead of fixed addresses. Check a build with `x4vr patterns`. |
+| Code found by byte pattern (survives X4 updates) [8] | Yes, 8.00 and 9.00 | Works | Patterns and RTTI instead of fixed addresses: all 6 sites found on 9.00 (51 ms at startup). Check a new build with `x4vr patterns`. |
 | Recentre: hotkey, settings counter, first pose [11] | Yes | Works | |
 | Recentre from SteamVR's own menu [11] | No | Linux only, works | |
 
