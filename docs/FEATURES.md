@@ -65,11 +65,11 @@ Last updated: 2026-10-05.
 
 | Feature | Windows | Linux | Notes |
 |---|---|---|---|
-| HUD distance extension [12] | Launcher box | Works | Menu setting, applied at the next VR launch; also `x4vr hud <factor>`. |
+| HUD distance extension [12] | Launcher box | Works | Menu setting (HUD Scaled, HUD Scale Ratio), applied at the next VR launch, confirmed; also `x4vr hud <factor>`. |
 | HUD keeps its size (`.xpl` scripts) [12] | Not needed (`.lua` only) | Linux only, works | Linux X4 loads precompiled `.xpl`; the patched text goes there too. Protected UI Mode off. |
 | HUD rebuilt after game updates [12] | Yes, on Play | Works | `x4vr-run` runs `x4vr hud --refresh`. |
 | X4 settings check and fix [12] | Launcher buttons | Works | `x4vr check` / `fix-settings`, run by `x4vr-run`. Windowed mode on Linux. |
-| 2D and VR X4 settings kept apart [12] | No | Linux only, untested | `config.xml.x4vr-2d` / `-vr` swapped at VR launch and exit; HUD extension on only in VR. |
+| 2D and VR X4 settings kept apart [12] | No | Linux only, works | `config.xml.x4vr-2d` / `-vr` swapped at VR launch and exit (also after a crash: restored at the next start); HUD extension on only in VR. |
 | `pos_scale` / gain calibration | Calibrated | Not needed | Uses Windows' values; the cockpit looks slightly large but fine in use. |
 
 ## Tools and convenience
