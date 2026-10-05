@@ -421,7 +421,7 @@ What the Linux function does:
 | **Backward clamp:** X4 zeroes backward head position (z > 0), pinning leaning back and the rear eye when looking sideways | Signature `f3 0f 10 45 67 0f 57 05 ?? ?? ?? ?? 0f 2f c6 73 04 44 89 65 67` at `0x9fdb3e`, `jae` (+15) → `jmp` | `0xfeb73f` `jbe` (`76 08`) → `jmp` (`eb`); 30 bytes from `0xfeb72b` checked |
 | **Rival trackers:** TrackIR / Tobii come after FreeTrack in X4's pick; a foreign `NPClient64.dll` (vorpX) or an eye tracker replaced the headset pose | TrackIR `je` +11 and Tobii `je` +18 → `jmp` (`0xfa34fc`, `0xfa353c`) | Not ported; Linux has no TrackIR/Tobii DLL loading |
 | **On-foot zeroing:** without a ship, X4 hands the camera a zero pose | `je` at +101 of the bridge signature (`0x9fd9ae`) → `jmp` | `0xfec078`: `je` (`0f 84`) → `jno` (`0f 81`), always taken after `test` |
-| **On-foot camera offset:** `Camera::GetOffset` applies the head offset (`Camera+0x590`) only through a movement controller (`Camera+0x20`), null on foot | `0x97a413`: `je` displacement `0x276` → `0x18a`, into the offset block | Two bytes (testing): the camera update's gate `0x1646544` `jne` → `jno` (`0x1646545` `0x85` → `0x81`), so the reader runs without a ship; and the reader's `je` to identity without a movement controller (`0x1628d49`, `74 3d`) → to its return (`74 73`), so it keeps the offset |
+| **On-foot camera offset:** `Camera::GetOffset` applies the head offset (`Camera+0x590`) only through a movement controller (`Camera+0x20`), null on foot | `0x97a413`: `je` displacement `0x276` → `0x18a`, into the offset block | Not solved. The reader's `je` to identity without a movement controller (`0x1628d49`, `74 3d` → `74 73`) is applied. The gate `0x1646544` (`jne` → `jno`) makes the view follow the head on foot, but takes the seat camera path (camera at the seat, no walking), so it is opt-in: `X4VR_ONFOOT_GATE=1` |
 
 Both on-foot patches on Windows must reference the same camera-manager global, otherwise
 neither counts.
@@ -474,8 +474,9 @@ neither counts.
   `[[0x3db6948]+0x238]+0x6aa8` valid) or when the controller belongs to the player and has a
   movement controller (`+0x18`). On foot neither, so the offset never reaches the camera.
   `0x11d9380` is called from `0xebcfae`, `0x1314317` and `0x1314407`, not the view.
-- The two "on-foot camera offset" patches (section 8) make the gate pass and keep the offset
-  without a movement controller. Not yet confirmed in the headset.
+- With the gate patched (`X4VR_ONFOOT_GATE=1`) the view follows the head on foot, but
+  `0x1646510` is the seat camera: the camera jumps to the cockpit seat and walking stops. The
+  head offset has to go into the walking camera's own update instead (open).
 - Moving the head on foot currently feels laggy. SteamVR reprojects each image with the pose it
   was sent with, but X4 doesn't apply that pose on foot.
 - **No walking detection yet.** With `theater=1`, on foot counts as "not controlling ship" and
@@ -678,6 +679,7 @@ The code defaults are in `runtime_bootstrap.hpp`. The shipped files override som
 | `X4VR_HOTKEYS=0` | no hotkeys |
 | `X4VR_EYE_AT_USE=0` | no eye-at-use hook |
 | `X4VR_PATCHES=0` | no code patches |
+| `X4VR_ONFOOT_GATE=1` | experiment: the seat camera's head-offset gate on foot (view follows the head, but no walking) |
 | `X4VR_WATCH_HEAD=1` … `4` | head watch diagnostics |
 | `X4VR_OPENTRACK_PORT` | default 4242 |
 | `X4VR_OT_YAW/_PITCH/_ROLL/_X/_Y/_Z` | axis sign and scale |

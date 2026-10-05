@@ -155,9 +155,11 @@ void install_eye_hook() {
 // - On foot, camera offset (Windows' second on-foot patch, Camera::GetOffset): the camera update
 //   0x1646510 composes the head offset (camera controller +0x5a0..+0x5df, copied by 0x1628ce0)
 //   only when 0x1628210 says so: in a ship, or with the controller's movement controller (+0x18).
-//   On foot neither, so its `jne` to the reader (0x1646544) becomes `jno`. And the reader writes
-//   identity without a movement controller: its `je` there (0x1628d49) goes to the return
-//   (0x1628dbe) instead, keeping the copied offset.
+//   On foot neither, so its `jne` to the reader (0x1646544) could become `jno`. Tested: the view
+//   then follows the head on foot, but the camera moves to the cockpit seat and the player can't
+//   walk. Past the gate, 0x1646510 re-parents the camera for the seat, so the gate is only an
+//   experiment (X4VR_ONFOOT_GATE=1). The reader writes identity without a movement controller:
+//   its `je` there (0x1628d49) goes to the return (0x1628dbe) instead, keeping the copied offset.
 struct CodePatch {
     const char* what;
     uintptr_t address;                // the expected bytes' start
@@ -192,7 +194,8 @@ void apply_patches() {
     // call 0x1e07060; test %al,%al; je 0xfeb6fc
     apply_patch({"on-foot head-pose zeroing", 0xfec070, {0xe8, 0xeb, 0xaf, 0xe1, 0x00, 0x84, 0xc0, 0x0f, 0x84, 0x7f, 0xf6, 0xff, 0xff}, 8, 0x81});
     // call 0x1628210; test %al,%al; jne 0x1646740
-    apply_patch({"on-foot camera offset (gate)", 0x164653d, {0xe8, 0xce, 0x1c, 0xfe, 0xff, 0x84, 0xc0, 0x0f, 0x85, 0xf6, 0x01, 0x00, 0x00}, 8, 0x81});
+    const char* gate = std::getenv("X4VR_ONFOOT_GATE");
+    if (gate && *gate == '1') apply_patch({"on-foot camera offset (gate)", 0x164653d, {0xe8, 0xce, 0x1c, 0xfe, 0xff, 0x84, 0xc0, 0x0f, 0x85, 0xf6, 0x01, 0x00, 0x00}, 8, 0x81});
     // test %rbp,%rbp; je 0x1628d88 (identity) -> 0x1628dbe: pop %rbx; pop %rbp; pop %r12; ret
     if (in_executable(0x1628dbe, 5) && !std::memcmp(reinterpret_cast<const void*>(0x1628dbe), "\x5b\x5d\x41\x5c\xc3", 5))
         apply_patch({"on-foot camera offset (no movement controller)", 0x1628d46, {0x48, 0x85, 0xed, 0x74, 0x3d}, 4, 0x73});

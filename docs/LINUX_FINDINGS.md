@@ -558,3 +558,12 @@ offset into the camera (`+0x10..+0x40`) and sets `+0x2c0`; otherwise it takes a 
 applied offset out again. The reader writes identity without a movement controller. Patches
 (`apply_patches`): `0x1646545` `0x85` → `0x81` (`jne` → `jno`) and `0x1628d4a` `0x3d` →
 `0x73` (to the reader's return `0x1628dbe`). These are Windows' two Camera::GetOffset conditions.
+
+**Gate patch result (2026-10-05).** With both camera-offset patches, on foot the view follows the
+head (same amount as the head), but the camera jumps to the cockpit seat and the player can't
+walk. Past the gate, `0x1646510` takes the seated path: `0x1628510(this, 0, 0)` re-parents the
+camera (its parent `+0x360`, transform `+0x10..+0x40` converted through the parent's
+`+0xe0..+0x110`), it sets `+0x2c0`, and `0x164662a` re-attaches it to an object found from
+`+0x360` (component types `0x54`/`0x75`, event `0x16c5fe0`). So `0x1646510` is the seat camera,
+not a plain "apply the offset". The gate is now opt-in (`X4VR_ONFOOT_GATE=1`); the on-foot view
+needs the offset applied in the walking camera's own update instead.
