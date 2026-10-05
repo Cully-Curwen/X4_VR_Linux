@@ -474,6 +474,16 @@ neither counts.
   `[[0x3db6948]+0x238]+0x6aa8` valid) or when the controller belongs to the player and has a
   movement controller (`+0x18`). On foot neither, so the offset never reaches the camera.
   `0x11d9380` is called from `0xebcfae`, `0x1314317` and `0x1314407`, not the view.
+- `0x1628210` is the opening of Windows' `Camera::GetOffset`, written as a predicate:
+
+  | Windows | Linux |
+  |---|---|
+  | camera `+0x20` movement controller | controller `+0x18` |
+  | camera `+0x770` vs `[camera manager+0x230]` | controller `+0x780` vs `[player global+0x238]` |
+  | `[camera manager+0x3d0]` (the rendered camera) | `[player global+0x3e8]` |
+
+  Windows skips its "no movement controller" exit. `X4VR_ONFOOT_GATE=2` does the same in
+  `0x1628210` (`0x1628288` `0xc7` → `0x0e`: that case returns true).
 - With the gate patched (`X4VR_ONFOOT_GATE=1`) the view follows the head on foot, but
   `0x1646510` is the seat camera: the camera jumps to the cockpit seat and walking stops. The
   head offset has to go into the walking camera's own update instead (open).
@@ -680,6 +690,7 @@ The code defaults are in `runtime_bootstrap.hpp`. The shipped files override som
 | `X4VR_EYE_AT_USE=0` | no eye-at-use hook |
 | `X4VR_PATCHES=0` | no code patches |
 | `X4VR_ONFOOT_GATE=1` | experiment: the seat camera's head-offset gate on foot (view follows the head, but no walking) |
+| `X4VR_ONFOOT_GATE=2` | experiment: the Windows patch's place, inside the gate `0x1628210` (no movement controller passes) |
 | `X4VR_WATCH_HEAD=1` … `4` | head watch diagnostics |
 | `X4VR_OPENTRACK_PORT` | default 4242 |
 | `X4VR_OT_YAW/_PITCH/_ROLL/_X/_Y/_Z` | axis sign and scale |
