@@ -518,6 +518,15 @@ Both are applied by `apply_patches()` in `src/linux/pose_sender.cpp` (bytes chec
 `X4VR_PATCHES=0` turns them off). Windows' second on-foot patch (Camera::GetOffset without a
 movement controller) still needs its Linux counterpart, if on foot needs it.
 
+**On foot, after the zeroing patch (2026-10-05).** In the headset the view still doesn't follow
+the head on foot: the aim point stays centred. `X4VR_WATCH_HEAD=2` shows the same path as in the
+cockpit: camera mode 0, the gates pass (`0xfeb6fc`, `0xfec1b0`, `0xfec1f9`), angles and position
+read every frame. So the pose reaches the controller `0x1933d00` and is dropped later. The
+controller's head path `0x1935ac1` stores the position at controller `+0x5a0` and the rotation
+at `+0x5b0` (the counterpart of Windows' `Camera+0x590`). `X4VR_WATCH_HEAD=3` finds their
+readers. A search for Windows' `Camera::GetOffset` opening (movement-controller check, then the
+camera manager `0x3daab80`) found nothing.
+
 ## Mouse cursor
 
 X4's cursor is the X server's (Xwayland), not part of its swapchain, as on Windows. The Windows
