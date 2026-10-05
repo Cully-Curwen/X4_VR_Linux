@@ -1,4 +1,4 @@
-// Diagnostic (X4VR_WATCH_HEAD=1): which X4 code uses the head-tracker input, for stage D
+// Diagnostic (X4VR_WATCH_HEAD=1; =2 for the camera input's branches, see path_sites): which X4 code uses the head-tracker input, for stage D
 // (backward clamp) and on foot (docs/LINUX_FINDINGS.md). X4 9.00's VR::OpenTrack object keeps the
 // head position at +0xd0 (3 floats, written by its update, slot 2) and the angles at +0x100; the
 // eye-at-use hook (pose_sender.cpp) hands this file the object and its accessor's callers.
@@ -39,13 +39,13 @@ constexpr size_t ring_pages = 8; // data pages per event, plus one header page
 
 struct Watch { int fd{-1}; void* ring{}; size_t size{}; };
 
-int open_watch(pid_t tid, uintptr_t address, std::string& error) {
+int open_watch(pid_t tid, uintptr_t address, std::string& error, bool execute = false) {
     perf_event_attr attr{};
     attr.type = PERF_TYPE_BREAKPOINT;
     attr.size = sizeof(attr);
-    attr.bp_type = HW_BREAKPOINT_RW; // x86 has no read-only data breakpoints
+    attr.bp_type = execute ? HW_BREAKPOINT_X : HW_BREAKPOINT_RW; // x86 has no read-only data breakpoints
     attr.bp_addr = address;
-    attr.bp_len = HW_BREAKPOINT_LEN_8;
+    attr.bp_len = execute ? sizeof(long) : uint64_t(HW_BREAKPOINT_LEN_8);
     attr.sample_period = 1;
     attr.sample_type = PERF_SAMPLE_IP;
     attr.exclude_kernel = 1;
@@ -96,10 +96,33 @@ std::string self_test() {
     return std::to_string(hits)+" of 10 reads seen";
 }
 
+// X4VR_WATCH_HEAD=2: execution breakpoints (4 per thread) on the branch points of X4's camera
+// input function (docs/LINUX_FINDINGS.md), two sets in turn, and the camera mode it tests.
+struct Site { uintptr_t address; const char* what; };
+constexpr Site path_sites[2][4] = {
+    {{0xfeb6c5, "camera input reached"}, {0xfec070, "camera mode 0: no-ship check"},
+     {0xfec0bc, "zero pose (the on-foot patch skips it)"}, {0xfec202, "tracker angles read"}},
+    {{0xfec5c0, "no camera controller"}, {0xfeb6fc, "tracker gate (slot 6)"},
+     {0xfec1b0, "tracker slot 23 check"}, {0xfec1f9, "mode 0 recheck passed"}}};
+const char* site_name(uint64_t ip) {
+    for (const auto& set : path_sites) for (const auto& site : set) if (site.address == ip) return site.what;
+    return nullptr;
+}
+// The camera mode X4's input function tests: [[player global]+0x3e8]+0x880; -1 without a camera.
+int camera_mode() {
+    const auto player = *reinterpret_cast<const volatile uintptr_t*>(0x3db6948);
+    if (!player) return -1;
+    const auto camera = *reinterpret_cast<const volatile uintptr_t*>(player+0x3e8);
+    if (!camera) return -1;
+    return *reinterpret_cast<const volatile int32_t*>(camera+0x880);
+}
+
 std::string address_line(uint64_t ip, uint64_t n) {
     char line[128];
-    std::snprintf(line, sizeof line, "X4VR watch:   0x%llx  %llu times%s", static_cast<unsigned long long>(ip),
-                  static_cast<unsigned long long>(n), in_executable(uintptr_t(ip), 1) ? "" : "  (not X4: the mod)");
+    const char* name = site_name(ip);
+    std::snprintf(line, sizeof line, "X4VR watch:   0x%llx  %llu times%s%s", static_cast<unsigned long long>(ip),
+                  static_cast<unsigned long long>(n), in_executable(uintptr_t(ip), 1) ? "" : "  (not X4: the mod)",
+                  name ? (std::string("  ")+name).c_str() : "");
     return line;
 }
 void log_counts(const char* what, const std::map<uint64_t, uint64_t>& counts) {
@@ -109,9 +132,13 @@ void log_counts(const char* what, const std::map<uint64_t, uint64_t>& counts) {
     for (size_t i = 0; i < sorted.size() && i < 40; ++i) log(address_line(sorted[i].first, sorted[i].second));
 }
 
-void watcher() {
+void watcher(bool path) {
     log("X4VR watch: self-test: "+self_test());
     for (int i = 0; i < 1200 && !tracker.load(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    if (path) {
+        if (!in_executable(path_sites[0][0].address, 1) || !in_executable(0x3db6948, 8)) { log("X4VR watch: not X4 9.00; no path watch"); return; }
+        log("X4VR watch: path mode: which branches X4's camera input takes (sets A and B in turn)");
+    }
     auto* object = static_cast<char*>(tracker.load());
     if (!object) { log("X4VR watch: X4 never asked the tracker for the head position in 10 min (eye-at-use hook off?); no watch"); return; }
     {
@@ -120,7 +147,7 @@ void watcher() {
         log(line);
     }
     const uintptr_t base = uintptr_t(object);
-    const uintptr_t targets[] = {base+field_position, base+field_position+8, base+field_angles, base+field_angles+8};
+    const uintptr_t data_targets[] = {base+field_position, base+field_position+8, base+field_angles, base+field_angles+8};
     const long page = sysconf(_SC_PAGESIZE);
     std::map<pid_t, std::vector<Watch>> watches;
     std::string first_error;
@@ -129,7 +156,15 @@ void watcher() {
         const auto game = game_state();
         const char* label = !game.head_tracking ? "no head tracking (on foot, menu or loading)" :
                             !game.controlling_ship ? "head tracking, not flying" : game.fullscreen_menu ? "cockpit, menu" : "cockpit";
-        log("X4VR watch: window "+std::to_string(window)+" of 10, "+label+": recording 20 s");
+        uintptr_t targets[4];
+        for (int i = 0; i < 4; ++i) targets[i] = path ? path_sites[(window-1) % 2][i].address : data_targets[i];
+        if (path) { // another set of sites: reopen on every thread
+            for (auto& [tid, list] : watches) for (auto& w : list) { munmap(w.ring, w.size); close(w.fd); }
+            watches.clear();
+            next_scan = std::chrono::steady_clock::now();
+        }
+        std::map<int, int> modes; // camera mode -> samples
+        log("X4VR watch: window "+std::to_string(window)+" of 10, "+label+(path ? (window % 2 ? ", set A" : ", set B") : "")+": recording 20 s");
         std::map<uint64_t, uint64_t> counts;
         { std::lock_guard lock(callers_mutex); callers.clear(); }
         float last[3];
@@ -147,7 +182,7 @@ void watcher() {
                     for (const uintptr_t address : targets) {
                         std::string error;
                         Watch w;
-                        w.fd = open_watch(tid, address, error);
+                        w.fd = open_watch(tid, address, error, path);
                         if (w.fd < 0) { if (first_error.empty()) first_error = error; continue; }
                         w.size = size_t(page)*(ring_pages+1);
                         w.ring = mmap(nullptr, w.size, PROT_READ | PROT_WRITE, MAP_SHARED, w.fd, 0);
@@ -160,6 +195,7 @@ void watcher() {
             float now[3];
             std::memcpy(now, object+field_position, sizeof now);
             if (std::memcmp(now, last, sizeof now)) { ++changes; std::memcpy(last, now, sizeof now); }
+            if (path) ++modes[camera_mode()];
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts);
@@ -170,7 +206,13 @@ void watcher() {
         std::snprintf(line, sizeof line, "X4VR watch: window %d: position changed %d times; now %.3f %.3f %.3f; %zu watchpoints", window,
                       changes, double(last[0]), double(last[1]), double(last[2]), opened);
         log(line);
-        log_counts("code addresses touched the tracker's position or angles", counts);
+        if (path) {
+            std::string seen;
+            for (const auto& [mode, n] : modes) seen += " "+std::to_string(mode)+" ("+std::to_string(n)+"x)";
+            log("X4VR watch: camera mode (+0x880, -1 no camera):"+seen);
+            log_counts("branch points reached (per frame on the game thread)", counts);
+        } else
+            log_counts("code addresses touched the tracker's position or angles", counts);
         std::map<uint64_t, uint64_t> copy;
         { std::lock_guard lock(callers_mutex); copy = callers; }
         log_counts("callers of the position accessor (return addresses)", copy);
@@ -191,8 +233,8 @@ void note_tracker_use(void* object, uintptr_t caller) {
 
 void start_head_watch() {
     const char* on = std::getenv("X4VR_WATCH_HEAD");
-    if (!on || *on != '1') return;
+    if (!on || (*on != '1' && *on != '2')) return;
     watching = true;
-    std::thread(watcher).detach();
+    std::thread(watcher, *on == '2').detach();
 }
 }
