@@ -40,4 +40,8 @@ bool in_executable(uintptr_t address, size_t size);
 // both eyes of a pair from one head pose (the pose sender skips the packet before a right-eye
 // frame) and the layer submits matching pairs, so one pose is right for both images.
 bool shared_pose();
+
+// The live controls of `x4vr ctl` ("recenter", "flat"), from the mod: Ctrl+F12 / Ctrl+F11 while X4
+// has focus (x11_cursor.cpp) and SteamVR's recentre (runtime_bootstrap.cpp). Edits stereo.txt.
+void control(const char* action, const char* source);
 }

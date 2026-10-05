@@ -5,6 +5,7 @@
 #include <x4vr/runtime_bootstrap.hpp>
 #include "linux_runtime.hpp"
 #include "openxr_runtime_stub.hpp"
+#include "settings_control.hpp"
 #include <link.h>
 #include <strings.h>
 #include <sys/syscall.h>
@@ -156,7 +157,15 @@ std::string RuntimeBootstrap::wait_frame() {
     std::lock_guard lock(mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
-    if (session_.poll_quit()) return "OpenVR quit requested";
+    // Session::poll_quit's loop plus SteamVR's recentre (the Frame's "recenter view", the
+    // dashboard): it resets SteamVR's zero pose, and the mod recentres its own origin with it.
+    bool recentred = false;
+    for (vr::VREvent_t event{}; session_.system_->PollNextEvent(&event, sizeof(event));) {
+        if (event.eventType == vr::VREvent_Quit) { session_.system_->AcknowledgeQuit_Exiting(); session_.quit_ = true; }
+        else if (event.eventType == vr::VREvent_SeatedZeroPoseReset || event.eventType == vr::VREvent_StandingZeroPoseReset) recentred = true;
+    }
+    if (recentred) linux_port::control("recenter", "SteamVR recentre");
+    if (session_.quit_) return "OpenVR quit requested";
     std::array<vr::TrackedDevicePose_t, 1> tracked{};
     const auto error = session_.compositor_->WaitGetPoses(tracked.data(), 1, nullptr, 0);
     if (error != vr::VRCompositorError_None) return "WaitGetPoses failed: OpenVR compositor error " + std::to_string(error);
@@ -464,6 +473,13 @@ const volatile int32_t* frame_half_global() {
 }
 namespace linux_port {
 bool shared_pose() { return shared_pose_setting.load(); }
+void control(const char* action, const char* source) {
+    const auto root = capture_dir();
+    const int value = root.empty() ? -1 : control_settings(root+"/stereo.txt", action);
+    if (value < 0) { log(std::string("X4VR control: ")+source+": can't update stereo.txt"); return; }
+    log(std::string("X4VR control: ")+source+": "+(std::string_view(action) == "recenter" ? "recentred" :
+        value == 2 ? "flat screen on" : "flat screen automatic"));
+}
 bool in_executable(uintptr_t address, size_t size) {
     struct Query { uintptr_t address; size_t size; bool found; } query{address, size, false};
     dl_iterate_phdr([](dl_phdr_info* info, size_t, void* data) {

@@ -27,6 +27,10 @@ struct GeometryReply { uint8_t response_type, depth; uint16_t sequence; uint32_t
 struct QueryTreeReply { uint8_t response_type, pad0; uint16_t sequence; uint32_t length, root, parent; uint16_t children_len; uint8_t pad1[14]; };
 struct InternAtomReply { uint8_t response_type, pad0; uint16_t sequence; uint32_t length, atom; };
 struct PropertyReply { uint8_t response_type, format; uint16_t sequence; uint32_t length, type, bytes_after, value_len; uint8_t pad0[12]; };
+struct KeymapReply { uint8_t response_type, pad0; uint16_t sequence; uint32_t length; uint8_t keys[32]; };
+struct InputFocusReply { uint8_t response_type, revert_to; uint16_t sequence; uint32_t length, focus; };
+// X keycodes (evdev + 8), as Xwayland uses them.
+constexpr uint8_t key_control_left = 37, key_control_right = 105, key_f11 = 95, key_f12 = 96;
 struct CursorImageReply { uint8_t response_type, pad0; uint16_t sequence; uint32_t length; int16_t x, y;
                           uint16_t width, height, xhot, yhot; uint32_t cursor_serial; uint8_t pad1[8]; };
 constexpr uint32_t atom_string = 31, atom_wm_class = 67, atom_cardinal = 6;
@@ -55,6 +59,10 @@ struct Xcb {
     Cookie (*xfixes_cursor_image)(Connection*){};
     CursorImageReply* (*xfixes_cursor_image_reply)(Connection*, Cookie, GenericError**){};
     uint32_t* (*xfixes_cursor_image_pixels)(const CursorImageReply*){};
+    Cookie (*query_keymap)(Connection*){};
+    KeymapReply* (*query_keymap_reply)(Connection*, Cookie, GenericError**){};
+    Cookie (*get_input_focus)(Connection*){};
+    InputFocusReply* (*get_input_focus_reply)(Connection*, Cookie, GenericError**){};
     bool load() {
         lib = dlopen("libxcb.so.1", RTLD_NOW | RTLD_LOCAL);
         xfixes = lib ? dlopen("libxcb-xfixes.so.0", RTLD_NOW | RTLD_LOCAL) : nullptr;
@@ -68,6 +76,8 @@ struct Xcb {
             get(lib, intern_atom, "xcb_intern_atom") && get(lib, intern_atom_reply, "xcb_intern_atom_reply") &&
             get(lib, get_property, "xcb_get_property") && get(lib, get_property_reply, "xcb_get_property_reply") &&
             get(lib, get_property_value, "xcb_get_property_value") && get(lib, get_property_value_length, "xcb_get_property_value_length") &&
+            get(lib, query_keymap, "xcb_query_keymap") && get(lib, query_keymap_reply, "xcb_query_keymap_reply") &&
+            get(lib, get_input_focus, "xcb_get_input_focus") && get(lib, get_input_focus_reply, "xcb_get_input_focus_reply") &&
             get(xfixes, xfixes_query_version, "xcb_xfixes_query_version") && get(xfixes, xfixes_query_version_reply, "xcb_xfixes_query_version_reply") &&
             get(xfixes, xfixes_cursor_image, "xcb_xfixes_get_cursor_image") && get(xfixes, xfixes_cursor_image_reply, "xcb_xfixes_get_cursor_image_reply") &&
             get(xfixes, xfixes_cursor_image_pixels, "xcb_xfixes_get_cursor_image_cursor_image");
@@ -137,6 +147,10 @@ void reader() {
     uint32_t window{};
     auto searched = std::chrono::steady_clock::time_point{};
     bool logged = false;
+    // Windows' hotkeys, watched (not grabbed: X4 still gets the keys) while X4's window has focus.
+    const char* hotkeys_env = std::getenv("X4VR_HOTKEYS");
+    const bool hotkeys = !(hotkeys_env && *hotkeys_env == '0');
+    bool f11_down = false, f12_down = false;
     for (;;) {
         std::this_thread::sleep_for(std::chrono::milliseconds(8));
         if (x.has_error(c)) { log("X4VR cursor: X connection lost; no mouse cursor in VR"); return; }
@@ -145,6 +159,19 @@ void reader() {
             searched = now;
             window = find_window(x, c, root, pid_atom);
             if (window && !logged) { logged = true; log("X4VR cursor: reading X4's mouse cursor (X window "+std::to_string(window)+")"); }
+        }
+        if (window && hotkeys) {
+            auto* focus = x.get_input_focus_reply(c, x.get_input_focus(c), &error);
+            std::free(error); error = nullptr;
+            auto* keymap = focus && focus->focus == window ? x.query_keymap_reply(c, x.query_keymap(c), &error) : nullptr;
+            std::free(error); error = nullptr;
+            const auto down = [&](uint8_t key) { return keymap && (keymap->keys[key >> 3] >> (key & 7)) & 1; };
+            const bool control = down(key_control_left) || down(key_control_right);
+            const bool f11 = control && down(key_f11), f12 = control && down(key_f12);
+            if (f12 && !f12_down) linux_port::control("recenter", "Ctrl+F12");
+            if (f11 && !f11_down) linux_port::control("flat", "Ctrl+F11");
+            f11_down = f11; f12_down = f12;
+            std::free(focus); std::free(keymap);
         }
         CursorState next;
         if (window) {

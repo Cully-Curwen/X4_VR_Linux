@@ -10,7 +10,6 @@ input, alternate-eye stereo, menus on a virtual screen. Known limits of stage A 
   your head. Fixed by stage D (backward clamp patch).
 - **Scale and angles are not calibrated yet:** the Windows values are used. Turning your head may
   turn the view more or less than your head; leaning may move too far or too little.
-- **No mouse cursor in VR** yet, and no Ctrl+F11/Ctrl+F12: use `x4vr ctl` (below).
 - OpenVR only (no OpenXR yet).
 
 Everything below is safe to stop at any point: removing the launch option gives a normal X4.
@@ -27,21 +26,18 @@ nix-build
 
 It ends with `100% tests passed out of 8` and a `/nix/store/...-x4vr-0.2.0-phase1` path.
 
-## 2. Hotkeys (optional, recommended)
+## 2. Recentre and flat screen
 
-Until in-game hotkeys exist, bind the two control commands in Hyprland
-(`~/.config/hypr/hyprland.conf`, or wherever your binds live):
+As on Windows, while X4 has focus:
 
-```
-bind = CTRL, F12, exec, /home/cully/code/X4_VR_Linux/result/bin/x4vr ctl recenter
-bind = CTRL, F11, exec, /home/cully/code/X4_VR_Linux/result/bin/x4vr ctl flat
-```
-
-- `x4vr ctl recenter`: puts "forward" where you're looking now, and the virtual screen in front of you.
-- `x4vr ctl flat`: switches the flat virtual screen on (everything shown flat, like a big monitor)
+- **Ctrl+F12**: puts "forward" where you're looking now, and the virtual screen in front of you.
+  SteamVR's own recentre (the Frame's "recenter view", or the SteamVR dashboard) does the same.
+- **Ctrl+F11**: switches the flat virtual screen on (everything shown flat, like a big monitor)
   and back to automatic (stereo in the cockpit, screen for menus).
 
-You can also type them in a terminal.
+X4 still gets the keys (the mod only watches them). The same from a terminal or a desktop key
+binding: `x4vr ctl recenter`, `x4vr ctl flat`. `X4VR_HOTKEYS=0` in front of the launch option turns
+the keys off.
 
 ## 3. X4 settings (automatic)
 

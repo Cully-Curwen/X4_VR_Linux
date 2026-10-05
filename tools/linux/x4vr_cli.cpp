@@ -4,6 +4,7 @@
 #include "../launcher/hud_mod.hpp"
 #include "../launcher/launcher_settings.hpp"
 #include "md5.hpp"
+#include "settings_control.hpp"
 #include "opentrack.hpp"
 #include <x4vr/session.hpp>
 #include <arpa/inet.h>
@@ -547,26 +548,8 @@ std::filesystem::path settings_file() {
 int ctl(const std::vector<std::string_view>& args) {
     if (args.size() != 1 || (args[0] != "recenter" && args[0] != "flat")) { usage(); return 2; }
     const auto path = settings_file();
-    std::ifstream in(path);
-    if (!in) { std::cerr << "No settings at " << path << " (start X4 once with x4vr-run)\n"; return 1; }
-    std::vector<std::string> lines;
-    for (std::string line; std::getline(in, line);) lines.push_back(line);
-    in.close();
-    // recenter: bump the counter; flat: theater 2 (always the virtual screen) <-> 1 (automatic).
-    const std::string key = args[0] == "recenter" ? "recenter=" : "theater=";
-    auto found = std::find_if(lines.begin(), lines.end(), [&](const std::string& l) { return l.rfind(key, 0) == 0; });
-    const int current = found == lines.end() ? (args[0] == "recenter" ? 0 : 1) : std::atoi(found->c_str()+key.size());
-    const int next = args[0] == "recenter" ? current+1 : (current == 2 ? 1 : 2);
-    if (found == lines.end()) lines.push_back(key+std::to_string(next));
-    else *found = key+std::to_string(next);
-    // Replace atomically: X4 re-reads the file every half second.
-    const auto temporary = path.string()+".tmp";
-    {
-        std::ofstream out(temporary, std::ios::trunc);
-        for (const auto& line : lines) out << line << '\n';
-        if (!out) { std::cerr << "Can't write " << temporary << '\n'; return 1; }
-    }
-    std::filesystem::rename(temporary, path);
+    const int next = x4vr::linux_port::control_settings(path, args[0]);
+    if (next < 0) { std::cerr << "Can't update " << path << " (start X4 once with x4vr-run)\n"; return 1; }
     std::cout << (args[0] == "recenter" ? "recentred" : next == 2 ? "flat screen on" : "flat screen automatic") << '\n';
     return 0;
 }

@@ -490,7 +490,8 @@ Features the Windows mod has:
 1. **Mouse cursor in VR**: done (2026-10-05, confirmed in the headset); read over XCB, copied into
    the game image (`docs/LINUX_FINDINGS.md`). Possible polish: blended edges, size matched to the
    scaled game image.
-2. **In-game hotkeys** (Ctrl+F12 recentre, Ctrl+F11 flat): Linux uses `x4vr ctl` bound in the desktop.
+2. **In-game hotkeys**: done (2026-10-05): Ctrl+F12 / Ctrl+F11 watched over XCB while X4 has focus,
+   and SteamVR's recentre (`VREvent_SeatedZeroPoseReset`) recentres the mod too.
 3. **On foot**: head tracking while walking (Windows: on-foot patches); Linux shows the virtual screen.
 4. **Stage D, leaning back**: paused, the zeroing is downstream of the head-tracker bridge
    (`docs/LINUX_FINDINGS.md`); needs a runtime approach.
