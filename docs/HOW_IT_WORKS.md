@@ -578,8 +578,8 @@ It is rebuilt when the game's files change.
   (MD5 from `md5.hpp`). Limits:
   - Linux X4 9.00 loads precompiled `.xpl` UI scripts, so the Lua scale changes alone don't
     apply: the HUD moved back but got smaller. The extension now also puts the patched script
-    text at the `.xpl` paths (Linux only; first check: the radar and message HUD come out bigger, so
-    X4 loads them). Protected UI Mode must be off.
+    text at the `.xpl` paths (Linux only; confirmed 2026-10-05: the HUD keeps its size at any factor).
+    Protected UI Mode must be off.
   - X4 reports the game as modified, and warns about Protected UI.
 
 `x4vr game-grep` searches X4's catalogs.
@@ -721,7 +721,7 @@ timing (less lag) and the on-foot eye flip.
 1. Snap turning on foot (comfort), only if X4's own look sensitivity isn't enough. Turn
    compensation isn't needed with `shared_pose` (section 9).
 2. `pos_scale` and gain calibration on Linux. The cockpit looks slightly large.
-3. HUD `.xpl` scaling (left as is).
+3. HUD `.xpl` scaling: done (the patched scripts also go at the `.xpl` paths).
 4. OpenXR.
 5. Build the Windows target once to confirm it is unchanged.
 6. Rival trackers: not needed, the Linux build has only OpenTrack. Don't run the opentrack app (UDP 4242) alongside.

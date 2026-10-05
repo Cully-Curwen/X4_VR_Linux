@@ -92,7 +92,7 @@ online.
 X4 also asks about **Protected UI Mode**: turn it **off** (Extension Settings), else X4 doesn't
 load the extension's HUD scripts and the HUD moves back but looks smaller. Linux X4 9.00 loads
 precompiled `.xpl` copies of the HUD scripts, so the extension puts the patched script text at
-those paths too (2026-10-05: the radar and message HUD scale with it).
+those paths too, so the HUD keeps its size at any factor.
 
 ## 4. Launch option
 
