@@ -507,7 +507,7 @@ Known limits, accepted for now:
 Before an upstream PR:
 9. Done: diagnostic switches removed (results kept in `docs/LINUX_FINDINGS.md`).
 10. Done: the probe builds with newer GCC (all 9 tests pass).
-11. Update this plan and the README with a Linux section (install with Nix, launch option, Frame findings).
+11. Done: README section "Linux (native X4, experimental)".
 12. Windows: outside the Linux folders only the top-level `CMakeLists.txt` (an opt-in branch that
     returns before the Windows build) and `.gitignore` changed since `be68c82`; still to build on Windows.
 
