@@ -69,12 +69,22 @@ void drain(Watch& w, std::map<uint64_t, uint64_t>& counts) {
 }
 
 void watcher() {
-    if (!in_executable(bridge_object, 0x30) || *reinterpret_cast<const uintptr_t*>(bridge_object) != bridge_vtable) {
-        log("X4VR watch: X4's head-tracker bridge isn't at the known address (only Linux 9.00 is known); no watch");
+    if (!in_executable(bridge_object, 0x30)) {
+        log("X4VR watch: X4's head-tracker bridge address isn't in X4 (only Linux 9.00 is known); no watch");
         return;
     }
-    // Wait until X4 applies head tracking (the bridge is filled from then on).
-    for (int i = 0; i < 600 && !game_state().head_tracking; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // X4 constructs the bridge (stores its vtable) when it starts applying head tracking; wait for both.
+    const auto vtable = [] { return *reinterpret_cast<const volatile uintptr_t*>(bridge_object); };
+    for (int i = 0; i < 1200 && !(game_state().head_tracking && vtable() == bridge_vtable); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    if (vtable() != bridge_vtable) {
+        char line[160];
+        std::snprintf(line, sizeof line, "X4VR watch: no head-tracker bridge after 10 min (head tracking %s, value 0x%llx); no watch",
+                      game_state().head_tracking ? "on" : "off", static_cast<unsigned long long>(vtable()));
+        log(line);
+        return;
+    }
+
     log("X4VR watch: recording which code reads the head position (bridge +0x10..+0x1f) for 20 s");
     const long page = sysconf(_SC_PAGESIZE);
     std::map<pid_t, std::vector<Watch>> watches;
