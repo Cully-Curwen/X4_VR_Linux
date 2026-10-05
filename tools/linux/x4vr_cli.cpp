@@ -932,7 +932,7 @@ bool launch_vr(const std::function<void(const std::string&)>& progress, const st
     std::error_code error;
     std::filesystem::create_directories(state_dir(), error);
     if (!write_text(state_dir()/"launch.request", std::to_string(std::time(nullptr))+"\n")) { progress("Can't write the launch request."); return false; }
-    progress("Starting X4 through Steam...");
+    progress("Starting X4 through Steam... If the headset isn't connected yet, X4 waits up to 2 minutes for it: put it on.");
     spawn({"steam", "-applaunch", std::string(x4vr::steam::x4_app)});
     for (int i = 0; i < 240 && !x4_running(); ++i) {
         if (cancelled()) { progress("Stopped waiting; X4 may still start."); return true; }
@@ -1260,8 +1260,8 @@ int menu(std::string_view start = {}) {
         if (!c.x4) items.push_back(action("launch", "Launch X4 in VR",
             "Starts SteamVR if needed, then X4 through Steam with the mod. Steam's own Play button starts the normal 2D game."));
         else if (c.in_vr) {
-            items.push_back(action("recenter", "Recentre the view", "Look straight ahead first. Same as Ctrl+F12 in X4, or SteamVR's recentre.", live));
-            items.push_back(action("flat", "Flat screen on / automatic", "Same as Ctrl+F11 in X4: the game on a flat screen in front of you.", live));
+            items.push_back(action("recenter", "Recentre the view  (Ctrl+F12)", "Look straight ahead first. Same as Ctrl+F12 in X4, or SteamVR's recentre.", live));
+            items.push_back(action("flat", "Flat screen on / automatic  (Ctrl+F11)", "Same as Ctrl+F11 in X4: the game on a flat screen in front of you.", live));
         } else items.push_back(info("X4 is running in 2D: quit it to launch in VR."));
 
         if (!board.empty()) {

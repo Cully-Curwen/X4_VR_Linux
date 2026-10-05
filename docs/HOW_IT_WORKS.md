@@ -191,6 +191,9 @@ ships. Shader, memory and camera capture, the stack walks and the frame probe ar
 
 - **Instance:** acquire the runtime and add the runtime's instance extensions. A failure
   leaves X4 flat: "VR runtime unavailable, X4 runs without VR".
+  - Linux only: when `VR_Init` fails because the headset isn't there yet (108 not found, 126
+    presence failed, 215 wireless headset not connected), the bootstrap retries every second
+    for up to `X4VR_HEADSET_WAIT` s (120). SteamVR can be up before a Steam Frame connects.
 - **Device:**
   - Add a private queue for the VR thread in X4's graphics family.
   - Check that X4's GPU is the headset's GPU (`deviceUUID` equals OpenVR's output device).

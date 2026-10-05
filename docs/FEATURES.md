@@ -24,6 +24,7 @@ Last updated: 2026-10-05.
 | Async submission thread, pacing, late-frame fallback [4] | Yes | Works | |
 | Shared pose per eye pair [7] | No | Linux only, works | Fixes the Steam Frame's right-eye ghosting: its link reprojects both eyes with the left eye's pose. |
 | Image size from SteamVR's recommended resolution [4, 12] | No | Linux only, works | Also sets X4's resolution to match. |
+| Wait for the headset at start [4] | No | Linux only, untested | VR_Init failing with "headset not found / not connected yet" (108, 126, 215) is retried each second, up to `X4VR_HEADSET_WAIT` s (120). |
 | OpenXR runtime [3] | Yes | Missing | Only matters without SteamVR (Monado, WiVRn). |
 | Turn compensation (mouse turns) [4, 9] | Yes | Not needed | No double vision with the shared pose; Windows' method can't work on the Frame. |
 

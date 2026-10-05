@@ -67,7 +67,8 @@ don't, so it can't be closed by accident while you play).
 ## 3. Play in VR
 
 1. In the menu: **Launch X4 in VR**. It starts SteamVR if it isn't running (put the headset on),
-   then X4 through Steam with the mod.
+   then X4 through Steam with the mod. If the headset hasn't connected yet (a wireless one takes
+   a few seconds after SteamVR), X4 waits for it up to 2 minutes before showing its window.
 2. The main menu appears on a flat screen in front of you. Look straight ahead and press
    **Ctrl+F12** to recentre (or use SteamVR's own recentre).
 3. Load a game: in the pilot seat and on foot the view is 3D and follows your head. Menus and the
@@ -175,5 +176,6 @@ The menu's actions are also commands (`x4vr help` lists all):
 
 Environment variables for special cases (in front of the launch option's command):
 `X4VR_ALWAYS=1` starts every Steam launch in VR; `X4VR_FIX_SETTINGS=0` leaves X4's settings alone;
-`X4VR_RESOLUTION=WxH` sets X4's VR resolution (`0`: leave it); `X4VR_HOTKEYS=0` turns the keys
+`X4VR_RESOLUTION=WxH` sets X4's VR resolution (`0`: leave it); `X4VR_HEADSET_WAIT=<seconds>` how
+long X4 waits for the headset at start (default 120, `0`: don't wait); `X4VR_HOTKEYS=0` turns the keys
 off; `X4VR_PATCHES=0` turns the code patches off.

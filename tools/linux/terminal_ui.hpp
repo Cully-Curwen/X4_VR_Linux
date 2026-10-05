@@ -302,7 +302,7 @@ private:
         case Item::Action: label = item.bullet+item.label; break;
         default: break;
         }
-        const auto row = "  "+fit(label, label_width)+fit(value, value_width)+"  ";
+        const auto row = "  "+(item.kind == Item::Action ? fit(label, label_width+value_width) : fit(label, label_width)+fit(value, value_width))+"  ";
         return {(selected ? std::string(inverse)+row+reset : row)+tag(item.tag)};
     }
     void draw(const std::vector<Item>& items) {
