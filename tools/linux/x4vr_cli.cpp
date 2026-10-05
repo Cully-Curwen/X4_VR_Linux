@@ -1313,7 +1313,6 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
         if (hud_scaled()) { // only matters with the HUD extension
             items.push_back(section("Settings > Extensions (HUD Scaled is on)"));
             row("Protected UI Mode", "Off", {});
-            row("X4 VR HUD distance", "On (the mod sets it in VR)", {});
         }
         items.push_back(action("back", "Back"));
         Event e;
