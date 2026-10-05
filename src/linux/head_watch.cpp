@@ -68,6 +68,26 @@ void drain(Watch& w, std::map<uint64_t, uint64_t>& counts) {
     __atomic_store_n(&meta->data_tail, tail, __ATOMIC_RELEASE);
 }
 
+// Checks that watchpoints report anything here: one on a variable this thread reads 10 times.
+std::string self_test() {
+    static volatile uint64_t probe;
+    std::string error;
+    Watch w;
+    w.fd = open_watch(pid_t(syscall(SYS_gettid)), uintptr_t(&probe), error);
+    if (w.fd < 0) return "can't open ("+error+")";
+    w.size = size_t(sysconf(_SC_PAGESIZE))*(ring_pages+1);
+    w.ring = mmap(nullptr, w.size, PROT_READ | PROT_WRITE, MAP_SHARED, w.fd, 0);
+    if (w.ring == MAP_FAILED) { close(w.fd); return "can't map"; }
+    for (int i = 0; i < 10; ++i) (void)probe;
+    std::map<uint64_t, uint64_t> counts;
+    drain(w, counts);
+    munmap(w.ring, w.size);
+    close(w.fd);
+    uint64_t hits = 0;
+    for (const auto& [ip, n] : counts) hits += n;
+    return std::to_string(hits)+" of 10 reads seen";
+}
+
 void watcher() {
     if (!in_executable(bridge_object, 0x30)) {
         log("X4VR watch: X4's head-tracker bridge address isn't in X4 (only Linux 9.00 is known); no watch");
@@ -85,11 +105,15 @@ void watcher() {
         return;
     }
 
+    log("X4VR watch: self-test: "+self_test());
     log("X4VR watch: recording which code reads the head position (bridge +0x10..+0x1f) for 20 s");
     const long page = sysconf(_SC_PAGESIZE);
     std::map<pid_t, std::vector<Watch>> watches;
     std::map<uint64_t, uint64_t> counts;
     std::string first_error;
+    float last[4]{};
+    std::memcpy(last, reinterpret_cast<const void*>(bridge_object+0x10), sizeof last);
+    int changes = 0; // the stored position changing while it's sampled (every 20 ms)
     const auto end = std::chrono::steady_clock::now()+std::chrono::seconds(20);
     for (auto next_scan = std::chrono::steady_clock::now(); std::chrono::steady_clock::now() < end;) {
         if (std::chrono::steady_clock::now() >= next_scan) { // new threads appear: watch them too
@@ -112,11 +136,20 @@ void watcher() {
             }
         }
         for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts);
+        float now[4];
+        std::memcpy(now, reinterpret_cast<const void*>(bridge_object+0x10), sizeof now);
+        if (std::memcmp(now, last, sizeof now)) { ++changes; std::memcpy(last, now, sizeof now); }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     size_t opened = 0;
     for (auto& [tid, list] : watches) for (auto& w : list) { drain(w, counts); munmap(w.ring, w.size); close(w.fd); ++opened; }
     if (!opened) { log("X4VR watch: no watchpoint could be set ("+first_error+"); check /proc/sys/kernel/perf_event_paranoid"); return; }
+    {
+        char line[160];
+        std::snprintf(line, sizeof line, "X4VR watch: stored head position changed %d times in 20 s; now %.3f %.3f %.3f", changes,
+                      double(last[0]), double(last[1]), double(last[2]));
+        log(line);
+    }
     std::vector<std::pair<uint64_t, uint64_t>> sorted(counts.begin(), counts.end());
     std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
     log("X4VR watch: "+std::to_string(sorted.size())+" code addresses touched the head position ("+std::to_string(opened)+" watchpoints):");
