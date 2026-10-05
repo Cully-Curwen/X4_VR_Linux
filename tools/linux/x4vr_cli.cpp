@@ -1441,7 +1441,8 @@ int menu(std::string_view start = {}) {
             std::vector<std::string> names{"automatic"};
             int at = 0;
             for (const auto& [mw, mh] : modes) { names.push_back(std::to_string(mw)+"x"+std::to_string(mh)); if (mw == w && mh == h) at = int(names.size())-1; }
-            if (w > 0 && h > 0 && at == 0) custom_resolution = true; // a size not in the list
+            if (w <= 0 || h <= 0) custom_resolution = false;         // automatic, e.g. after loading a profile
+            else if (at == 0) custom_resolution = true;               // a size not in the list
             names.push_back(custom_resolution ? "Custom: "+std::to_string(w)+"x"+std::to_string(h) : "Custom");
             if (custom_resolution) at = int(names.size())-1;
             items.push_back(choice("resolution", "X4 resolution in VR", names, at,
