@@ -567,3 +567,12 @@ camera (its parent `+0x360`, transform `+0x10..+0x40` converted through the pare
 `+0x360` (component types `0x54`/`0x75`, event `0x16c5fe0`). So `0x1646510` is the seat camera,
 not a plain "apply the offset". The gate is now opt-in (`X4VR_ONFOOT_GATE=1`); the on-foot view
 needs the offset applied in the walking camera's own update instead.
+
+**`X4VR_ONFOOT_GATE=2` result (2026-10-05).** Same as gate 1: the camera floats to the seat, no
+walking. So the predicate `0x1628210` is not where Windows' patch acts. Windows' commit 8342ef1
+patches inside `Camera::GetOffset` (0x97a300) at +0x113 (0x97a413): `cmp qword [rsi+0x20], 0`
+on a camera **parameter**, then the camera manager's `+0x230` entity against `camera+0x770`,
+then `[manager+0x3d0]`. The offset block is `0x97a5a8` and the exit `0x97a694`. On foot that
+function exits before it reads the head offset, so the read watch (mode 3) can't see its Linux
+counterpart. Next: a static search for code that reads `+0x5a0` (and `+0x5b0`) of a camera
+after checking a `+0x18`/`+0x20` member of the same object.
