@@ -1,18 +1,20 @@
-// Diagnostic (X4VR_WATCH_HEAD=1): which X4 code reads the head position, for stage D (backward
-// clamp) and on foot (docs/LINUX_FINDINGS.md). X4 9.00's head-tracker bridge is a static object
-// (U::HeadTrackerCameraBridge at 0x3e60820, vtable 0x3b1c240) whose position method stores
-// (x, y, -z) at +0x10; whatever turns that into the camera's head offset reads it from there.
-// Hardware watchpoints (perf_event_open, own process, no root) on those 16 bytes record each
-// instruction that touches them, on every thread, for 20 s once X4 applies head tracking; the log
-// then lists the code addresses by count (an address is the instruction after the access).
+// Diagnostic (X4VR_WATCH_HEAD=1): which X4 code uses the head-tracker input, for stage D
+// (backward clamp) and on foot (docs/LINUX_FINDINGS.md). X4 9.00's VR::OpenTrack object keeps the
+// head position at +0xd0 (3 floats, written by its update, slot 2) and the angles at +0x100; the
+// eye-at-use hook (pose_sender.cpp) hands this file the object and its accessor's callers.
+// Hardware watchpoints (perf_event_open, own process, no root) on those fields record each
+// instruction that touches them, on every thread, in 20 s windows (10, labelled with the game
+// state) once the object is known; the log lists the code addresses by count (an address is the
+// instruction after the access). The bridge (U::HeadTrackerCameraBridge, static at 0x3e60820)
+// turned out unused: its position stayed 0 in the cockpit.
 #include "linux_runtime.hpp"
 #include <linux/hw_breakpoint.h>
 #include <linux/perf_event.h>
-#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -20,13 +22,19 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace x4vr::linux_port {
 namespace {
-constexpr uintptr_t bridge_object = 0x3e60820, bridge_vtable = 0x3b1c240;
+constexpr size_t field_position = 0xd0, field_angles = 0x100;
+
+std::atomic<bool> watching{false};
+std::atomic<void*> tracker{};
+std::mutex callers_mutex;
+std::map<uint64_t, uint64_t> callers; // accessor return addresses, this window
 constexpr size_t ring_pages = 8; // data pages per event, plus one header page
 
 struct Watch { int fd{-1}; void* ring{}; size_t size{}; };
@@ -88,83 +96,103 @@ std::string self_test() {
     return std::to_string(hits)+" of 10 reads seen";
 }
 
-void watcher() {
-    if (!in_executable(bridge_object, 0x30)) {
-        log("X4VR watch: X4's head-tracker bridge address isn't in X4 (only Linux 9.00 is known); no watch");
-        return;
-    }
-    // X4 constructs the bridge (stores its vtable) when it starts applying head tracking; wait for both.
-    const auto vtable = [] { return *reinterpret_cast<const volatile uintptr_t*>(bridge_object); };
-    for (int i = 0; i < 1200 && !(game_state().head_tracking && vtable() == bridge_vtable); ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    if (vtable() != bridge_vtable) {
-        char line[160];
-        std::snprintf(line, sizeof line, "X4VR watch: no head-tracker bridge after 10 min (head tracking %s, value 0x%llx); no watch",
-                      game_state().head_tracking ? "on" : "off", static_cast<unsigned long long>(vtable()));
-        log(line);
-        return;
-    }
-
-    log("X4VR watch: self-test: "+self_test());
-    log("X4VR watch: recording which code reads the head position (bridge +0x10..+0x1f) for 20 s");
-    const long page = sysconf(_SC_PAGESIZE);
-    std::map<pid_t, std::vector<Watch>> watches;
-    std::map<uint64_t, uint64_t> counts;
-    std::string first_error;
-    float last[4]{};
-    std::memcpy(last, reinterpret_cast<const void*>(bridge_object+0x10), sizeof last);
-    int changes = 0; // the stored position changing while it's sampled (every 20 ms)
-    const auto end = std::chrono::steady_clock::now()+std::chrono::seconds(20);
-    for (auto next_scan = std::chrono::steady_clock::now(); std::chrono::steady_clock::now() < end;) {
-        if (std::chrono::steady_clock::now() >= next_scan) { // new threads appear: watch them too
-            next_scan += std::chrono::seconds(2);
-            std::error_code ec;
-            for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task", ec)) {
-                const pid_t tid = pid_t(std::atoi(entry.path().filename().c_str()));
-                if (!tid || watches.count(tid)) continue;
-                auto& list = watches[tid];
-                for (const uintptr_t address : {bridge_object+0x10, bridge_object+0x18}) {
-                    std::string error;
-                    Watch w;
-                    w.fd = open_watch(tid, address, error);
-                    if (w.fd < 0) { if (first_error.empty()) first_error = error; continue; }
-                    w.size = size_t(page)*(ring_pages+1);
-                    w.ring = mmap(nullptr, w.size, PROT_READ | PROT_WRITE, MAP_SHARED, w.fd, 0);
-                    if (w.ring == MAP_FAILED) { close(w.fd); continue; }
-                    list.push_back(w);
-                }
-            }
-        }
-        for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts);
-        float now[4];
-        std::memcpy(now, reinterpret_cast<const void*>(bridge_object+0x10), sizeof now);
-        if (std::memcmp(now, last, sizeof now)) { ++changes; std::memcpy(last, now, sizeof now); }
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    size_t opened = 0;
-    for (auto& [tid, list] : watches) for (auto& w : list) { drain(w, counts); munmap(w.ring, w.size); close(w.fd); ++opened; }
-    if (!opened) { log("X4VR watch: no watchpoint could be set ("+first_error+"); check /proc/sys/kernel/perf_event_paranoid"); return; }
-    {
-        char line[160];
-        std::snprintf(line, sizeof line, "X4VR watch: stored head position changed %d times in 20 s; now %.3f %.3f %.3f", changes,
-                      double(last[0]), double(last[1]), double(last[2]));
-        log(line);
-    }
+std::string address_line(uint64_t ip, uint64_t n) {
+    char line[128];
+    std::snprintf(line, sizeof line, "X4VR watch:   0x%llx  %llu times%s", static_cast<unsigned long long>(ip),
+                  static_cast<unsigned long long>(n), in_executable(uintptr_t(ip), 1) ? "" : "  (not X4: the mod)");
+    return line;
+}
+void log_counts(const char* what, const std::map<uint64_t, uint64_t>& counts) {
     std::vector<std::pair<uint64_t, uint64_t>> sorted(counts.begin(), counts.end());
     std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
-    log("X4VR watch: "+std::to_string(sorted.size())+" code addresses touched the head position ("+std::to_string(opened)+" watchpoints):");
-    for (size_t i = 0; i < sorted.size() && i < 40; ++i) {
+    log("X4VR watch: "+std::to_string(sorted.size())+" "+what+":");
+    for (size_t i = 0; i < sorted.size() && i < 40; ++i) log(address_line(sorted[i].first, sorted[i].second));
+}
+
+void watcher() {
+    log("X4VR watch: self-test: "+self_test());
+    for (int i = 0; i < 1200 && !tracker.load(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    auto* object = static_cast<char*>(tracker.load());
+    if (!object) { log("X4VR watch: X4 never asked the tracker for the head position in 10 min (eye-at-use hook off?); no watch"); return; }
+    {
         char line[96];
-        std::snprintf(line, sizeof line, "X4VR watch:   0x%llx  %llu times", static_cast<unsigned long long>(sorted[i].first),
-                      static_cast<unsigned long long>(sorted[i].second));
+        std::snprintf(line, sizeof line, "X4VR watch: OpenTrack object at 0x%llx", static_cast<unsigned long long>(uintptr_t(object)));
         log(line);
     }
+    const uintptr_t base = uintptr_t(object);
+    const uintptr_t targets[] = {base+field_position, base+field_position+8, base+field_angles, base+field_angles+8};
+    const long page = sysconf(_SC_PAGESIZE);
+    std::map<pid_t, std::vector<Watch>> watches;
+    std::string first_error;
+    auto next_scan = std::chrono::steady_clock::now();
+    for (int window = 1; window <= 10; ++window) {
+        const auto game = game_state();
+        const char* label = !game.head_tracking ? "no head tracking (on foot, menu or loading)" :
+                            !game.controlling_ship ? "head tracking, not flying" : game.fullscreen_menu ? "cockpit, menu" : "cockpit";
+        log("X4VR watch: window "+std::to_string(window)+" of 10, "+label+": recording 20 s");
+        std::map<uint64_t, uint64_t> counts;
+        { std::lock_guard lock(callers_mutex); callers.clear(); }
+        float last[3];
+        std::memcpy(last, object+field_position, sizeof last);
+        int changes = 0; // the position changing while it's sampled (every 20 ms)
+        const auto end = std::chrono::steady_clock::now()+std::chrono::seconds(20);
+        while (std::chrono::steady_clock::now() < end) {
+            if (std::chrono::steady_clock::now() >= next_scan) { // new threads appear: watch them too
+                next_scan += std::chrono::seconds(2);
+                std::error_code ec;
+                for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task", ec)) {
+                    const pid_t tid = pid_t(std::atoi(entry.path().filename().c_str()));
+                    if (!tid || watches.count(tid)) continue;
+                    auto& list = watches[tid];
+                    for (const uintptr_t address : targets) {
+                        std::string error;
+                        Watch w;
+                        w.fd = open_watch(tid, address, error);
+                        if (w.fd < 0) { if (first_error.empty()) first_error = error; continue; }
+                        w.size = size_t(page)*(ring_pages+1);
+                        w.ring = mmap(nullptr, w.size, PROT_READ | PROT_WRITE, MAP_SHARED, w.fd, 0);
+                        if (w.ring == MAP_FAILED) { close(w.fd); continue; }
+                        list.push_back(w);
+                    }
+                }
+            }
+            for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts);
+            float now[3];
+            std::memcpy(now, object+field_position, sizeof now);
+            if (std::memcmp(now, last, sizeof now)) { ++changes; std::memcpy(last, now, sizeof now); }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts);
+        size_t opened = 0;
+        for (auto& [tid, list] : watches) opened += list.size();
+        if (!opened) { log("X4VR watch: no watchpoint could be set ("+first_error+"); check /proc/sys/kernel/perf_event_paranoid"); break; }
+        char line[160];
+        std::snprintf(line, sizeof line, "X4VR watch: window %d: position changed %d times; now %.3f %.3f %.3f; %zu watchpoints", window,
+                      changes, double(last[0]), double(last[1]), double(last[2]), opened);
+        log(line);
+        log_counts("code addresses touched the tracker's position or angles", counts);
+        std::map<uint64_t, uint64_t> copy;
+        { std::lock_guard lock(callers_mutex); copy = callers; }
+        log_counts("callers of the position accessor (return addresses)", copy);
+    }
+    for (auto& [tid, list] : watches) for (auto& w : list) { munmap(w.ring, w.size); close(w.fd); }
+    watching = false;
+    log("X4VR watch: done");
 }
+}
+
+void note_tracker_use(void* object, uintptr_t caller) {
+    if (!watching.load(std::memory_order_relaxed)) return;
+    void* none = nullptr;
+    tracker.compare_exchange_strong(none, object);
+    std::lock_guard lock(callers_mutex);
+    ++callers[caller];
 }
 
 void start_head_watch() {
     const char* on = std::getenv("X4VR_WATCH_HEAD");
     if (!on || *on != '1') return;
+    watching = true;
     std::thread(watcher).detach();
 }
 }

@@ -92,6 +92,7 @@ double with_seq(double roll, uint32_t seq) {
 }
 
 void position_at_use(void* tracker, float* x, float* y, float* z) {
+    note_tracker_use(tracker, uintptr_t(__builtin_return_address(0)));
     if (field<uint8_t>(tracker, field_fresh)) taken_seq = packet_seq(field<double>(tracker, field_roll));
     SentPacket packet;
     if (taken_seq) { std::lock_guard lock(packets_mutex); packet = packets[taken_seq]; }
