@@ -599,8 +599,9 @@ shown greyed out: what doesn't apply isn't listed. Enter on a choice opens its o
     distance and width.
   - `next launch`: applied by `x4vr-run` at the next VR start: HUD distance (`hud_factor`, 1.0-6.0
     to one decimal, typed or ←→; `x4vr hud --refresh` builds or removes the extension) and X4's
-    resolution (`x4_width`/`x4_height`, the Windows launcher's keys; 0: automatic; Custom...
-    takes any width x height, like Windows' two boxes).
+    resolution (`x4_width`/`x4_height`, the Windows launcher's keys; 0: automatic; Custom shows
+    Resolution Width and Height rows, like Windows' two boxes. Any aspect works: the layer
+    keeps X4's vertical view and derives the horizontal one from the image's aspect).
   - **Profiles:** sets of those settings. Built in: `share/x4vr/profiles/*.txt` (Steam Frame);
     the player's own: `<state>/profiles/*.txt`, made with "Save as profile". The last loaded or
     saved is named in `<state>/profile`; "· changed" marks settings that differ from it.

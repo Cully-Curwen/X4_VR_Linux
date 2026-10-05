@@ -304,17 +304,23 @@ int udp_send(const std::vector<std::string_view>& args) {
 }
 
 // ---- check / fix-settings --------------------------------------------------------------------
-// Linux X4 keeps one config per Steam account under ~/.config/EgoSoft/X4/<id>/; use the newest.
+// Linux X4 keeps one config per Steam account under ~/.config/EgoSoft/X4/<id>/ (also looked for
+// under $XDG_CONFIG_HOME when that is set elsewhere); use the newest.
 std::filesystem::path x4_config() {
     const char* home = std::getenv("HOME");
-    const auto base = std::filesystem::path(home ? home : ".")/".config/EgoSoft/X4";
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    std::vector<std::filesystem::path> bases{std::filesystem::path(home ? home : ".")/".config/EgoSoft/X4"};
+    if (xdg && *xdg) bases.push_back(std::filesystem::path(xdg)/"EgoSoft/X4");
     std::filesystem::path best;
     std::filesystem::file_time_type newest{};
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator(base, error)) {
-        const auto config = entry.path()/"config.xml";
-        const auto time = std::filesystem::last_write_time(config, error);
-        if (!error && (best.empty() || time > newest)) { best = config; newest = time; }
+    for (const auto& base : bases) {
+        std::error_code error;
+        for (const auto& entry : std::filesystem::directory_iterator(base, error)) {
+            std::error_code time_error;
+            const auto config = entry.path()/"config.xml";
+            const auto time = std::filesystem::last_write_time(config, time_error);
+            if (!time_error && (best.empty() || time > newest)) { best = config; newest = time; }
+        }
     }
     return best;
 }
@@ -444,10 +450,8 @@ int check_settings(bool fix, bool automatic) {
 // anchor positions and world-space scale factors times k, as a substitution extension.
 std::filesystem::path game_dir() {
     if (const char* dir = std::getenv("X4VR_GAME_DIR"); dir && *dir) return dir;
-    const char* home = std::getenv("HOME");
-    const std::filesystem::path h = home ? home : ".";
-    for (const auto& candidate : {h/".local/share/Steam/steamapps/common/X4 Foundations", h/".steam/steam/steamapps/common/X4 Foundations"})
-        if (std::filesystem::exists(candidate/"01.cat")) return candidate;
+    for (const auto& library : x4vr::steam::libraries()) // every Steam library, also on other drives
+        if (const auto candidate = library/"steamapps/common/X4 Foundations"; std::filesystem::exists(candidate/"01.cat")) return candidate;
     return {};
 }
 // Linux X4 9.00 ships each UI script as .lua and as .xpl, precompiled bytecode, and loads the
@@ -1176,10 +1180,9 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
         row("DLSS frame generation", "Off", {"dlssg"});
         row("VSync", "Off", {"presentmode"});
         row("Frame Rate Limit", "Off", {"frameratelimit"});
-        items.push_back(section("Settings > Graphics"));
+        items.push_back(section("Settings > Graphics (recommended, not required)"));
         row("Chromatic Aberration", "Off", {"chromaticaberration"}, false);
         row("Distortion", "Off", {"distortion"}, false);
-        row("Everything else", "whatever holds a steady 90 fps", {});
         items.push_back(section("Settings > Extensions"));
         row("Protected UI Mode", "Off (with HUD Scaled on)", {});
         row("X4 VR HUD distance", "On (the mod sets it in VR)", {});
@@ -1227,6 +1230,7 @@ int menu(std::string_view start = {}) {
     const auto num = [&](const char* key, const char* fallback) { return std::atof(get(key, fallback).c_str()); };
     static constexpr std::pair<int, int> modes[] = {{1920, 1080}, {2560, 1440}, {2880, 1620}, {3200, 1800}, {3840, 2160}};
     const std::string live = "live", next = "next launch";
+    bool custom_resolution = false; // "Custom" picked: width and height shown even if they match a listed size
     for (;;) {
         const auto c = current_checks();
         int scan_state = 3;
@@ -1309,18 +1313,25 @@ int menu(std::string_view start = {}) {
             "X4's cockpit HUD sits a hand's width from your face. On: an extension moves it back at the same apparent size, in VR "
             "only. X4 counts as modified then (saves flagged); turn Protected UI Mode off in X4's Extension Settings.", next));
         if (hud_factor > 0)
-            items.push_back(number("hud_factor", "HUD Scale Ratio", hud_factor, 0.1, 1, 6, 1, "x",
+            items.push_back(number("hud_factor", "HUD Scale Ratio", hud_factor, 0.1, 1, 6, 1, "",
                 "How many times farther the HUD is, from 1.0 to 6.0 (2.5 is a good start). Enter to type a value.", next));
         {
             const int w = int(num("x4_width", "0")), h = int(num("x4_height", "0"));
             std::vector<std::string> names{"automatic"};
             int at = 0;
             for (const auto& [mw, mh] : modes) { names.push_back(std::to_string(mw)+"x"+std::to_string(mh)); if (mw == w && mh == h) at = int(names.size())-1; }
-            if (at == 0 && w > 0 && h > 0) { names.push_back(std::to_string(w)+"x"+std::to_string(h)+" (custom)"); at = int(names.size())-1; }
-            names.push_back("Custom...");
+            if (w > 0 && h > 0 && at == 0) custom_resolution = true; // a size not in the list
+            names.push_back(custom_resolution ? "Custom: "+std::to_string(w)+"x"+std::to_string(h) : "Custom");
+            if (custom_resolution) at = int(names.size())-1;
             items.push_back(choice("resolution", "X4 resolution in VR", names, at,
                 "Automatic: the smallest 16:9 size that covers what SteamVR renders (no wasted pixels). Lower is faster, higher "
-                "sharper. Custom: type any width x height.", next));
+                "sharper. Custom: any width and height; the image keeps X4's vertical view and any aspect works.", next));
+            if (custom_resolution) {
+                items.push_back(number("x4_width", "Resolution Width", w, 16, 640, 16384, 0, "px",
+                    "X4's image width in VR. Enter to type it.", next));
+                items.push_back(number("x4_height", "Resolution Height", h, 16, 360, 16384, 0, "px",
+                    "X4's image height in VR. Enter to type it.", next));
+            }
         }
 
         items.push_back(section("X4 settings for VR"));
@@ -1355,12 +1366,12 @@ int menu(std::string_view start = {}) {
             }
             if (e.id == "resolution") {
                 int w = 0, h = 0;
-                if (item.choices[size_t(item.choice)] == "Custom...") {
-                    const auto typed = menu.prompt(items, "X4 resolution in VR, width x height", "", "0123456789xX");
-                    if (!typed) continue;
-                    if (std::sscanf(typed->c_str(), "%d%*[xX]%d", &w, &h) != 2 || w < 640 || h < 360 || w > 16384 || h > 16384) {
-                        menu.messages = {"Not a usable size: "+*typed+" (for example 3200x1800)"};
-                        continue;
+                custom_resolution = item.choice == int(item.choices.size())-1;
+                if (custom_resolution) { // start from the size in use: the choice before, else SteamVR's last
+                    w = int(num("x4_width", "0")); h = int(num("x4_height", "0"));
+                    if (w <= 0 || h <= 0) {
+                        std::ifstream saved(state_dir()/"x4_resolution.txt");
+                        if (!(saved >> w) || saved.get() != 'x' || !(saved >> h) || w <= 0 || h <= 0) { w = 2560; h = 1440; }
                     }
                 } else if (item.choice > 0) std::sscanf(item.choices[size_t(item.choice)].c_str(), "%dx%d", &w, &h);
                 const bool ok = x4vr::linux_port::write_setting(path, "x4_width", std::to_string(w)) && x4vr::linux_port::write_setting(path, "x4_height", std::to_string(h));

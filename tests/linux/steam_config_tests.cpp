@@ -62,6 +62,27 @@ const std::string without_option = R"("UserLocalConfigStore"
 	}
 }
 )";
+const std::string library_vdf = R"("libraryfolders"
+{
+	"0"
+	{
+		"path"		"/home/a/.local/share/Steam"
+		"apps"
+		{
+			"228980"		"123"
+		}
+	}
+	"1"
+	{
+		"path"		"/mnt/games/Steam Library"
+		"label"		""
+		"apps"
+		{
+			"392160"		"456"
+		}
+	}
+}
+)";
 }
 
 int main() {
@@ -70,6 +91,9 @@ int main() {
     check(current && *current == "\"/home/a b/x4vr-run\" %command%", "reads X4's option (escapes, not other apps, not nested)");
     check(launch_options(without_option) == std::optional<std::string>(""), "no option yet reads as empty (keys case-insensitive)");
     check(!launch_options("\"UserLocalConfigStore\"\n{\n}\n"), "no app block");
+    const auto paths = library_paths(library_vdf);
+    check(paths.size() == 2 && paths[0] == "/home/a/.local/share/Steam" && paths[1] == "/mnt/games/Steam Library",
+          "library folders from libraryfolders.vdf (spaces kept, nested keys ignored)");
     std::printf(failures ? "%d failures\n" : "all passed\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

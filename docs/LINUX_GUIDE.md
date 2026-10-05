@@ -104,8 +104,8 @@ it applies:
 - **live**, at once, also while X4 runs: 3D, shared pose (keep it on for the Steam Frame), world
   scale, head prediction, stutter protection, mouse cursor, flat screen mode, distance and width;
 - **next launch**, at the next VR start: HUD Scaled / HUD Scale Ratio and X4's resolution in VR
-  (automatic picks the smallest 16:9 size that covers what SteamVR renders; Custom... takes any
-  width x height).
+  (automatic picks the smallest 16:9 size that covers what SteamVR renders; Custom adds Resolution
+  Width and Height rows for any size; it needn't be 16:9).
 
 **Profiles** hold a set of these settings. "Steam Frame" is built in; change settings and use
 **Save as profile** to keep your own (in `~/.local/state/x4vr/profiles/`). ←→ on Profile loads

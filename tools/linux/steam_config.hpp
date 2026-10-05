@@ -78,12 +78,55 @@ inline std::optional<std::string> launch_options(const std::string& vdf, std::st
     if (!block.found) return std::nullopt;
     return block.value ? tokens[*block.value].text : std::string();
 }
+// Steam's install folders: XDG_DATA_HOME/Steam (the usual place) and the ~/.steam links other
+// installs use; each once.
+inline std::vector<std::filesystem::path> steam_roots() {
+    const char* home = std::getenv("HOME");
+    const char* data = std::getenv("XDG_DATA_HOME");
+    const std::filesystem::path h = home ? home : ".";
+    std::vector<std::filesystem::path> roots;
+    for (const auto& root : {(data && *data ? std::filesystem::path(data) : h/".local/share")/"Steam", h/".steam/steam", h/".steam/root"}) {
+        std::error_code error;
+        const auto canonical = std::filesystem::canonical(root, error);
+        if (!error && std::find(roots.begin(), roots.end(), canonical) == roots.end()) roots.push_back(canonical);
+    }
+    return roots;
+}
+// The library folders in Steam's steamapps/libraryfolders.vdf: libraryfolders > <n> > "path".
+inline std::vector<std::filesystem::path> library_paths(const std::string& vdf) {
+    std::vector<std::filesystem::path> paths;
+    const auto tokens = tokenize(vdf);
+    int depth = 0;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (tokens[i].kind == Token::Open) ++depth;
+        else if (tokens[i].kind == Token::Close) --depth;
+        else if (i+1 < tokens.size() && tokens[i+1].kind == Token::String) {
+            if (depth == 2 && same_key(tokens[i].text, "path")) paths.emplace_back(tokens[i+1].text);
+            ++i;
+        }
+    }
+    return paths;
+}
+inline std::string read_file(const std::filesystem::path& path);
+// Every Steam library folder on this machine (each Steam root, then the ones its
+// libraryfolders.vdf lists, e.g. on other drives).
+inline std::vector<std::filesystem::path> libraries() {
+    std::vector<std::filesystem::path> found;
+    const auto add = [&](const std::filesystem::path& p) {
+        std::error_code error;
+        const auto canonical = std::filesystem::canonical(p, error);
+        if (!error && std::find(found.begin(), found.end(), canonical) == found.end()) found.push_back(canonical);
+    };
+    for (const auto& root : steam_roots()) {
+        add(root);
+        for (const auto& p : library_paths(read_file(root/"steamapps/libraryfolders.vdf"))) add(p);
+    }
+    return found;
+}
 // Every Steam account's localconfig.vdf on this machine.
 inline std::vector<std::filesystem::path> local_configs() {
-    const char* home = std::getenv("HOME");
-    const std::filesystem::path h = home ? home : ".";
     std::vector<std::filesystem::path> found;
-    for (const auto& root : {h/".local/share/Steam", h/".steam/steam", h/".steam/root"}) {
+    for (const auto& root : steam_roots()) {
         std::error_code error;
         const auto canonical = std::filesystem::canonical(root/"userdata", error);
         if (error) continue;
