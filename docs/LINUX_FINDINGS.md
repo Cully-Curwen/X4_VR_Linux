@@ -501,6 +501,23 @@ watchpoints, on every thread, over 10 windows of 20 s (cockpit and other states)
   the pose on foot", but the mod sent the zero itself. Windows has a walking check
   (`freetrack_client.cpp`); Linux doesn't yet. Testing on foot needs `theater=0`.
 
+**The caller (`0xfeb...`, X4's per-frame camera input; disassembly 0xfeb000..0xfed400)** is the
+Linux counterpart of what the Windows notes call the bridge (Windows `0x9fd870`): keyboard look
+input into locals, then the tracker, then the camera controller `0x1933d00` with yaw/pitch/roll
+(`-0x100/-0xfc/-0xf8(%rbp)`) and position (`-0xf4/-0xf0/-0xb0`, z last):
+- `0xfeb6c5`: camera controller = `[[0x3db6948]+0x3e8]`; its mode `+0x880` == 0 goes to `0xfec070`:
+  `call 0x1e07060` (no ship); true and the tracker (manager `0x3db8938`, `+0x148`) not an eye
+  tracker (slot 8, `+0x40`) → the camera gets an all-zero pose (`0xfec0bc..0xfec0db`). That is
+  the on-foot zeroing. Patch: the `je 0xfeb6fc` at `0xfec077` → `jno` (byte `0xfec078` `0x84` →
+  `0x81`; `test` clears OF, so always taken).
+- `0xfeb6fc`/`0xfec1b0`: tracker slots 6 (`+0x30`) and 23 (`+0xb8`) gate the read; with mode 0,
+  slot 33 (angles) and slot 34 (position, the call at `0xfec248`) fill the locals.
+- `0xfeb71d`: `if (tracker slot 19 (+0x98) != 7 && z > 0) z = 0`: the backward clamp. Patch: the
+  `jbe` at `0xfeb73f` → `jmp` (`0x76` → `0xeb`).
+Both are applied by `apply_patches()` in `src/linux/pose_sender.cpp` (bytes checked first;
+`X4VR_PATCHES=0` turns them off). Windows' second on-foot patch (Camera::GetOffset without a
+movement controller) still needs its Linux counterpart, if on foot needs it.
+
 ## Mouse cursor
 
 X4's cursor is the X server's (Xwayland), not part of its swapchain, as on Windows. The Windows

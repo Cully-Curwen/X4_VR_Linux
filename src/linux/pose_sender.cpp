@@ -31,6 +31,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace x4vr::linux_port {
 namespace {
@@ -139,6 +140,52 @@ void install_eye_hook() {
     original_position = reinterpret_cast<TrackerPosition>(original);
     eye_hook = true;
     log("X4VR pose: eye-at-use hook installed (X4 9.00 VR::OpenTrack slot 34)");
+}
+
+// ---- Stage D and on foot: code patches ------------------------------------------------------
+// X4 9.00's per-frame camera input function (0xfeb..., docs/LINUX_FINDINGS.md, found with
+// X4VR_WATCH_HEAD) reads the tracker's angles (slot 33) and position (slot 34, called from
+// 0xfec248) and hands them to the camera controller (0x1933d00). The Windows mod's patches have
+// counterparts there; each is one byte, so it is atomic while X4 runs:
+// - Backward clamp: `if (tracker type != 7 && z > 0) z = 0` (0xfeb72b..0xfeb749) pinned leaning
+//   back and the rear eye. Its `jbe` past the zeroing (0xfeb73f) becomes `jmp`.
+// - On foot: with camera mode 0 and no ship (0xfec070, a call), X4 hands the camera a zero pose
+//   unless the tracker is an eye tracker. The `je` to the normal path after the call (0xfec077)
+//   becomes `jno`, always taken after `test`. Windows' second on-foot patch (the camera offset
+//   without a movement controller) has no Linux counterpart yet.
+struct CodePatch {
+    const char* what;
+    uintptr_t address;                // the expected bytes' start
+    std::vector<unsigned char> expected;
+    size_t at;                        // the patched byte
+    unsigned char value;
+};
+void apply_patch(const CodePatch& patch) {
+    const auto* code = reinterpret_cast<const unsigned char*>(patch.address);
+    if (!in_executable(patch.address, patch.expected.size())) { log(std::string("X4VR patch: ")+patch.what+" not in this X4; left unchanged"); return; }
+    auto expected = patch.expected;
+    if (std::memcmp(code, expected.data(), expected.size()) != 0) {
+        expected[patch.at] = patch.value;
+        log(std::string("X4VR patch: ")+patch.what+(std::memcmp(code, expected.data(), expected.size()) ? " doesn't match this X4 (only Linux 9.00 is known); left unchanged" : " already patched"));
+        return;
+    }
+    const long page = sysconf(_SC_PAGESIZE);
+    auto* target = const_cast<unsigned char*>(code)+patch.at;
+    auto* start = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(target) & ~uintptr_t(page-1));
+    if (mprotect(start, size_t(page), PROT_READ | PROT_WRITE | PROT_EXEC) != 0) { log(std::string("X4VR patch: ")+patch.what+": code not writable"); return; }
+    __atomic_store_n(target, patch.value, __ATOMIC_SEQ_CST);
+    mprotect(start, size_t(page), PROT_READ | PROT_EXEC);
+    log(std::string("X4VR patch: ")+patch.what+" patched");
+}
+void apply_patches() {
+    const char* off = std::getenv("X4VR_PATCHES");
+    if (off && *off == '0') { log("X4VR patch: code patches off (X4VR_PATCHES=0)"); return; }
+    // cmp $7,%eax; je +0x19; movss -0xb0(%rbp),%xmm1; pxor %xmm0,%xmm0; comiss %xmm0,%xmm1; jbe +8; movss %xmm0,-0xb0(%rbp)
+    apply_patch({"backward head-position clamp", 0xfeb72b,
+                 {0x83, 0xf8, 0x07, 0x74, 0x19, 0xf3, 0x0f, 0x10, 0x8d, 0x50, 0xff, 0xff, 0xff, 0x66, 0x0f, 0xef, 0xc0,
+                  0x0f, 0x2f, 0xc8, 0x76, 0x08, 0xf3, 0x0f, 0x11, 0x85, 0x50, 0xff, 0xff, 0xff}, 20, 0xeb});
+    // call 0x1e07060; test %al,%al; je 0xfeb6fc
+    apply_patch({"on-foot head-pose zeroing", 0xfec070, {0xe8, 0xeb, 0xaf, 0xe1, 0x00, 0x84, 0xc0, 0x0f, 0x84, 0x7f, 0xf6, 0xff, 0xff}, 8, 0x81});
 }
 
 void sender_loop() {
@@ -310,6 +357,6 @@ GameState game_state() {
 }
 void start_pose_sender() {
     static std::once_flag once;
-    std::call_once(once, [] { install_eye_hook(); std::thread(sender_loop).detach(); start_head_watch(); });
+    std::call_once(once, [] { apply_patches(); install_eye_hook(); std::thread(sender_loop).detach(); start_head_watch(); });
 }
 }
