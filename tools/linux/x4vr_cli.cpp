@@ -948,7 +948,6 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
     std::vector<std::string> done;
     const auto on = [&](std::string_view id) { return std::any_of(chosen.begin(), chosen.end(), [&](const auto& r) { return r.id == id && r.on; }); };
     std::error_code error;
-    if (launch_option().state != 0) done.push_back("Clear X4's launch option in Steam: X4 > Properties > General > Launch options.");
     if (on("desktop")) { std::filesystem::remove(desktop_file(), error); done.push_back("Desktop entry removed."); }
     if ((on("hud") || on("restore_x4")) && x4_running()) done.push_back("X4 is running: close it to remove the HUD extension or restore its settings.");
     else {
@@ -974,7 +973,8 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         }
     }
     if (on("state")) { std::filesystem::remove_all(state_dir(), error); done.push_back("Mod settings and logs deleted."); }
-    done.push_back("Last: delete the mod's folder (its code and build).");
+    done.push_back("Last: clear X4's launch option in Steam, remove the installed files (in the source folder:");
+    done.push_back("xargs rm -f < build/install_manifest.txt), then the source folder.");
     return done;
 }
 

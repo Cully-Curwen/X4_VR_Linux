@@ -67,16 +67,17 @@ Last updated: 2026-10-05.
 | HUD keeps its size (`.xpl` scripts) [12] | Not needed (`.lua` only) | Linux only, works | Linux X4 loads precompiled `.xpl`; the patched text goes there too. Protected UI Mode off. |
 | HUD rebuilt after game updates [12] | Yes, on Play | Works | `x4vr-run` runs `x4vr hud --refresh`. |
 | X4 settings check and fix [12] | Launcher buttons | Works | `x4vr check` / `fix-settings`, run by `x4vr-run`. Windowed mode on Linux. |
+| 2D and VR X4 settings kept apart [12] | No | Linux only, untested | `config.xml.x4vr-2d` / `-vr` swapped at VR launch and exit; HUD extension on only in VR. |
 | `pos_scale` / gain calibration | Calibrated | Not needed | Uses Windows' values; the cockpit looks slightly large but fine in use. |
 
 ## Tools and convenience
 
 | Feature | Windows | Linux | Notes |
 |---|---|---|---|
-| Launcher window (profiles, world scale, status panel) [2] | Yes | Missing | `stereo.txt`, `x4vr ctl` and the hotkeys instead; same settings. |
-| One-step start [2] | Launcher "Play" | Works | Steam launch option `x4vr-run %command%`. |
-| Bug report button (zip logs, GitHub issue) [2] | Yes | Missing | Logs in `~/.local/state/x4vr`. |
+| Launcher window (status, settings, play) [2, 11b] | Win32 window | Untested | `x4vr` terminal menu: status, VR settings, HUD, launch, recentre/flat while running. No profiles. |
+| One-step start [2, 11b] | Launcher "Play" | Untested | Menu "Launch X4 in VR": SteamVR if needed, then `steam -applaunch`. Steam's own Play starts the normal game. |
+| Bug report button (zip logs, GitHub issue) [2] | Yes | Untested | Menu / `x4vr report`: `~/x4vr-report-<time>.tar.gz` and the issue link. |
 | Crash recorder (minidumps, debug log) [2] | `crash_watch` | Missing | Exit status logged; system crash dumps via `coredumpctl`. |
-| Install / uninstall scripts | `install.ps1` / `uninstall.ps1` | Missing | Build with Nix; remove the launch option and `x4vr hud remove`. |
+| Install / uninstall | `install.ps1` / `uninstall.ps1` | Untested | CMake install (any distro) or Nix; menu "Copy the launch option" and "Add to the app launcher"; menu / `x4vr uninstall`. Steam's launch option is set and cleared by the user. |
 | Diagnostics (traces, dumps, pair stats) [13] | Full set | Partial | Linux: trace, submit trace, eye dump, pair stats, head watch (`X4VR_WATCH_HEAD`). No probe images or camera trace. |
 | Windows build check after Linux changes | — | Missing | Shared files changed by hand only; needs a Windows or CI build. |

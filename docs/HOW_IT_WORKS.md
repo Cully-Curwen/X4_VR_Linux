@@ -50,7 +50,7 @@ runtime. What differs is how each reaches X4:
 | Head-tracking input to X4 | X4 calls `FTGetData` in our `FreeTrackClient64.dll` (FreeTrack protocol, pull) | We send OpenTrack UDP packets to X4's OpenTrack receiver (push) |
 | Vulkan layer | `x4vr_observe.dll`, layer `VK_LAYER_X4VR_observe` | `libx4vr.so`, layer `VK_LAYER_X4VR` |
 | Shared runtime | `x4_openvr.dll`, loaded by both DLLs | Linked into `libx4vr.so` (one library) |
-| Start | `X4VRLauncher.exe` (+ `crash_watch.exe`) | `x4vr-run %command%` as Steam launch option |
+| Start | `X4VRLauncher.exe` (+ `crash_watch.exe`) | The `x4vr` terminal menu: Launch in VR runs `steam -applaunch`; the Steam launch option `x4vr-run %command%` applies the mod only then |
 | VR runtime | OpenVR (default) or OpenXR | OpenVR only (OpenXR is a stub) |
 | Finding X4 code | Byte signatures searched in `X4.exe` (`include/x4vr/code_scan.hpp`) | Byte patterns searched in X4's loaded code, and RTTI for the tracker's vtable (`src/linux/code_scan.hpp`); `x4vr patterns` checks a build |
 
@@ -108,7 +108,16 @@ runtime. What differs is how each reaches X4:
     `elf_classes_tests` and `probe_preload`.
 - Install: the layer manifest `VkLayer_x4vr.json` goes to `share/vulkan/explicit_layer.d`;
   `x4vr-run` and `x4vr` go to `bin`; the default `stereo.txt` goes to `share/x4vr`.
-- **Loading:** Steam launch option `x4vr-run %command%`. `linux/x4vr-run.in`:
+- **Starting:** the `x4vr` menu (section 11b) launches VR: SteamVR first if needed, then a
+  request file (`launch.request` in the state folder) and `steam -applaunch 392160`. Steam
+  starts X4 with its usual chain (reaper, the Steam Linux Runtime) and the launch option
+  `x4vr-run %command%`, which the user sets once (the menu copies it). The mod has to be loaded
+  there: `-applaunch` only asks the running Steam client, and the game inherits Steam's
+  environment.
+- **Loading:** `linux/x4vr-run.in`:
+  0. Without a fresh request (under 2 minutes; `X4VR_ALWAYS=1` skips the check) it runs
+     Steam's command untouched (`exec`): Steam's Play button starts the normal game. A VR
+     session that didn't restore X4's 2D settings (crash) gets them back first.
   1. Creates `~/.local/state/x4vr` (or `$X4VR_DIR`), copies the default `stereo.txt` there,
      and rotates `x4vr.log` and `stderr.log`.
   2. `unset StreamForOpenVR SteamStreamingVRPairedInvite`. With SteamVR running, Steam
@@ -119,11 +128,13 @@ runtime. What differs is how each reaches X4:
   4. Exports `X4VR_CAPTURE_DIR`, `X4VR_RUNTIME=openvr`, `VK_ADD_LAYER_PATH`,
      `VK_INSTANCE_LAYERS=VK_LAYER_X4VR` and `VK_LOADER_LAYERS_ENABLE`.
   5. Warns in the log if `vrserver` isn't running; SteamVR doesn't start on its own on Linux.
-  6. Runs `x4vr fix-settings --auto` (section 12) and `x4vr hud --refresh`, taking the game
-     folder from the `testandlaunch` argument.
+  6. Switches X4 to its VR settings (`x4vr settings-mode vr`, section 12), runs
+     `x4vr fix-settings --auto` and `x4vr hud --refresh` (the game folder from the
+     `testandlaunch` argument).
   7. Appends `-skipintro -nocputhrottle`, or `$X4VR_GAME_ARGS`.
   8. Runs X4 (not with `exec`) and logs its exit status. 0 is a clean quit; 134, 139, 143 and
      137 are an abort, a crash or a kill.
+  9. Switches X4 back to its 2D settings (`x4vr settings-mode 2d`).
 - **No crash_watch.** Logs go to `~/.local/state/x4vr/x4vr.log` (`linux_port::log`) and
   `stderr.log`.
 
@@ -568,6 +579,24 @@ breaks the calibration.
 `x4vr ctl` and the hotkeys edit `stereo.txt` atomically (`settings_control.hpp`, write to `.tmp`
 then rename). The mod picks up the change within 0.5 s.
 
+### 11b. The Linux menu (`x4vr`, `tools/linux/x4vr_cli.cpp`, `terminal_ui.hpp`)
+
+A full-screen terminal menu without libraries (termios raw mode, ANSI codes), Linux only. The
+counterpart of the Windows launcher window:
+- **Status:** Steam, SteamVR, the X4 build scan (`x4vr patterns`), the launch option (read
+  from Steam's `localconfig.vdf`, `steam_config.hpp`), X4's VR settings, HUD distance.
+- **Play:** Launch X4 in VR; while X4 runs, recentre and flat screen.
+- **VR settings:** checkboxes and values written to `stereo.txt`, live.
+- **HUD distance:** factor and apply/remove.
+- **Copy the launch option:** wl-copy, xclip or xsel, else OSC 52. The user pastes it in
+  Steam; the tool never writes Steam's files.
+- **Add to the app launcher:** `~/.local/share/applications/x4vr.desktop`, `Terminal=true`.
+- **Bug report:** `~/x4vr-report-<time>.tar.gz` with logs, settings, X4's `config.xml` and a
+  summary.
+- **Uninstall:** removes what the mod set up (section 15 of LINUX_GUIDE.md lists the rest).
+
+Each action is also a subcommand (`x4vr help`).
+
 ---
 
 ## 12. HUD distance and X4 settings
@@ -614,6 +643,17 @@ Required:
 | Resolution | Optional | From `X4VR_RESOLUTION=WxH` (0 = leave alone), else a SteamVR background query (`VR_Init(VRApplication_Background)`, recommended density over the headset tangents), else `x4_resolution.txt` written by the mod. Rounded up to 1920x1080, 2560x1440, 2880x1620, 3200x1800 or 3840x2160 |
 
 Both refuse to edit while X4 runs, and fix only keys present in the file.
+
+**2D and VR settings apart (Linux only, `x4vr settings-mode`).** VR needs settings 2D play
+doesn't want, so Linux keeps two copies next to `config.xml`:
+- **VR launch (`vr`):** `config.xml` → `config.xml.x4vr-2d`, then `config.xml.x4vr-vr` (if
+  any) → `config.xml`, then fixed for VR. A marker (`x4-settings.vr` in the state folder, with
+  the config path) records the VR session.
+- **X4 exits (`2d`):** `config.xml` → `config.xml.x4vr-vr`, `config.xml.x4vr-2d` → `config.xml`,
+  marker removed. If X4 crashed, the next start of either kind does this first.
+- The HUD extension is switched on for VR and off for 2D in X4's `content.xml`
+  (`<extension id="x4vr_hud" enabled=...>`), so 2D play and 2D saves aren't "modified".
+- `config.xml.x4vr-backup` stays the copy from before the first fix (uninstall can restore it).
 
 ---
 
@@ -697,6 +737,7 @@ The code defaults are in `runtime_bootstrap.hpp`. The shipped files override som
 | Variable | Effect |
 |---|---|
 | `X4VR_DIR` | settings and log directory (default `~/.local/state/x4vr`) |
+| `X4VR_ALWAYS=1` | every Steam launch starts in VR (default: only launches from the `x4vr` menu) |
 | `X4VR_STEAM_OVERLAY=1` | keep Steam's overlay |
 | `X4VR_FIX_SETTINGS=0` | don't touch X4's `config.xml` |
 | `X4VR_RESOLUTION=WxH` / `0` | X4 resolution, or leave it alone |
