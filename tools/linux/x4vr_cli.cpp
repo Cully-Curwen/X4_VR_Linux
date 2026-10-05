@@ -976,15 +976,41 @@ std::string make_report() {
 constexpr const char* issues_url = "https://github.com/Cully-Curwen/X4_VR_Linux/issues/new";
 
 // Uninstall: what the mod left, each as a choice.
+// The installed program (cmake --install): the files under the prefix this x4vr runs from.
+// A Nix install lives in /nix/store and goes with the source folder's result link: no box for it.
+// On NixOS (where a CMake install is possible too) the box starts unticked.
+std::filesystem::path install_prefix() { return program.parent_path().parent_path(); }
+bool nix_install() {
+    std::error_code error;
+    return std::filesystem::canonical(program, error).string().rfind("/nix/store/", 0) == 0;
+}
+bool nixos() { return std::filesystem::exists("/etc/NIXOS"); }
+std::vector<std::filesystem::path> installed_files() {
+    const auto prefix = install_prefix();
+    const std::filesystem::path lib = X4VR_INSTALL_LIBDIR;
+    return {prefix/"bin/x4vr", prefix/"bin/x4vr-run", prefix/"bin/x4vr-probe-run",
+            prefix/lib/"libx4vr.so", prefix/lib/"libx4vr_probe.so", prefix/lib/"libVkLayer_x4vr_probe.so",
+            prefix/"share/vulkan/explicit_layer.d/VkLayer_x4vr.json", prefix/"share/vulkan/explicit_layer.d/VkLayer_x4vr_probe.json",
+            prefix/"share/x4vr"};
+}
+// The source folder this was built from, if it is still there (a Nix build's isn't).
+std::filesystem::path source_dir() {
+    const std::filesystem::path dir = X4VR_SOURCE_DIR;
+    return std::filesystem::exists(dir/"linux/CMakeLists.txt") ? dir : std::filesystem::path();
+}
 struct Removal { std::string id, label; bool on; std::string help; };
 std::vector<Removal> removals() {
-    return {
+    std::vector<Removal> list{
         {"desktop", "Remove the desktop entry", true, desktop_file().string()},
         {"hud", "Remove the HUD distance extension", true, "X4 must be closed. Saves made with it stay flagged as modified."},
         {"restore_x4", "Restore X4's settings from before the mod", false, "config.xml.x4vr-backup, the first copy: also undoes 2D settings changed since."},
         {"x4_copies", "Delete the mod's copies of X4's settings", true, "config.xml.x4vr-2d, -vr and -backup. Your 2D settings stay in config.xml."},
         {"state", "Delete the mod's settings, profiles and logs", true, state_dir().string()},
     };
+    if (!nix_install())
+        list.push_back({"program", "Remove the installed program files", !nixos(),
+            "x4vr, x4vr-run, the mod and its data under "+install_prefix().string()+(nixos() ? ". Unticked on NixOS: tick it if you installed with CMake." : ".")});
+    return list;
 }
 std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
     std::vector<std::string> done;
@@ -1015,8 +1041,12 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         }
     }
     if (on("state")) { std::filesystem::remove_all(state_dir(), error); done.push_back("Mod settings and logs deleted."); }
-    done.push_back("Last: clear X4's launch option in Steam, remove the installed files (in the source folder:");
-    done.push_back("xargs rm -f < build/install_manifest.txt), then the source folder.");
+    if (on("program")) {
+        int removed = 0;
+        for (const auto& file : installed_files()) removed += int(std::filesystem::remove_all(file, error) > 0);
+        done.push_back("Program files removed from "+install_prefix().string()+" ("+std::to_string(removed)+").");
+    }
+    done.push_back("Then clear X4's launch option in Steam"+std::string(source_dir().empty() ? "." : " and delete the source folder (see below)."));
     return done;
 }
 
@@ -1121,9 +1151,10 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
         for (const auto& r : chosen) items.push_back(toggle(r.id, r.label, r.on, r.help, {}));
         items.push_back(action("go", "Remove the ticked items", "Your 2D settings and saves stay."));
         items.push_back(action("back", "Back"));
-        items.push_back(section("Then"));
-        items.push_back(info("Clear X4's launch option in Steam, and delete the installed files: in the source folder, "
-                             "xargs rm -f < build/install_manifest.txt"));
+        items.push_back(section("Then, by hand"));
+        items.push_back(info("1. In Steam: X4 > Properties > General > Launch options: clear the line."));
+        if (const auto source = source_dir(); !source.empty())
+            items.push_back(info("2. Delete the source folder: "+source.string()));
         Event e;
         if (!menu.step(items, e)) continue;
         if (e.kind == Event::Back || (e.kind == Event::Activate && e.id == "back")) return;

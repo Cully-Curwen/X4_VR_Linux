@@ -143,17 +143,15 @@ https://github.com/Cully-Curwen/X4_VR_Linux/issues.
    - the desktop entry;
    - the HUD extension (X4 closed);
    - the mod's copies of X4's settings (your 2D settings stay);
-   - the mod's settings and logs.
+   - the mod's settings, profiles and logs;
+   - the installed program files (`x4vr`, `x4vr-run`, the mod and its data under `~/.local`).
+     Unticked on NixOS, in case it was installed with Nix; not shown for a Nix install, which
+     goes with the source folder.
 
    "Restore X4's settings from before the mod" is off by default: it brings back the settings
    from before the first VR launch, undoing 2D changes made since.
 2. In Steam: clear X4's launch option (X4 > Properties > General > Launch options).
-3. Delete the installed files, which CMake listed while installing, then the source folder:
-
-   ```bash
-   cd ~/x4vr-src && xargs rm -f < build/install_manifest.txt
-   cd ~ && rm -rf ~/x4vr-src
-   ```
+3. Delete the source folder; the uninstall screen shows its path (e.g. `rm -rf ~/x4vr-src`).
 
 Saves made while the HUD extension was on stay flagged as modified; that is X4's own rule.
 

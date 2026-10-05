@@ -44,6 +44,9 @@ target_compile_options(x4vr_elf PRIVATE ${X4VR_WARNINGS})
 add_executable(x4vr ${X4VR_ROOT}/tools/linux/x4vr_cli.cpp)
 target_link_libraries(x4vr PRIVATE x4vr_vr x4vr_elf)
 target_compile_options(x4vr PRIVATE ${X4VR_WARNINGS})
+# For uninstalling: the library folder under the install prefix (lib or lib64) and the source
+# folder this was built from (shown, never deleted).
+target_compile_definitions(x4vr PRIVATE X4VR_INSTALL_LIBDIR="${CMAKE_INSTALL_LIBDIR}" X4VR_SOURCE_DIR="${X4VR_ROOT}")
 
 # The mod: Vulkan layer, VR runtime and OpenTrack pose sender in one library, loaded into X4 by
 # the Vulkan loader (x4vr-run). Its own copy of the C++ runtime, nothing exported but the layer's
