@@ -1,5 +1,6 @@
 # Notices shown in the x4vr menu: "issue: ..." (known problems) or "tip: ...", one per line.
 issue: OpenXR isn't supported on Linux yet: the mod uses SteamVR (OpenVR).
+issue: The Flatpak version of Steam isn't supported: its sandbox can't run x4vr-run. Use your distribution's Steam package.
 tip: Steam's own Play button starts the normal 2D game. Only "Launch X4 in VR" starts VR.
 tip: Your 2D settings are stored when X4 VR starts and put back when it closes cleanly (after a crash: at the next start).
 tip: Recentre with Ctrl+F12 (X4 focused) or SteamVR's recentre; look straight ahead first.

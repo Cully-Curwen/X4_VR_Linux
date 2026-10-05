@@ -7,7 +7,9 @@ How it works: [HOW_IT_WORKS.md](HOW_IT_WORKS.md). Feature status: [FEATURES.md](
 
 ## What you need
 
-- X4: Foundations, the native Linux version from Steam, started at least once.
+- X4: Foundations, the native Linux version from Steam, started at least once. Steam from your
+  distribution's package or Valve's installer: the Flatpak version isn't supported (its sandbox
+  can't run the mod's launcher).
 - SteamVR with your headset working.
 - To build: a C++20 compiler (GCC 13+ or Clang 16+), CMake 3.24+, git, and the Vulkan headers
   (package `vulkan-headers` or `libvulkan-dev`, depending on the distribution).
