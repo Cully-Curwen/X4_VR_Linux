@@ -612,8 +612,8 @@ Frame's eye view as about 2.88 x 2.89 tangent units (~110 x 110 degrees) against
 of 3.08 x 1.74 (~114 x 82 degrees; the vertical is X4's FOV at its maximum, so the top and bottom
 of each eye can't be filled at any resolution). Automatic picks 2880x1620 (2% over the 2827x1587
 needed). Custom 2640x1588 (about 5:3, as wide as the eye sees) works in the headset: ~10% fewer
-pixels, no visible loss reported. Still to confirm at 5:3: the world stays fixed when turning the
-head (X4 keeps its vertical view at any shape), and no strip at the outer edge of each eye.
+pixels, no visible loss reported. Confirmed at 5:3: the world stays fixed when turning the head
+(X4 keeps its vertical view at any shape) and no strip shows at the outer edge of each eye.
 Planned: automatic computes this shape itself (FEATURES.md).
 
 **X4's own UI scale (2026-10-05, idea).** X4's settings have a UI scaling option; its maximum is
