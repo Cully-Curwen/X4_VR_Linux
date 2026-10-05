@@ -419,7 +419,7 @@ What the Linux function does:
 | Patch | Windows 9.00 | Linux 9.00 |
 |---|---|---|
 | **Backward clamp:** X4 zeroes backward head position (z > 0), pinning leaning back and the rear eye when looking sideways | Signature `f3 0f 10 45 67 0f 57 05 ?? ?? ?? ?? 0f 2f c6 73 04 44 89 65 67` at `0x9fdb3e`, `jae` (+15) → `jmp` | `0xfeb73f` `jbe` (`76 08`) → `jmp` (`eb`); 30 bytes from `0xfeb72b` checked |
-| **Rival trackers:** TrackIR / Tobii come after FreeTrack in X4's pick; a foreign `NPClient64.dll` (vorpX) or an eye tracker replaced the headset pose | TrackIR `je` +11 and Tobii `je` +18 → `jmp` (`0xfa34fc`, `0xfa353c`) | Not ported; Linux has no TrackIR/Tobii DLL loading |
+| **Rival trackers:** TrackIR / Tobii come after FreeTrack in X4's pick; a foreign `NPClient64.dll` (vorpX) or an eye tracker replaced the headset pose | TrackIR `je` +11 and Tobii `je` +18 → `jmp` (`0xfa34fc`, `0xfa353c`) | Not needed: the Linux build has only OpenTrack (no TrackIR or Tobii trackers). The clash to avoid is another program sending to UDP 4242 (the real opentrack app) |
 | **On-foot zeroing:** without a ship, X4 hands the camera a zero pose | `je` at +101 of the bridge signature (`0x9fd9ae`) → `jmp` | `0xfec078`: `je` (`0f 84`) → `jno` (`0f 81`), always taken after `test` |
 | **On-foot camera offset:** `Camera::GetOffset` applies the head offset (`Camera+0x590`) only through a movement controller (`Camera+0x20`), null on foot | `0x97a413`: `je` displacement `0x276` → `0x18a`, into the offset block | `Camera::GetOffset` = `0x1929f70`: its `je` to the exit (`0x1929ffd`, `0f 84 13 02 00 00`) goes to the offset block `0x192a284` instead (displacement `0x213` → `0x281`, byte `0x1929fff`) |
 
@@ -702,7 +702,7 @@ cursor, hotkeys, SteamVR recentre and "Exit game", sizing from SteamVR, and the 
 3. HUD `.xpl` scaling (left as is).
 4. OpenXR.
 5. Build the Windows target once to confirm it is unchanged.
-6. Rival trackers: probably not needed on Linux.
+6. Rival trackers: not needed, the Linux build has only OpenTrack. Don't run the opentrack app (UDP 4242) alongside.
 
 ---
 
