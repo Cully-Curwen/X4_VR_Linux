@@ -622,3 +622,9 @@ screen). Idea: let the HUD extension only move the HUD back (`uianchor_*` positi
 size back from X4's UI scale instead of patching the scale factors in X4's UI scripts (Lua and the
 `.xpl` copies). That drops the part that needs Protected UI Mode off. X4 still reports "modified":
 any extension does. Not built; see FEATURES.md (Planned).
+
+**X4's UI scale and "modified" (2026-10-05, observation, to test).** In play, X4 reported the game
+as modified only because of the HUD scaling (the UI script edits), not the HUD's move. X4's UI scale
+setting says it doesn't apply to the HUD above 1. To do: confirm a move-only extension leaves X4
+unmodified, then find the check that keeps the HUD out of the UI scale and patch it in the binary,
+so X4's own scale sizes the HUD.

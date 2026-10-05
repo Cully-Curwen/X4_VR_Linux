@@ -1256,6 +1256,12 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
 // README "Set X4's options" as a screen, by where each setting is in X4, with the value X4 has
 // in its VR settings (config.xml during a VR session, else the VR copy; the head-tracking factors
 // and Protected UI Mode aren't in that file: checked by eye). Linux: windowed, not fullscreen + DSR.
+// HUD Scaled: chosen in the menu (stereo.txt hud_factor), else whether the extension is installed.
+bool hud_scaled() {
+    if (const double wanted = wanted_hud(); wanted >= 0) return wanted > 0;
+    const auto game = game_dir();
+    return !game.empty() && installed_hud(game/"extensions/x4vr_hud").count("scale") > 0;
+}
 void checklist_screen(x4vr::tui::Terminal& terminal) {
     using namespace x4vr::tui;
     Menu menu(terminal);
@@ -1287,9 +1293,10 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
                                   : "X4's VR settings are made at the first VR launch; until then check everything in X4."));
         items.push_back(section("Settings > Controls > Head Tracking Support"));
         row("OpenTrack Support", "On", {"enableopentrack"});
-        row("FreeTrack > Head Rotation Factor", "100 %", {});
-        row("FreeTrack > Head Position Factor", "100 %", {});
-        row("FreeTrack > Head Motion Smoothing", "any (the mod turns it off)", {});
+        items.push_back(section("Settings > Controls > OpenTrack"));
+        row("Head Motion Smoothing", "any (the mod turns it off)", {});
+        row("Head Rotation Factor", "100 %", {});
+        row("Head Position Factor", "100 %", {});
         items.push_back(section("Settings > Display"));
         row("Display Mode", "Windowed", {"fullscreen", "borderless"});
         row("Resolution", "", {"res_width"}); // the size checked (menu choice or automatic)
@@ -1303,9 +1310,11 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
         items.push_back(section("Settings > Graphics (recommended, not required)"));
         row("Chromatic Aberration", "Off", {"chromaticaberration"}, false);
         row("Distortion", "Off", {"distortion"}, false);
-        items.push_back(section("Settings > Extensions"));
-        row("Protected UI Mode", "Off (with HUD Scaled on)", {});
-        row("X4 VR HUD distance", "On (the mod sets it in VR)", {});
+        if (hud_scaled()) { // only matters with the HUD extension
+            items.push_back(section("Settings > Extensions (HUD Scaled is on)"));
+            row("Protected UI Mode", "Off", {});
+            row("X4 VR HUD distance", "On (the mod sets it in VR)", {});
+        }
         items.push_back(action("back", "Back"));
         Event e;
         if (!menu.step(items, e)) continue;
