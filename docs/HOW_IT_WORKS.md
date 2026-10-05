@@ -476,10 +476,17 @@ neither counts.
   - Those experiments are removed.
 - Moving the head on foot currently feels laggy. SteamVR reprojects each image with the pose it
   was sent with, but X4 doesn't apply that pose on foot.
-- **No walking detection yet.** With `theater=1`, on foot counts as "not controlling ship" and
-  goes to the theater screen. The sender also sends the centred pose then, so for on-foot tests
-  set `theater=0` after loading. With `theater=0` the main menu follows the head.
-- Not ported yet: the timing adjustments, `delay_walk` use and turn compensation.
+- Headset test (2026-10-05): on foot the view follows the head, walking works, the cockpit is
+  unchanged; "a tiny bit of lag".
+- **Walking detection** (`camera_on_foot`, sampled on X4's main thread, as on Windows): the
+  rendered camera `[[0x3db6948]+0x3e8]` in mode 0 (`+0x880`) without a movement controller
+  (`+0x18`), not controlling a ship, both on-foot patches in place. Walking stays in stereo with
+  `theater=1`; the game-state log line shows `walking=`.
+- **Timing, from Windows:** on foot the pose is predicted one frame (1/90 s) further, and poses
+  are recorded as walking, so the reprojection pose uses `delay_walk` (1) instead of `delay`.
+  Windows' eye flip at send (`eye ^ walking`) isn't ported: Linux picks the eye at use from the
+  frame half, and the eyes were right on foot. Not tested yet.
+- Not ported: turn compensation (mouse turns on foot).
 
 ---
 
@@ -497,8 +504,8 @@ shown flat on a virtual screen.
   || theater == 1 && (fullscreen menu || !(walking || controlling ship))
   ```
 
-  Linux has no `walking` term yet. While flat, the feed sends the centred identity pose, a
-  steady view.
+  Linux has the same `walking` term (section 9). While flat, the feed sends the centred
+  identity pose, a steady view.
 - The layer switches modes in `update_theater`. Switching to the theater screen takes several
   flat frames in a row (Windows 10, Linux 30; X4's pop-up hints flickered with 10 on Linux),
   and switching back takes 3 stereo frames.
@@ -689,15 +696,13 @@ ghosting), the frame half (no eye swaps or HUD doubling), the theater screen for
 cursor, hotkeys, SteamVR recentre and "Exit game", sizing from SteamVR, and the HUD distance
 (with the `.xpl` shrink).
 
-**Applied, needs checking in the headset:** the backward clamp patch.
+**Applied, needs checking in the headset:** the backward clamp patch, walking detection and
+on-foot timing.
+
+**Working on foot (2026-10-05):** head tracking with both Windows on-foot patches ported.
 
 **Open:**
-1. On foot:
-   - find the camera-offset counterpart;
-   - check that X4 reads the tracker on foot (`X4VR_WATCH_HEAD=2`);
-   - walking detection;
-   - on-foot timing (prediction, eye, `delay_walk`);
-   - turn compensation.
+1. On foot: check the ported timing in the headset (prediction, `delay_walk`); turn compensation.
 2. `pos_scale` and gain calibration on Linux. The cockpit looks slightly large.
 3. HUD `.xpl` scaling (left as is).
 4. OpenXR.

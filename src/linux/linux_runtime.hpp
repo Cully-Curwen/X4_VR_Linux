@@ -23,6 +23,7 @@ struct GameState {
     bool fullscreen_menu = false;
     bool controlling_ship = true;
     bool head_tracking = false; // X4 applies tracker input
+    bool walking = false;       // on foot with head tracking (the on-foot patches applied)
 };
 void sample_game_state(); // X4's main thread only
 GameState game_state();
