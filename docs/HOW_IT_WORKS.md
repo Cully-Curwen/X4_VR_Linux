@@ -489,7 +489,7 @@ neither counts.
   frame half means flips. Windows maps it with `half_xor_use=1` in the cockpit and
   `half_xor_walk=0` on foot. Linux keeps that difference: on foot the eye (at send and at use)
   is flipped by `half_xor_use ^ half_xor_walk`, 1 by default. `half_xor_walk=1` turns it off.
-  This was added after "depth feels off on foot" (2026-10-05); not tested yet.
+  Without it the eyes are swapped on foot (headset, 2026-10-05: worse for near objects).
 - Not ported: turn compensation (mouse turns on foot).
 
 ---
