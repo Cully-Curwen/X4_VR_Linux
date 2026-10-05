@@ -484,3 +484,14 @@ Searches for the Windows shape (sign flip with the constant at `0x2e245d0`, comp
 194 sites, none in camera code; callers of bridge slots 2 then 3 (54 sites) showed no clamp in the
 first candidates. The zeroing is downstream, wherever the camera reads the bridge's `+0x10`;
 finding it needs a different approach (e.g. watching the value at runtime). Paused 2026-10-04.
+
+## Mouse cursor
+
+X4's cursor is the X server's (Xwayland), not part of its swapchain, as on Windows. The Windows
+layer shows it as a SteamVR overlay, which doesn't display on the Frame. The Linux layer reads it
+over XCB (loaded at runtime, `src/linux/x11_cursor.cpp`): X4's window by `WM_CLASS` "X4" (or
+`_NET_WM_PID`), the pointer over it (`QueryPointer`), the image through XFixes
+(`GetCursorImage`; X4 hides the cursor with an empty image). The presenter copies the cursor's
+opaque pixels (alpha >= 128; a transfer can't blend) into each copied game image at the pointer's
+place, so it shows in the cockpit and on the virtual screen. Tested against Xvfb (window found by
+class, position and image read, hidden outside the window). `cursor=0` in stereo.txt turns it off.

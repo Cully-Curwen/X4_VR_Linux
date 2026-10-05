@@ -12,6 +12,7 @@
 //   (it applies on foot only, which needs the on-foot patches anyway);
 // - Ctrl+F12 for the theater screen: the recenter= counter (x4vr ctl recenter) until hotkeys exist.
 #include "linux_runtime.hpp"
+#include "x11_cursor.hpp"
 #include <x4vr/eye_targets.hpp>
 #include <x4vr/runtime_bootstrap.hpp>
 #include <x4vr/vulkan_extensions.hpp>
@@ -68,7 +69,7 @@ struct Device {
     F(CreateCommandPool) F(AllocateCommandBuffers) F(BeginCommandBuffer) F(EndCommandBuffer) \
     F(CmdPipelineBarrier) F(CmdCopyImage) F(CmdBlitImage) F(CreateSemaphore) F(CreateFence) \
     F(WaitForFences) F(ResetFences) F(GetSwapchainImagesKHR) F(CmdClearColorImage) \
-    F(CmdCopyImageToBuffer) F(GetBufferMemoryRequirements) F(GetFenceStatus) F(DestroyFence) F(DestroyCommandPool) \
+    F(CmdCopyImageToBuffer) F(CmdCopyBufferToImage) F(GetBufferMemoryRequirements) F(GetFenceStatus) F(DestroyFence) F(DestroyCommandPool) \
     F(CreateBuffer) F(AllocateMemory) F(BindBufferMemory) F(MapMemory) F(UnmapMemory)
 #define MEMBER(name) PFN_vk##name name{};
     DEVICE_FUNCTIONS(MEMBER)
@@ -396,6 +397,11 @@ struct Presenter {
     uint64_t frame{}, last_number{};
     uint32_t last_eye{};
     bool failed{}, ready{};
+    // X4's mouse cursor (x11_cursor.hpp), copied into the eye images: one upload buffer per
+    // command slot, reused once that slot's fence signalled.
+    std::array<VkBuffer, 3> cursor_buffer{};
+    std::array<VkDeviceMemory, 3> cursor_memory{};
+    std::array<void*, 3> cursor_mapped{};
     // Diagnostic readback of both eye textures, requested by creating dump.txt.
     VkBuffer dump_buffer{};
     VkDeviceMemory dump_memory{};
@@ -411,9 +417,10 @@ std::filesystem::path capture_root() {
     const char* root = std::getenv("X4VR_CAPTURE_DIR");
     return root ? std::filesystem::path(root) : std::filesystem::path();
 }
-void readback_prepare(const Device& d, VkDeviceSize size, VkBuffer& buffer, VkDeviceMemory& memory) {
+void readback_prepare(const Device& d, VkDeviceSize size, VkBuffer& buffer, VkDeviceMemory& memory,
+                      VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    info.size = size; info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    info.size = size; info.usage = usage;
     check(d.CreateBuffer(d.device, &info, nullptr, &buffer), "readback buffer");
     VkMemoryRequirements need{};
     d.GetBufferMemoryRequirements(d.device, buffer, &need);
@@ -516,6 +523,11 @@ void presenter_initialize(const Device& d, uint32_t family) {
         check(d.CreateSemaphore(d.device, &semaphore, nullptr, &p.copied[i]), "vkCreateSemaphore");
     }
     p.output_physical = d.runtime->output_device(d.instance);
+    for (uint32_t i = 0; i < 3; ++i) { // cursor upload buffers: 256x256 BGRA, X11's cursor size limit here
+        readback_prepare(d, 256*256*4, p.cursor_buffer[i], p.cursor_memory[i], VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        check(d.MapMemory(d.device, p.cursor_memory[i], 0, VK_WHOLE_SIZE, 0, &p.cursor_mapped[i]), "cursor buffer map");
+    }
+    x4vr::linux_port::start_cursor_reader();
     }
     std::ostringstream s;
     s << "X4VR presenter: eye targets ready (" << p.extent.width << 'x' << p.extent.height << " game image, "
@@ -563,6 +575,39 @@ bool update_theater(Presenter& p, const x4vr::StereoSettings& s, bool posed, boo
             : flat ? "X4VR theater: on (fullscreen menu)" : "X4VR theater: on (forced)");
     }
     return p.theater || posed;
+}
+// Copies the cursor's pixels (alpha >= 128; a transfer can't blend) into a game image at the
+// pointer's place, row runs as buffer-to-image regions. `image` is in TRANSFER_DST layout.
+// The cursor keeps its own pixel size; the game image may be scaled to `placed`.
+void draw_cursor(const Device& d, const Presenter& p, VkCommandBuffer command, VkImage image, uint32_t slot,
+                 const x4vr::linux_port::CursorState& c) {
+    const int x0 = p.offset.x+int(std::lround(double(c.x)*p.placed.width/c.window_w))-int(c.xhot);
+    const int y0 = p.offset.y+int(std::lround(double(c.y)*p.placed.height/c.window_h))-int(c.yhot);
+    std::vector<VkBufferImageCopy> regions;
+    for (uint32_t row = 0; row < c.height; ++row) {
+        const int y = y0+int(row);
+        if (y < 0 || y >= int(p.eye_extent.height)) continue;
+        for (uint32_t col = 0; col < c.width;) {
+            if ((c.bgra[size_t(row)*c.width+col] >> 24) < 128) { ++col; continue; }
+            uint32_t end = col;
+            while (end < c.width && (c.bgra[size_t(row)*c.width+end] >> 24) >= 128) ++end;
+            const int from = std::max(x0+int(col), 0), to = std::min(x0+int(end), int(p.eye_extent.width));
+            if (from < to) {
+                VkBufferImageCopy r{};
+                r.bufferOffset = (VkDeviceSize(row)*c.width+uint32_t(from-x0))*4;
+                r.bufferRowLength = c.width;
+                r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                r.imageOffset = {from, y, 0};
+                r.imageExtent = {uint32_t(to-from), 1, 1};
+                regions.push_back(r);
+            }
+            col = end;
+        }
+    }
+    if (regions.empty()) return;
+    barrier(d, command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT); // after the game image's copy
+    d.CmdCopyBufferToImage(command, p.cursor_buffer[slot], image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, uint32_t(regions.size()), regions.data());
 }
 // Returns the semaphore the real present must wait on, or null to present unchanged.
 // Runs on the present queue, under the shared-queue lock if that queue is shared.
@@ -621,6 +666,16 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     const auto source = p.images[info->pImageIndices[0]];
     barrier(d, command, source, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    // The cursor for this frame, staged in this slot's buffer (its last use finished: fence above).
+    auto cursor = settings.cursor ? x4vr::linux_port::cursor_state() : x4vr::linux_port::CursorState{};
+    if (cursor.visible && cursor.window_w && cursor.window_h && p.cursor_mapped[slot]) {
+        const bool rgba = p.format == VK_FORMAT_R8G8B8A8_UNORM || p.format == VK_FORMAT_R8G8B8A8_SRGB;
+        auto* out = static_cast<uint32_t*>(p.cursor_mapped[slot]);
+        for (size_t i = 0; i < cursor.bgra.size(); ++i) {
+            const uint32_t v = cursor.bgra[i];
+            out[i] = rgba ? (v & 0xff00ff00u) | ((v >> 16) & 0xffu) | ((v & 0xffu) << 16) : v;
+        }
+    } else cursor.visible = false;
     for (uint32_t target = 0; target < 2; ++target) {
         if (slot_of[target] == UINT32_MAX) continue;
         const auto next = slot_of[target];
@@ -648,6 +703,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
             blit.dstOffsets[1] = {p.offset.x+int32_t(p.placed.width), p.offset.y+int32_t(p.placed.height), 1};
             d.CmdBlitImage(command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
         }
+        if (cursor.visible) draw_cursor(d, p, command, image, slot, cursor);
         barrier(d, command, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
         p.filled[target][next] = p.fresh[target] = true;
