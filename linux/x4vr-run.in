@@ -53,6 +53,11 @@ if [ "${X4VR_STEAM_OVERLAY:-0}" != 1 ]; then
     export DISABLE_VK_LAYER_VALVE_steam_overlay_1=1
 fi
 export X4VR_CAPTURE_DIR="$dir"
+# Its own window class in VR (SDL3 reads SDL_APP_ID: the X11 class / Wayland app id), so window
+# manager rules can tell the VR window ("X4VR") from the 2D one ("X4"), e.g. Hyprland:
+#   windowrule = float, class:^(X4VR)$
+# X4VR_APP_ID sets another name; empty keeps X4's own.
+if [ -n "${X4VR_APP_ID-X4VR}" ]; then export SDL_APP_ID="${X4VR_APP_ID-X4VR}"; fi
 export X4VR_RUNTIME="${X4VR_RUNTIME:-openvr}"
 export VK_ADD_LAYER_PATH="@CMAKE_INSTALL_FULL_DATADIR@/vulkan/explicit_layer.d${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}"
 export VK_INSTANCE_LAYERS="VK_LAYER_X4VR${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS}"

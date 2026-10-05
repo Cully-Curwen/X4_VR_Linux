@@ -393,7 +393,7 @@ cmake --build build -j && cmake --install build
 The menu copies X4's launch option to paste in Steam, adds itself to the app launcher, and
 launches X4 in VR (starting SteamVR if needed). `x4vr-run` turns off Steam's own flat streaming
 of the game into the headset and Steam's overlay for X4 (both take X4's window away). Tiling
-window managers resize X4's window: make it floating.
+window managers resize X4's window: make it floating (in VR its class is `X4VR`, 2D keeps `X4`).
 
 **Streaming headsets (Steam Frame, and likely Steam Link):** SteamVR's link applies the left eye's
 pose to both eyes, so with alternate-eye rendering the right eye ghosts when you turn your head.

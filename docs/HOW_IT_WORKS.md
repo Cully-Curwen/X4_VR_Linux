@@ -672,7 +672,7 @@ Required:
 |---|---|---|
 | Config | `Documents\Egosoft\X4\<id>\config.xml` | `~/.config/EgoSoft/X4/<id>/config.xml` (newest) |
 | How | Launcher check/fix buttons, backup `config.xml.bak-<stamp>` | `x4vr check` / `x4vr fix-settings [--auto]`, run by `x4vr-run`; single backup `config.xml.x4vr-backup`; atomic write |
-| Display mode | Fullscreen, not borderless | **Windowed** when a resolution is set. Linux X4 honours `res_width`/`res_height` only in windowed mode; tiling window managers (Hyprland) resize the window, so float it |
+| Display mode | Fullscreen, not borderless | **Windowed** when a resolution is set. Linux X4 honours `res_width`/`res_height` only in windowed mode; tiling window managers (Hyprland) resize the window, so float it: `x4vr-run` sets `SDL_APP_ID=X4VR` in VR (X4 uses SDL3), so a rule can match the VR window's class `X4VR` and leave 2D (`X4`) alone |
 | Resolution | Optional | From `X4VR_RESOLUTION=WxH` (0 = leave alone), else a SteamVR background query (`VR_Init(VRApplication_Background)`, recommended density over the headset tangents), else `x4_resolution.txt` written by the mod. Rounded up to 1920x1080, 2560x1440, 2880x1620, 3200x1800 or 3840x2160 |
 
 Both refuse to edit while X4 runs, and fix only keys present in the file.

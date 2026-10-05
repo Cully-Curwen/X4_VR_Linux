@@ -133,8 +133,16 @@ The HUD extension is rebuilt from the new game files at the next VR launch.
   says why: `~/.local/state/x4vr/x4vr.log`.
 - **X4 closes right after starting in VR:** make a bug report (below).
 - **Black screen in the headset:** Ctrl+F11 shows the flat screen.
-- **Tiling window managers** (Hyprland, Sway, i3): X4 renders at its window's size. Make X4's
-  window (class `X4`) floating with a window rule, so it keeps the resolution set for VR.
+- **Tiling window managers** (Hyprland, Sway, i3): X4 renders at its window's size. In VR its
+  window has its own class, `X4VR` (2D keeps `X4`), so a rule can make only the VR window
+  floating, so it keeps the resolution set for VR. Hyprland (`hyprland.conf`):
+
+  ```
+  windowrule = float, class:^(X4VR)$
+  ```
+
+  Older Hyprland versions use `windowrulev2` with the same arguments. Check the class with
+  `hyprctl clients` while X4 runs in VR.
 
 **Bug reports:** the menu's **Make a bug report** packs logs, settings and a summary into
 `~/x4vr-report-<time>.tar.gz`. Attach it to a new issue at
