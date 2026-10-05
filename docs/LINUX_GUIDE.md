@@ -105,8 +105,8 @@ at 100 %, Protected UI Mode off).
 The menu's **Settings** are saved in `~/.local/state/x4vr/stereo.txt`. Each is tagged with when
 it applies:
 - **live**, at once, also while X4 runs: 3D, shared pose (keep it on for the Steam Frame), world
-  scale, head prediction, stutter protection, mouse cursor, flat screen mode, distance and width;
-- **next launch**, at the next VR start: HUD Scaled / HUD Scale Ratio and X4's resolution in VR
+  scale, head prediction, mouse cursor, flat screen mode, distance and width;
+- **next launch**, at the next VR start: stutter protection, HUD Scaled / HUD Scale Ratio and X4's resolution in VR
   (automatic picks the smallest 16:9 size that covers what SteamVR renders; Custom adds Resolution
   Width and Height rows for any size; it needn't be 16:9).
 

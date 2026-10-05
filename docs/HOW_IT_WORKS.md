@@ -598,9 +598,11 @@ shown greyed out: what doesn't apply isn't listed. Enter on a choice opens its o
   (`config/linux/notices.txt`, lines `issue: ...` / `tip: ...` / `help: ...`, the last in green).
 - **Settings**, each tagged with when it applies:
   - `live`: written to `stereo.txt`, which the mod re-reads every half second: 3D, shared pose,
-    world scale, head prediction, stutter protection (`async_submit`), cursor, flat screen mode,
-    distance and width.
-  - `next launch`: applied by `x4vr-run` at the next VR start: HUD distance (`hud_factor`, 1.0-6.0
+    world scale, head prediction, cursor, flat screen mode, distance and width.
+  - `next launch`: stutter protection (`async_submit`, latched by the layer at X4's first frame:
+    the OpenVR session can't move between the game's thread and the submission thread once
+    frames went through it, so switching while X4 ran froze the headset's image); applied by
+    `x4vr-run` at the next VR start: HUD distance (`hud_factor`, 1.0-6.0
     to one decimal, typed or ←→; `x4vr hud --refresh` builds or removes the extension) and X4's
     resolution (`x4_width`/`x4_height`, the Windows launcher's keys; 0: automatic; Custom shows
     Resolution Width and Height rows, like Windows' two boxes. Any aspect works: the layer

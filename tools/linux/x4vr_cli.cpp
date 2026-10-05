@@ -1298,7 +1298,7 @@ int menu(std::string_view start = {}) {
         items.push_back(number("predict", "Head prediction", num("predict", "0.035")*1000, 1, 0, 100, 0, "ms",
             "How far ahead the head pose is predicted for X4. Higher: less lag when turning your head, but more wobble.", live));
         items.push_back(toggle("async_submit", "Stutter protection", num("async_submit", "1") != 0,
-            "Sends an image to SteamVR every headset frame; a late game frame repeats the last image instead of a flash.", live));
+            "Sends an image to SteamVR every headset frame; a late game frame repeats the last image instead of a flash. Keep it on.", next));
         items.push_back(toggle("cursor", "Mouse cursor in VR", num("cursor", "1") != 0, "Draws the mouse cursor in the headset.", live));
         {
             const int theater = int(num("theater", "1"));
