@@ -464,8 +464,14 @@ neither counts.
   It stores the head position (4 floats) at **controller `+0x5a0`** and the rotation at
   **`+0x5b0`** (via `0x1e02200`). The controller is `[[0x3db6948]+0x3e8]`. This matches
   Windows' head offset at `Camera+0x590`.
-- `X4VR_WATCH_HEAD=3` watches who reads `+0x5a0..+0x5bf`. That reader is the Linux
-  `Camera::GetOffset`; the cockpit-vs-foot difference there gives the second on-foot patch.
+- `X4VR_WATCH_HEAD=3` (who reads `+0x5a0..+0x5bf`):
+  - **Cockpit:** `0x1628ce0` copies the offset to the camera and applies it through controller
+    `+0x18` (slot `0x138`), or writes identity without it. This is Windows' `Camera::GetOffset`
+    shape. It isn't called on foot.
+  - **On foot:** `0x11d9380` composes the offset into a transform it is given, 4 times a frame.
+  - `X4VR_WATCH_HEAD=4` records their callers, to find where the on-foot result goes.
+- Moving the head on foot currently feels laggy. SteamVR reprojects each image with the pose it
+  was sent with, but X4 doesn't apply that pose on foot.
 - **No walking detection yet.** With `theater=1`, on foot counts as "not controlling ship" and
   goes to the theater screen. The sender also sends the centred pose then, so for on-foot tests
   set `theater=0` after loading. With `theater=0` the main menu follows the head.
@@ -612,6 +618,8 @@ Request files in the capture directory are deleted when seen:
     (two sets of 4, alternating), plus the camera mode `[[0x3db6948]+0x3e8]+0x880`.
   - `X4VR_WATCH_HEAD=3`: watchpoints on the camera controller's head offset (`+0x5a0..+0x5bf`),
     re-opened when the controller changes.
+  - `X4VR_WATCH_HEAD=4`: execution breakpoints at the offset readers' entries that sample the
+    stack pointer and the 8 bytes there (the return address), to log who calls them.
   - Both record 10 windows of 20 s, labelled with the game state, and start with a self-test.
 - **Phase 0 tools:** `x4vr vr-check`, `udp-send`, `elf-classes` (RTTI → vtables), and the
   probes `x4vr-probe-run`.
@@ -664,7 +672,7 @@ The code defaults are in `runtime_bootstrap.hpp`. The shipped files override som
 | `X4VR_HOTKEYS=0` | no hotkeys |
 | `X4VR_EYE_AT_USE=0` | no eye-at-use hook |
 | `X4VR_PATCHES=0` | no code patches |
-| `X4VR_WATCH_HEAD=1` / `2` / `3` | head watch diagnostics |
+| `X4VR_WATCH_HEAD=1` … `4` | head watch diagnostics |
 | `X4VR_OPENTRACK_PORT` | default 4242 |
 | `X4VR_OT_YAW/_PITCH/_ROLL/_X/_Y/_Z` | axis sign and scale |
 

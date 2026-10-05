@@ -1,5 +1,5 @@
 // Diagnostic (X4VR_WATCH_HEAD=1; =2 for the camera input's branches, see path_sites; =3 for the
-// readers of the camera controller's head offset, see camera_controller): which X4 code uses the head-tracker input, for stage D
+// readers of the camera controller's head offset, see camera_controller; =4 for their callers): which X4 code uses the head-tracker input, for stage D
 // (backward clamp) and on foot (docs/LINUX_FINDINGS.md). X4 9.00's VR::OpenTrack object keeps the
 // head position at +0xd0 (3 floats, written by its update, slot 2) and the angles at +0x100; the
 // eye-at-use hook (pose_sender.cpp) hands this file the object and its accessor's callers.
@@ -11,6 +11,7 @@
 #include "linux_runtime.hpp"
 #include <linux/hw_breakpoint.h>
 #include <linux/perf_event.h>
+#include <asm/perf_regs.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -40,7 +41,9 @@ constexpr size_t ring_pages = 8; // data pages per event, plus one header page
 
 struct Watch { int fd{-1}; void* ring{}; size_t size{}; };
 
-int open_watch(pid_t tid, uintptr_t address, std::string& error, bool execute = false) {
+// `calls`: an execution breakpoint at a function's first instruction that also samples the
+// stack pointer and the 8 bytes there, the return address.
+int open_watch(pid_t tid, uintptr_t address, std::string& error, bool execute = false, bool calls = false) {
     perf_event_attr attr{};
     attr.type = PERF_TYPE_BREAKPOINT;
     attr.size = sizeof(attr);
@@ -49,6 +52,11 @@ int open_watch(pid_t tid, uintptr_t address, std::string& error, bool execute = 
     attr.bp_len = execute ? sizeof(long) : uint64_t(HW_BREAKPOINT_LEN_8);
     attr.sample_period = 1;
     attr.sample_type = PERF_SAMPLE_IP;
+    if (calls) {
+        attr.sample_type |= PERF_SAMPLE_REGS_USER | PERF_SAMPLE_STACK_USER;
+        attr.sample_regs_user = uint64_t(1) << PERF_REG_X86_SP;
+        attr.sample_stack_user = 8;
+    }
     attr.exclude_kernel = 1;
     attr.exclude_hv = 1;
     const int fd = int(syscall(SYS_perf_event_open, &attr, tid, -1, -1, PERF_FLAG_FD_CLOEXEC));
@@ -57,7 +65,8 @@ int open_watch(pid_t tid, uintptr_t address, std::string& error, bool execute = 
 }
 
 // Reads the samples a ring holds (PERF_RECORD_SAMPLE: header, then the IP) into `counts`.
-void drain(Watch& w, std::map<uint64_t, uint64_t>& counts) {
+// With `calls` (samples from open_watch(..., calls)), also counts (function, return address).
+void drain(Watch& w, std::map<uint64_t, uint64_t>& counts, std::map<std::pair<uint64_t, uint64_t>, uint64_t>* calls = nullptr) {
     auto* meta = static_cast<perf_event_mmap_page*>(w.ring);
     const uint64_t head = __atomic_load_n(&meta->data_head, __ATOMIC_ACQUIRE);
     uint64_t tail = meta->data_tail;
@@ -70,6 +79,14 @@ void drain(Watch& w, std::map<uint64_t, uint64_t>& counts) {
             uint64_t ip = 0;
             for (size_t i = 0; i < 8; ++i) reinterpret_cast<unsigned char*>(&ip)[i] = data[(tail+sizeof header+i) & mask];
             ++counts[ip];
+            // IP | REGS_USER (abi, sp) | STACK_USER (size, 8 bytes, dyn_size)
+            if (calls && header.size >= sizeof header+8*6) {
+                uint64_t v[5];
+                for (size_t k = 0; k < 5; ++k)
+                    for (size_t i = 0; i < 8; ++i) reinterpret_cast<unsigned char*>(&v[k])[i] = data[(tail+sizeof header+8*(k+1)+i) & mask];
+                // v: abi, sp, stack size, return address, dyn_size
+                if (v[0] && v[2] == 8 && v[4] == 8) ++(*calls)[{ip, v[3]}];
+            }
         }
         if (!header.size) break;
         tail += header.size;
@@ -105,8 +122,13 @@ constexpr Site path_sites[2][4] = {
      {0xfec0bc, "zero pose (the on-foot patch skips it)"}, {0xfec202, "tracker angles read"}},
     {{0xfec5c0, "no camera controller"}, {0xfeb6fc, "tracker gate (slot 6)"},
      {0xfec1b0, "tracker slot 23 check"}, {0xfec1f9, "mode 0 recheck passed"}}};
+// X4VR_WATCH_HEAD=4: who calls the head offset's readers (return addresses).
+constexpr Site call_sites[4] = {
+    {0x11d9380, "on-foot head-offset composer"}, {0x1628ce0, "cockpit head-offset reader"},
+    {0x1628dd0, "caller of the cockpit reader"}, {0x1dccd30, "camera getter (on-foot path)"}};
 const char* site_name(uint64_t ip) {
     for (const auto& set : path_sites) for (const auto& site : set) if (site.address == ip) return site.what;
+    for (const auto& site : call_sites) if (site.address == ip) return site.what;
     return nullptr;
 }
 // X4's camera controller, [[player global]+0x3e8] (0 without one). Its update (0x1933d00, head
@@ -139,13 +161,14 @@ void log_counts(const char* what, const std::map<uint64_t, uint64_t>& counts) {
 }
 
 void watcher(int kind) {
-    const bool path = kind == 2, offset = kind == 3;
+    const bool path = kind == 2, offset = kind == 3, callers_mode = kind == 4;
     log("X4VR watch: self-test: "+self_test());
     for (int i = 0; i < 1200 && !tracker.load(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    if (path || offset) {
+    if (path || offset || callers_mode) {
         if (!in_executable(path_sites[0][0].address, 1) || !in_executable(0x3db6948, 8)) { log("X4VR watch: not X4 9.00; no watch"); return; }
         log(path ? "X4VR watch: path mode: which branches X4's camera input takes (sets A and B in turn)"
-                 : "X4VR watch: offset mode: which code reads the camera controller's head offset (+0x5a0 position, +0x5b0 rotation)");
+                 : offset ? "X4VR watch: offset mode: which code reads the camera controller's head offset (+0x5a0 position, +0x5b0 rotation)"
+                 : "X4VR watch: caller mode: who calls the head offset's readers");
     }
     uintptr_t watched_camera = 0;
     auto* object = static_cast<char*>(tracker.load());
@@ -168,7 +191,8 @@ void watcher(int kind) {
         uintptr_t targets[4];
         const uintptr_t camera = offset ? camera_controller() : 0;
         for (int i = 0; i < 4; ++i)
-            targets[i] = path ? path_sites[(window-1) % 2][i].address : offset ? camera+head_offset_field+8*size_t(i) : data_targets[i];
+            targets[i] = path ? path_sites[(window-1) % 2][i].address : offset ? camera+head_offset_field+8*size_t(i) :
+                         callers_mode ? call_sites[i].address : data_targets[i];
         if (offset) {
             char line[96];
             std::snprintf(line, sizeof line, "X4VR watch: camera controller at 0x%llx", static_cast<unsigned long long>(camera));
@@ -184,6 +208,7 @@ void watcher(int kind) {
         std::map<int, int> modes; // camera mode -> samples
         log("X4VR watch: window "+std::to_string(window)+" of 10, "+label+(path ? (window % 2 ? ", set A" : ", set B") : "")+": recording 20 s");
         std::map<uint64_t, uint64_t> counts;
+        std::map<std::pair<uint64_t, uint64_t>, uint64_t> calls;
         { std::lock_guard lock(callers_mutex); callers.clear(); }
         float last[3];
         std::memcpy(last, object+field_position, sizeof last);
@@ -200,7 +225,7 @@ void watcher(int kind) {
                     for (const uintptr_t address : targets) {
                         std::string error;
                         Watch w;
-                        w.fd = open_watch(tid, address, error, path);
+                        w.fd = open_watch(tid, address, error, path || callers_mode, callers_mode);
                         if (w.fd < 0) { if (first_error.empty()) first_error = error; continue; }
                         w.size = size_t(page)*(ring_pages+1);
                         w.ring = mmap(nullptr, w.size, PROT_READ | PROT_WRITE, MAP_SHARED, w.fd, 0);
@@ -209,14 +234,14 @@ void watcher(int kind) {
                     }
                 }
             }
-            for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts);
+            for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts, &calls);
             float now[3];
             std::memcpy(now, object+field_position, sizeof now);
             if (std::memcmp(now, last, sizeof now)) { ++changes; std::memcpy(last, now, sizeof now); }
-            if (path || offset) ++modes[camera_mode()];
+            if (path || offset || callers_mode) ++modes[camera_mode()];
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
-        for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts);
+        for (auto& [tid, list] : watches) for (auto& w : list) drain(w, counts, &calls);
         size_t opened = 0;
         for (auto& [tid, list] : watches) opened += list.size();
         if (!opened) { log("X4VR watch: no watchpoint could be set ("+first_error+"); check /proc/sys/kernel/perf_event_paranoid"); break; }
@@ -224,11 +249,18 @@ void watcher(int kind) {
         std::snprintf(line, sizeof line, "X4VR watch: window %d: position changed %d times; now %.3f %.3f %.3f; %zu watchpoints", window,
                       changes, double(last[0]), double(last[1]), double(last[2]), opened);
         log(line);
-        if (path || offset) {
+        if (path || offset || callers_mode) {
             std::string seen;
             for (const auto& [mode, n] : modes) seen += " "+std::to_string(mode)+" ("+std::to_string(n)+"x)";
             log("X4VR watch: camera mode (+0x880, -1 no camera):"+seen);
-            log_counts(path ? "branch points reached (per frame on the game thread)" : "code addresses touched the head offset", counts);
+            log_counts(path ? "branch points reached (per frame on the game thread)" : offset ? "code addresses touched the head offset" :
+                       "functions called", counts);
+            for (const auto& [key, n] : calls) {
+                char line[160];
+                std::snprintf(line, sizeof line, "X4VR watch:   0x%llx called from 0x%llx  %llu times", static_cast<unsigned long long>(key.first),
+                              static_cast<unsigned long long>(key.second), static_cast<unsigned long long>(n));
+                log(line);
+            }
         } else
             log_counts("code addresses touched the tracker's position or angles", counts);
         std::map<uint64_t, uint64_t> copy;
@@ -251,7 +283,7 @@ void note_tracker_use(void* object, uintptr_t caller) {
 
 void start_head_watch() {
     const char* on = std::getenv("X4VR_WATCH_HEAD");
-    if (!on || *on < '1' || *on > '3') return;
+    if (!on || *on < '1' || *on > '4') return;
     watching = true;
     std::thread(watcher, *on-'0').detach();
 }

@@ -527,6 +527,18 @@ at `+0x5b0` (the counterpart of Windows' `Camera+0x590`). `X4VR_WATCH_HEAD=3` fi
 readers. A search for Windows' `Camera::GetOffset` opening (movement-controller check, then the
 camera manager `0x3daab80`) found nothing.
 
+**Head offset readers (`X4VR_WATCH_HEAD=3`).** Written every frame by `0x1935b9b` (position) and
+`0x1e02200` (rotation), in the cockpit and on foot. Read:
+- In the cockpit by `0x1628ce0` (called from `0x1628dd0`, which runs only when
+  `[[0x3db6948]+0x238]` is set). It copies controller `+0x5a0..+0x5df` to the camera
+  `+0x280..+0x2b0`, then, if controller `+0x18` is set, hands it to that object's slot `0x138`.
+  Without it, it writes identity. This is the shape of Windows' `Camera::GetOffset`
+  (controller `+0x20`). It is not called on foot.
+- On foot by `0x11d9380` (4 calls per frame). With camera mode 0 and no ship (`0x1e07060`), and
+  its `+0x68` flag set, it takes the head offset (via `0x1dccd30`) and composes it into, or
+  replaces, the transform it is given. Which transform is unknown: `X4VR_WATCH_HEAD=4` records
+  the callers (return addresses) of `0x11d9380`, `0x1628ce0`, `0x1628dd0` and `0x1dccd30`.
+
 ## Mouse cursor
 
 X4's cursor is the X server's (Xwayland), not part of its swapchain, as on Windows. The Windows
