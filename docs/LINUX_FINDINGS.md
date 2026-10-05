@@ -589,3 +589,9 @@ after checking a `+0x18`/`+0x20` member of the same object.
 This is Windows' 0x97a300 check for check. The patch is the same: the exit `je` (displacement
 byte `0x1929fff`, `0x13` → `0x81`) goes to `0x192a284`. The gate experiments
 (`X4VR_ONFOOT_GATE`) and the `0x1628d49` reader patch are removed.
+
+**Turn compensation (2026-10-05).** Not needed on Linux with `shared_pose=1`: no double vision
+when turning with the mouse on foot. The harshness reported was X4's turn speed, its own input
+setting. Windows' method (rotate the older eye's submitted pose by the camera turn) can't work on
+the Steam Frame, which reprojects both eyes with the left eye's pose. If ever needed, shift the
+other eye's image by the turn while copying it.

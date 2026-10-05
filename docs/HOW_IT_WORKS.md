@@ -491,7 +491,14 @@ neither counts.
   is flipped by `half_xor_use ^ half_xor_walk`, 1 by default. `half_xor_walk=1` turns it off.
   Without it the eyes are swapped on foot (headset, 2026-10-05: worse for near objects); with it,
   on foot "feels better" (confirmed).
-- Not ported: turn compensation (mouse turns on foot).
+- **Turn compensation isn't needed on Linux with the shared pose** (`shared_pose=1`, the
+  default). The headset test (2026-10-05) showed no double vision when turning with the mouse on
+  foot; what felt harsh was X4's own turn speed, set in X4's input options.
+  - The Windows method can't work on the Steam Frame anyway: it corrects one eye's submitted
+    pose, and the Frame reprojects both eyes with the left eye's pose.
+  - If it is ever needed (another headset, `shared_pose=0`), the Linux way would be to shift the
+    other eye's image by the camera turn between the two frames while copying it, using
+    Windows' camera-uniform reading (`track_camera`).
 
 ---
 
@@ -669,7 +676,7 @@ The code defaults are in `runtime_bootstrap.hpp`. The shipped files override som
 | `pace`, `release_late`, `pair`, `pair_wait`, `submit_pose`, `handoff` | 1/1/0/1/1/0 | pacing / submit | | | yes |
 | `theater`, `theater_distance`, `theater_width` | 1 / 2 / 2.2 | theater screen | | | yes |
 | `cursor`, `cursor_distance` | 1 / 5 | cursor | | | `cursor` only |
-| `turn_comp` | 1 | turn compensation | | | no |
+| `turn_comp` | 1 | turn compensation | | | no (not needed with `shared_pose`) |
 | `synth`, `synth_rate`, `synth_base`, `synth_alt` | 0 | calibration poses | | | yes |
 | `hitch_ms`, `hitch_every` | 0 / 90 | stall simulation | | | yes |
 
@@ -709,7 +716,8 @@ timing (less lag) and the on-foot eye flip.
 **Working on foot (2026-10-05):** head tracking with both Windows on-foot patches ported.
 
 **Open:**
-1. On foot: turn compensation (mouse turns while walking).
+1. Snap turning on foot (comfort), only if X4's own look sensitivity isn't enough. Turn
+   compensation isn't needed with `shared_pose` (section 9).
 2. `pos_scale` and gain calibration on Linux. The cockpit looks slightly large.
 3. HUD `.xpl` scaling (left as is).
 4. OpenXR.
