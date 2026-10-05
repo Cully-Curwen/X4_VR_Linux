@@ -31,7 +31,7 @@ This installs `x4vr` (the menu) and `x4vr-run` (the launcher Steam uses) in `~/.
 the mod and its defaults in `~/.local/share`. OpenVR's client library is built into the mod from
 that source, so no OpenVR package is needed. Any install prefix works; the paths below follow it.
 
-A Nix expression is also included (`nix-build` in the source folder).
+A Nix expression is also included (`nix-build` in the source directory).
 
 ## 2. First-time setup
 
@@ -146,12 +146,12 @@ https://github.com/Cully-Curwen/X4_VR_Linux/issues.
    - the mod's settings, profiles and logs;
    - the installed program files (`x4vr`, `x4vr-run`, the mod and its data under `~/.local` or
      wherever `x4vr` runs from), ticked when any are found. A Nix install in `/nix/store` goes
-     with the source folder instead.
+     with the GitHub clone directory instead.
 
    "Restore X4's settings from before the mod" is off by default: it brings back the settings
    from before the first VR launch, undoing 2D changes made since.
 2. In Steam: clear X4's launch option (X4 > Properties > General > Launch options).
-3. Delete the GitHub clone folder; the uninstall screen shows its path (e.g. `rm -rf ~/x4vr-src`).
+3. Delete the GitHub clone directory; the uninstall screen shows its path (e.g. `rm -rf ~/x4vr-src`).
 
 Saves made while the HUD extension was on stay flagged as modified; that is X4's own rule.
 

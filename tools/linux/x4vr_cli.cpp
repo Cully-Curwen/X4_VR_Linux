@@ -97,13 +97,13 @@ void usage() {
         "      2.5 is a good start): writes the extension extensions/x4vr_hud, built from your own game\n"
         "      files, as the Windows launcher does. X4 must be closed. --refresh applies the factor chosen\n"
         "      in the menu (stereo.txt hud_factor) and rebuilds it after a game update (x4vr-run does\n"
-        "      that before every VR start). Game folder: $X4VR_GAME_DIR, else\n"
+        "      that before every VR start). Game directory: $X4VR_GAME_DIR, else\n"
         "      Steam's default library. X4 then counts as modified (no online features; saves made\n"
         "      with it stay flagged).\n"
         "\n"
         "  patterns [path to the X4 executable]\n"
         "      Finds the X4 code the mod patches and hooks by its bytes, as the mod does at startup,\n"
-        "      and prints where (default: X4 in the game folder). A site it doesn't find stays\n"
+        "      and prints where (default: X4 in the game directory). A site it doesn't find stays\n"
         "      unpatched in the game; the mod logs the same list (\"X4VR scan\").\n"
         "\n"
         "  game-grep <text-regex> [path-regex]\n"
@@ -534,7 +534,7 @@ int hud(const std::vector<std::string_view>& args) {
     const bool refresh = args[0] == "--refresh";
     if (game.empty()) {
         if (refresh) return 0;
-        std::cerr << "X4's game folder not found: set X4VR_GAME_DIR to the folder with 01.cat.\n";
+        std::cerr << "X4's game directory not found: set X4VR_GAME_DIR to the directory with 01.cat.\n";
         return 1;
     }
     const auto extension = game/"extensions/x4vr_hud";
@@ -587,7 +587,7 @@ int hud(const std::vector<std::string_view>& args) {
 int game_grep(const std::vector<std::string_view>& args) {
     if (args.empty() || args.size() > 2) { usage(); return 2; }
     const auto game = game_dir();
-    if (game.empty()) { std::cerr << "X4's game folder not found: set X4VR_GAME_DIR to the folder with 01.cat.\n"; return 1; }
+    if (game.empty()) { std::cerr << "X4's game directory not found: set X4VR_GAME_DIR to the directory with 01.cat.\n"; return 1; }
     std::regex text, path_filter;
     try {
         text = std::regex(std::string(args[0]));
@@ -1034,7 +1034,7 @@ std::vector<Removal> removals() {
     std::string where;
     for (const auto& p : places) where += (where.empty() ? "" : ", ")+p.string();
     list.push_back({"program", "Remove the installed program files", !files.empty(),
-        files.empty() ? "None found outside /nix/store (a Nix install goes with the source folder)."
+        files.empty() ? "None found outside /nix/store (a Nix install goes with the GitHub clone directory)."
                       : "x4vr, x4vr-run, the mod and its data ("+std::to_string(files.size())+" found) under "+where+"."});
     return list;
 }
@@ -1072,7 +1072,7 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         for (const auto& file : installed_files()) removed += int(std::filesystem::remove_all(file, error) > 0);
         done.push_back("Program files removed: "+std::to_string(removed)+".");
     }
-    done.push_back("Then clear X4's launch option in Steam and delete the GitHub clone folder (see below).");
+    done.push_back("Then clear X4's launch option in Steam and delete the GitHub clone directory (see below).");
     return done;
 }
 
@@ -1180,7 +1180,7 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
         items.push_back(section("Then, by hand"));
         items.push_back(info("1. In Steam: X4 > Properties > General > Launch options: clear the line."));
         const auto source = source_dir();
-        items.push_back(info("2. Delete the GitHub clone folder"+(source.empty() ? std::string(" you built the mod from.")
+        items.push_back(info("2. Delete the GitHub clone directory"+(source.empty() ? std::string(" you built the mod from.")
                                                                                   : ": "+source.string())));
         Event e;
         if (!menu.step(items, e)) continue;
