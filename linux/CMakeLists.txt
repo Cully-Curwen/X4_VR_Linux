@@ -138,6 +138,11 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   target_link_options(code_scan_tests PRIVATE -no-pie)
   add_test(NAME code_scan COMMAND code_scan_tests)
 
+  add_executable(steam_config_tests ${X4VR_ROOT}/tests/linux/steam_config_tests.cpp)
+  target_include_directories(steam_config_tests PRIVATE ${X4VR_ROOT}/tools/linux)
+  target_compile_options(steam_config_tests PRIVATE ${X4VR_WARNINGS})
+  add_test(NAME steam_config COMMAND steam_config_tests)
+
   add_executable(probe_socket_fixture ${X4VR_ROOT}/tests/linux/probe_socket_fixture.cpp)
   target_include_directories(probe_socket_fixture PRIVATE ${X4VR_ROOT}/src/linux)
   target_compile_options(probe_socket_fixture PRIVATE ${X4VR_WARNINGS})
