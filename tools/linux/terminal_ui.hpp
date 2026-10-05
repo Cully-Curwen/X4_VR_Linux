@@ -37,7 +37,7 @@ public:
     Terminal(const Terminal&) = delete;
     Terminal& operator=(const Terminal&) = delete;
     bool ok() const { return ok_; }
-    void put(const std::string& text) { ::write(STDOUT_FILENO, text.data(), text.size()); }
+    void put(const std::string& text) { (void)!::write(STDOUT_FILENO, text.data(), text.size()); }
     int columns() const { winsize w{}; return ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col ? w.ws_col : 80; }
     int rows() const { winsize w{}; return ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_row ? w.ws_row : 24; }
     // The next key, or None after `timeout_ms` (-1: wait).
