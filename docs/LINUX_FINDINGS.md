@@ -576,3 +576,16 @@ then `[manager+0x3d0]`. The offset block is `0x97a5a8` and the exit `0x97a694`. 
 function exits before it reads the head offset, so the read watch (mode 3) can't see its Linux
 counterpart. Next: a static search for code that reads `+0x5a0` (and `+0x5b0`) of a camera
 after checking a `+0x18`/`+0x20` member of the same object.
+
+**Camera::GetOffset found (2026-10-05).** `0x1929f70(camera, out, …)`:
+- checks camera `+0x780`/`+0x788`, then the mode (`+0x880`) and calls `0x18a0090`;
+- then `mov 0x18(%rbx),%r12; test; je 0x192a216` (no movement controller → return);
+- compares camera `+0x780` with `[0x3db6948]+0x238` (fallback `0x3db6c00`) and the camera with
+  `[0x3db6948]+0x3e8`. Equal → `0x192a2dd` (`0x1de5df0`, then `0x1628210`: seated returns).
+  Otherwise, through the movement controller's slot `0x138`.
+- composes the head offset (`+0x5a0..+0x5df`) into `out` at `0x192a15e`. The blocks
+  `0x192a284` and `0x192a2b6` reach it without a movement controller.
+
+This is Windows' 0x97a300 check for check. The patch is the same: the exit `je` (displacement
+byte `0x1929fff`, `0x13` → `0x81`) goes to `0x192a284`. The gate experiments
+(`X4VR_ONFOOT_GATE`) and the `0x1628d49` reader patch are removed.

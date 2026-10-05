@@ -152,14 +152,11 @@ void install_eye_hook() {
 // - On foot: with camera mode 0 and no ship (0xfec070, a call), X4 hands the camera a zero pose
 //   unless the tracker is an eye tracker. The `je` to the normal path after the call (0xfec077)
 //   becomes `jno`, always taken after `test`.
-// - On foot, camera offset (Windows' second on-foot patch, Camera::GetOffset): the camera update
-//   0x1646510 composes the head offset (camera controller +0x5a0..+0x5df, copied by 0x1628ce0)
-//   only when 0x1628210 says so: in a ship, or with the controller's movement controller (+0x18).
-//   On foot neither, so its `jne` to the reader (0x1646544) could become `jno`. Tested: the view
-//   then follows the head on foot, but the camera moves to the cockpit seat and the player can't
-//   walk. Past the gate, 0x1646510 re-parents the camera for the seat, so the gate is only an
-//   experiment (X4VR_ONFOOT_GATE=1). The reader writes identity without a movement controller:
-//   its `je` there (0x1628d49) goes to the return (0x1628dbe) instead, keeping the copied offset.
+// - On foot, camera offset (Windows' second on-foot patch): Camera::GetOffset (0x1929f70, Windows
+//   0x97a300) exits without a movement controller (camera +0x18, Windows +0x20; null on foot)
+//   before composing the head offset (camera +0x5a0..+0x5df, Windows +0x590). Its `je` to the
+//   exit (0x1929ffd -> 0x192a216) goes to the block that composes the offset without it
+//   (0x192a284 -> 0x192a15e, Windows 0x97a5a8) instead: displacement 0x213 -> 0x281.
 struct CodePatch {
     const char* what;
     uintptr_t address;                // the expected bytes' start
@@ -193,23 +190,14 @@ void apply_patches() {
                   0x0f, 0x2f, 0xc8, 0x76, 0x08, 0xf3, 0x0f, 0x11, 0x85, 0x50, 0xff, 0xff, 0xff}, 20, 0xeb});
     // call 0x1e07060; test %al,%al; je 0xfeb6fc
     apply_patch({"on-foot head-pose zeroing", 0xfec070, {0xe8, 0xeb, 0xaf, 0xe1, 0x00, 0x84, 0xc0, 0x0f, 0x84, 0x7f, 0xf6, 0xff, 0xff}, 8, 0x81});
-    // call 0x1628210; test %al,%al; jne 0x1646740
-    // X4VR_ONFOOT_GATE=2, the Windows patch's own place: 0x1628210 is the opening of Windows'
-    // Camera::GetOffset as a predicate (Windows: camera+0x20 movement controller, camera+0x770 vs
-    // [camera manager+0x230], [manager+0x3d0]; Linux: controller +0x18, +0x780 vs [player+0x238],
-    // [player+0x3e8]). Windows jumps past its "no movement controller" exit; here that case
-    // (`je 0x1628250` at 0x1628287) returns true instead (0x1628297: mov $1,%eax; ret).
-    const char* gate = std::getenv("X4VR_ONFOOT_GATE");
-    if (gate && *gate == '2')
-        apply_patch({"on-foot camera offset (no movement controller passes)", 0x1628280,
-                     {0x48, 0x8b, 0x78, 0x18, 0x48, 0x85, 0xff, 0x74, 0xc7, 0x48, 0x83, 0xc7, 0x58, 0xe8, 0x1e, 0xdc, 0x7b, 0x00,
-                      0x48, 0x85, 0xc0, 0x74, 0xcd, 0xb8, 0x01, 0x00, 0x00, 0x00}, 8, 0x0e});
-    if (gate && *gate == '1') apply_patch({"on-foot camera offset (gate)", 0x164653d, {0xe8, 0xce, 0x1c, 0xfe, 0xff, 0x84, 0xc0, 0x0f, 0x85, 0xf6, 0x01, 0x00, 0x00}, 8, 0x81});
-    // test %rbp,%rbp; je 0x1628d88 (identity) -> 0x1628dbe: pop %rbx; pop %rbp; pop %r12; ret
-    if (in_executable(0x1628dbe, 5) && !std::memcmp(reinterpret_cast<const void*>(0x1628dbe), "\x5b\x5d\x41\x5c\xc3", 5))
-        apply_patch({"on-foot camera offset (no movement controller)", 0x1628d46, {0x48, 0x85, 0xed, 0x74, 0x3d}, 4, 0x73});
+    // mov 0x18(%rbx),%r12; test %r12,%r12; je 0x192a216 -> 0x192a284: movaps 0x10/0x20/0x30/0x0(%rbp),
+    // %xmm6/7/5/8; jmp 0x192a15e
+    if (in_executable(0x192a284, 22) &&
+        !std::memcmp(reinterpret_cast<const void*>(0x192a284),
+                     "\x0f\x28\x75\x10\x0f\x28\x7d\x20\x0f\x28\x6d\x30\x44\x0f\x28\x45\x00\xe9\xc4\xfe\xff\xff", 22))
+        apply_patch({"on-foot camera offset", 0x1929ff6, {0x4c, 0x8b, 0x63, 0x18, 0x4d, 0x85, 0xe4, 0x0f, 0x84, 0x13, 0x02, 0x00, 0x00}, 9, 0x81});
     else
-        log("X4VR patch: on-foot camera offset (no movement controller) doesn't match this X4; left unchanged");
+        log("X4VR patch: on-foot camera offset doesn't match this X4 (only Linux 9.00 is known); left unchanged");
 }
 
 void sender_loop() {
