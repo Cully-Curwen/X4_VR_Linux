@@ -1,7 +1,8 @@
 # Notices shown in the x4vr menu: "issue: ..." (known problems) or "tip: ...", one per line.
 issue: OpenXR isn't supported on Linux yet: the mod uses SteamVR (OpenVR).
-issue: The cockpit can look slightly larger than life (scale not calibrated on Linux); World scale changes it.
-tip: Steam's own Play button starts the normal 2D game with your 2D settings. Only "Launch X4 in VR" starts VR.
+tip: Steam's own Play button starts the normal 2D game. Only "Launch X4 in VR" starts VR.
+tip: Your 2D settings are stored when X4 VR starts and put back when it closes cleanly (after a crash: at the next start).
 tip: Recentre with Ctrl+F12 (X4 focused) or SteamVR's recentre; look straight ahead first.
+tip: Toggle flat screen mode with Ctrl+F11.
+tip: Modified warning: changing the HUD has X4 flagged as modified. Turn Protected UI Mode off (Settings > Extensions).
 tip: Tiling window managers (Hyprland, Sway, i3): make X4's window (class X4) floating, else it renders at the tile's size.
-tip: HUD farther away: X4 counts as modified during VR sessions only. Turn Protected UI Mode off in X4's Extension Settings.

@@ -584,7 +584,8 @@ then rename). The mod picks up the change within 0.5 s.
 A full-screen terminal menu without libraries (termios raw mode, ANSI codes), Linux only. The
 counterpart of the Windows launcher window. One screen in sections, rebuilt every 2 s so it
 always shows what is true now; the selected item's description shows at the bottom. Nothing is
-shown greyed out: what doesn't apply isn't listed.
+shown greyed out: what doesn't apply isn't listed. Enter on a choice opens its options as a list
+(←→ cycles them in place). Only the Quit item closes it: Esc and Ctrl+C don't.
 - **Status:** SteamVR, the X4 build scan (`x4vr patterns`), the launch option (read from
   Steam's `localconfig.vdf`, `steam_config.hpp`), X4's VR settings, and X4: not running, in 2D,
   or in VR with the headset's frame rate, late and repeated frames from the newest
@@ -598,13 +599,16 @@ shown greyed out: what doesn't apply isn't listed.
     distance and width.
   - `next launch`: applied by `x4vr-run` at the next VR start: HUD distance (`hud_factor`, 1.0-6.0
     to one decimal, typed or ←→; `x4vr hud --refresh` builds or removes the extension) and X4's
-    resolution (`x4_width`/`x4_height`, the Windows launcher's keys; 0: automatic).
+    resolution (`x4_width`/`x4_height`, the Windows launcher's keys; 0: automatic; Custom...
+    takes any width x height, like Windows' two boxes).
   - **Profiles:** sets of those settings. Built in: `share/x4vr/profiles/*.txt` (Steam Frame);
     the player's own: `<state>/profiles/*.txt`, made with "Save as profile". The last loaded or
     saved is named in `<state>/profile`; "· changed" marks settings that differ from it.
   - The VR runtime is shown as text: SteamVR (OpenVR) is the only one on Linux.
 - **X4 settings for VR:** the checks the VR copy of `config.xml` fails (required / recommended,
-  with the current value); `x4vr-run` fixes them at the next VR launch.
+  with the current value); `x4vr-run` fixes them at the next VR launch. "In-game settings
+  checklist" opens the README's settings tables as a screen, by X4 settings page, each row
+  marked from `config.xml` or "check it in X4" (head-tracking factors, Protected UI Mode).
 - **Setup:**
   - Copy the launch option: wl-copy, xclip or xsel, else OSC 52. The user pastes it in Steam;
     the tool never writes Steam's files.

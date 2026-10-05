@@ -1,7 +1,7 @@
 #pragma once
 // A full-screen terminal menu without libraries (any distro's terminal): raw mode through
 // termios, the alternate screen and ANSI codes. Arrow keys move, Space ticks a checkbox, ←/→
-// change a value or choice, Enter acts or types a value, Esc or q goes back. The screen is
+// change a value or choice, Enter acts, types a value or opens a choice's list, Esc goes back. The screen is
 // redrawn whole on each change; menus are rebuilt from their state every time, so they always
 // show what is true now.
 #include <poll.h>
@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <vector>
@@ -63,7 +64,7 @@ public:
         }
         if (b[0] == '\r' || b[0] == '\n') return Enter;
         if (b[0] == 127 || b[0] == 8) return Backspace;
-        if (b[0] == 3) return 'q'; // Ctrl+C
+        if (b[0] == 3) return None; // Ctrl+C: nothing (raw mode; quitting is the Quit item)
         return b[0];
     }
 private:
@@ -117,6 +118,7 @@ struct Item {
     double number = 0, step = 0.1, low = 0, high = 100; // Number
     int decimals = 2;
     std::string unit;                    // Number: shown after the value
+    std::string bullet = "▸ ";           // Action: in front of the label
     bool selectable() const { return kind == Toggle || kind == Choice || kind == Number || kind == Action; }
 };
 inline Item section(std::string label) { Item i; i.kind = Item::Section; i.label = std::move(label); return i; }
@@ -148,7 +150,7 @@ class Menu {
 public:
     explicit Menu(Terminal& t) : t_(t) {}
     std::string title, title_right;
-    std::string keys = "↑↓ move   Enter select / type   Space tick   ←→ change   q quit";
+    std::string keys = "↑↓ move   Enter select   Space tick   ←→ change   Esc back";
     std::vector<std::string> messages; // shown above the help until the next key
     int timeout_ms = -1;               // redraw without a key after this (-1: wait), for live status
     size_t label_width = 30;           // columns for labels, before values
@@ -160,7 +162,7 @@ public:
         const int k = t_.key(timeout_ms);
         if (k == None) return false;
         messages.clear();
-        if (k == 'q' || k == Escape) { event = {Event::Back, {}, {}}; return true; }
+        if (k == Escape) { event = {Event::Back, {}, {}}; return true; }
         if (k == Up || k == 'k') move(items, -1);
         else if (k == Down || k == 'j' || k == '\t') move(items, +1);
         else if (k == Home || k == PageUp) { cursor_ = -1; move(items, +1); }
@@ -169,7 +171,15 @@ public:
             auto& item = items[size_t(cursor_)];
             if (item.kind == Item::Action && (k == Enter || k == ' ')) { event = {Event::Activate, item.id, item}; return true; }
             if (item.kind == Item::Toggle && (k == Enter || k == ' ')) { item.on = !item.on; event = {Event::Changed, item.id, item}; return true; }
-            if (item.kind == Item::Choice && (k == Left || k == Right || k == Enter || k == ' ')) {
+            if (item.kind == Item::Choice && (k == Enter || k == ' ')) { // the whole list on its own screen
+                if (const auto picked = pick(item); picked && *picked != item.choice) {
+                    item.choice = *picked;
+                    event = {Event::Changed, item.id, item};
+                    return true;
+                }
+                return false;
+            }
+            if (item.kind == Item::Choice && (k == Left || k == Right)) {
                 const int n = int(item.choices.size());
                 if (n == 0) return false;
                 item.choice = (item.choice+(k == Left ? n-1 : 1))%n;
@@ -195,6 +205,26 @@ public:
             }
         }
         return false;
+    }
+    // A choice's options as a list on their own screen; the index picked, or nothing on Esc.
+    std::optional<int> pick(const Item& item) {
+        Menu list(t_);
+        list.title = title+"  ·  "+item.label;
+        list.keys = "↑↓ move   Enter choose   Esc back";
+        list.label_width = 60;
+        std::vector<Item> items{section(item.label), info(item.help)};
+        for (size_t i = 0; i < item.choices.size(); ++i)
+        {
+            items.push_back(action(std::to_string(i), (int(i) == item.choice ? "● " : "○ ")+item.choices[i]));
+            items.back().bullet.clear();
+        }
+        list.select(items, std::to_string(item.choice));
+        for (;;) {
+            Event e;
+            if (!list.step(items, e)) continue;
+            if (e.kind == Event::Back) return std::nullopt;
+            if (e.kind == Event::Activate) return std::atoi(e.id.c_str());
+        }
     }
     // A line of text typed by the user (`allowed` characters only; empty: any printable), or
     // nothing if cancelled with Esc.
@@ -268,7 +298,7 @@ private:
         case Item::Toggle: label = item.label; value = item.on ? "[x] on" : "[ ] off"; break;
         case Item::Choice: label = item.label; value = "‹ "+(item.choices.empty() ? std::string() : item.choices[size_t(item.choice)])+" ›"; break;
         case Item::Number: label = item.label; value = "‹ "+format(item.number, item.decimals)+(item.unit.empty() ? "" : " "+item.unit)+" ›"; break;
-        case Item::Action: label = "▸ "+item.label; break;
+        case Item::Action: label = item.bullet+item.label; break;
         default: break;
         }
         const auto row = "  "+fit(label, label_width)+fit(value, value_width)+"  ";

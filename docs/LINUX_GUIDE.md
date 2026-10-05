@@ -40,9 +40,10 @@ Start the menu in a terminal:
 ```
 
 The menu is one screen in sections: **Status**, **Play**, **Notices** (known issues and tips),
-**Settings**, **X4 settings for VR** (only when something will be fixed) and **Setup**. Arrow
-keys move, Enter selects or types a value, Space ticks a box, ←→ change a value, q quits. The
-selected item is explained at the bottom.
+**Settings**, **X4 settings for VR** and **Setup**. Arrow keys move, Enter selects, types a
+value or opens a list of the options to pick from, Space ticks a box, ←→ change a value. The
+selected item is explained at the bottom. Only the **Quit** item closes the menu (Esc and Ctrl+C
+don't, so it can't be closed by accident while you play).
 
 1. **Copy the launch option**, then paste it in Steam: X4 > Properties > General > Launch
    options. It looks like `/home/you/.local/bin/x4vr-run %command%`. The menu copies it to the
@@ -51,8 +52,8 @@ selected item is explained at the bottom.
    launch from the menu starts VR.
 2. **Add to the app launcher** puts "X4 VR" in your desktop's app menu (and rofi, wofi, etc.), so
    the menu opens in a terminal from there.
-3. Optional, under **Settings**: **HUD farther away**. Out of the box X4's cockpit HUD sits a
-   hand's width from your face. Turn it on and pick a distance (2.5 is a good start: 2.5 times
+3. Optional, under **Settings**: **HUD Scaled**. Out of the box X4's cockpit HUD sits a
+   hand's width from your face. Turn it on and set the **HUD Scale Ratio** (2.5 is a good start: 2.5 times
    farther, same apparent size; Enter to type any value from 1.0 to 6.0). It is applied at the
    next VR launch.
    - X4 then counts as **modified** while the extension is on, and saves made then are flagged,
@@ -91,17 +92,23 @@ no temporal anti-aliasing, OpenTrack on, ...). The mod keeps two sets:
 
 So change 2D settings while playing in 2D, and VR settings while playing in VR; each is kept.
 
+**In-game settings checklist** (menu, X4 settings for VR) lists every X4 setting VR needs, by
+where it is in X4's settings, with what X4's VR settings have now: ✓ right, ✗ wrong (fixed at
+the next VR launch), · not in X4's settings file, so check it in the game (head-tracking factors
+at 100 %, Protected UI Mode off).
+
 ### VR settings
 
 The menu's **Settings** are saved in `~/.local/state/x4vr/stereo.txt`. Each is tagged with when
 it applies:
 - **live**, at once, also while X4 runs: 3D, shared pose (keep it on for the Steam Frame), world
   scale, head prediction, stutter protection, mouse cursor, flat screen mode, distance and width;
-- **next launch**, at the next VR start: HUD distance and X4's resolution in VR (automatic picks
-  the smallest 16:9 size that covers what SteamVR renders).
+- **next launch**, at the next VR start: HUD Scaled / HUD Scale Ratio and X4's resolution in VR
+  (automatic picks the smallest 16:9 size that covers what SteamVR renders; Custom... takes any
+  width x height).
 
 **Profiles** hold a set of these settings. "Steam Frame" is built in; change settings and use
-**Save as profile...** to keep your own (in `~/.local/state/x4vr/profiles/`). ←→ on Profile loads
+**Save as profile** to keep your own (in `~/.local/state/x4vr/profiles/`). ←→ on Profile loads
 another; "· changed" means the settings differ from the profile's.
 
 While X4 runs in VR, Status shows the headset's frame rate and late or repeated frames.
@@ -129,7 +136,7 @@ https://github.com/Cully-Curwen/X4_VR_Linux/issues.
 
 ## 6. Uninstall
 
-1. In the menu: **Uninstall...** (or `x4vr uninstall`). It removes, as ticked:
+1. In the menu: **Uninstall** (or `x4vr uninstall`). It removes, as ticked:
    - the desktop entry;
    - the HUD extension (X4 closed);
    - the mod's copies of X4's settings (your 2D settings stay);

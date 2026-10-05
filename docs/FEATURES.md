@@ -76,7 +76,8 @@ Last updated: 2026-10-05.
 |---|---|---|---|
 | Launcher window (status, settings, play) [2, 11b] | Win32 window | Untested | `x4vr` terminal menu: status with live frame rate, notices, launch, recentre/flat while running, settings tagged live / next launch. |
 | Settings profiles [11b] | No | Linux only, untested | Built-in "Steam Frame" plus the player's own (Save as profile). |
-| X4 resolution choice [12] | Launcher (`x4_width`/`x4_height`) | Untested | Menu: automatic or a 16:9 size; same keys as Windows. |
+| X4 resolution choice [12] | Launcher (`x4_width`/`x4_height`) | Untested | Menu: automatic, a 16:9 size or custom; same keys as Windows. |
+| In-game settings checklist [12] | README tables | Linux only, untested | Menu screen by X4 settings page, marked from `config.xml`. |
 | Notices (known issues, tips) [11b] | No | Linux only, untested | `share/x4vr/notices.txt`. |
 | One-step start [2, 11b] | Launcher "Play" | Untested | Menu "Launch X4 in VR": SteamVR if needed, then `steam -applaunch`. Steam's own Play starts the normal game. |
 | Bug report button (zip logs, GitHub issue) [2] | Yes | Untested | Menu / `x4vr report`: `~/x4vr-report-<time>.tar.gz` and the issue link. |

@@ -1129,6 +1129,67 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
     }
 }
 
+// README "Set X4's options" as a screen, by where each setting is in X4, with the value X4 has
+// in its VR settings (config.xml during a VR session, else the VR copy; the head-tracking factors
+// and Protected UI Mode aren't in that file: checked by eye). Linux: windowed, not fullscreen + DSR.
+void checklist_screen(x4vr::tui::Terminal& terminal) {
+    using namespace x4vr::tui;
+    Menu menu(terminal);
+    menu.title = "X4 VR  ·  In-game settings checklist";
+    menu.keys = "↑↓ scroll   Esc back";
+    menu.timeout_ms = 2000;
+    menu.label_width = 38;
+    for (;;) {
+        const auto config = x4_config();
+        const bool in_vr = std::filesystem::exists(settings_marker());
+        const auto vr_copy = std::filesystem::path(config.string()+".x4vr-vr");
+        const bool have = !config.empty() && (in_vr || std::filesystem::exists(vr_copy));
+        const auto xml = have ? read_text(in_vr ? config : vr_copy) : std::string();
+        const auto checks = have ? linux_checks(xml) : std::vector<x4vr::launcher::Check>{};
+        // One row: from X4's settings file when it has the key, else to check in the game.
+        std::vector<Item> items;
+        const auto row = [&](const char* label, const char* want, std::initializer_list<const char*> keys, bool required = true) {
+            for (const auto& check : checks)
+                for (const auto* key : keys)
+                    if (!check.fix.empty() && check.fix[0].first == key) {
+                        const auto wanted = *want ? std::string(want) : check.label.substr(check.label.rfind(' ')+1);
+                        items.push_back(status(label, check.ok ? 0 : required ? 2 : 1,
+                            wanted+(check.ok ? "" : "   now: "+check.current+(required ? "" : " (recommended)"))));
+                        return;
+                    }
+            items.push_back(status(label, 3, std::string(*want ? want : "the VR resolution")+(have || keys.size() == 0 ? "" : "   (not known yet)")));
+        };
+        items.push_back(info(have ? "✓ right   ✗ wrong (fixed at the next VR launch)   · check it in X4: not in its settings file"
+                                  : "X4's VR settings are made at the first VR launch; until then check everything in X4."));
+        items.push_back(section("Settings > Controls > Head Tracking Support"));
+        row("OpenTrack Support", "On", {"enableopentrack"});
+        row("FreeTrack > Head Rotation Factor", "100 %", {});
+        row("FreeTrack > Head Position Factor", "100 %", {});
+        row("FreeTrack > Head Motion Smoothing", "any (the mod turns it off)", {});
+        items.push_back(section("Settings > Display"));
+        row("Display Mode", "Windowed", {"fullscreen", "borderless"});
+        row("Resolution", "", {"res_width"}); // the size checked (menu choice or automatic)
+        row("FOV", "maximum (120°)", {"fov"});
+        row("Anti-Aliasing", "None or not temporal", {"antialiasing"});
+        row("Upscaling (AMD FSR, DLSS)", "Off", {"upmode"});
+        row("AMD FSR frame generation", "Off", {"fsr3g"});
+        row("DLSS frame generation", "Off", {"dlssg"});
+        row("VSync", "Off", {"presentmode"});
+        row("Frame Rate Limit", "Off", {"frameratelimit"});
+        items.push_back(section("Settings > Graphics"));
+        row("Chromatic Aberration", "Off", {"chromaticaberration"}, false);
+        row("Distortion", "Off", {"distortion"}, false);
+        row("Everything else", "whatever holds a steady 90 fps", {});
+        items.push_back(section("Settings > Extensions"));
+        row("Protected UI Mode", "Off (with HUD Scaled on)", {});
+        row("X4 VR HUD distance", "On (the mod sets it in VR)", {});
+        items.push_back(action("back", "Back"));
+        Event e;
+        if (!menu.step(items, e)) continue;
+        if (e.kind == Event::Back || e.id == "back") return;
+    }
+}
+
 // The menu: one screen in sections. Status and the X4 settings list are rebuilt every 2 s.
 // Settings tagged "live" are in stereo.txt, re-read by the mod every half second; "next launch"
 // ones are applied by x4vr-run when X4 starts in VR (resolution, HUD extension).
@@ -1147,6 +1208,7 @@ int menu(std::string_view start = {}) {
     }
     Menu menu(terminal);
     menu.title = "X4 VR for Linux";
+    menu.keys = "↑↓ move   Enter select   Space tick   ←→ change";
     menu.timeout_ms = 2000; // live status (SteamVR, X4, headset)
     {
         std::vector<Item> waiting{info("Checking X4...")};
@@ -1218,7 +1280,7 @@ int menu(std::string_view start = {}) {
             if (at < 0) { names.insert(names.begin(), "(none)"); at = 0; }
             items.push_back(choice("profile", "Profile", names, at,
                 "←→ loads another set of the settings below. Built in: Steam Frame. Change settings, then \"Save as profile\" to keep them.", live));
-            items.push_back(action("profile_save", "Save as profile...", "Saves the settings below under a name of your choice ("+user_profiles().string()+").", {}));
+            items.push_back(action("profile_save", "Save as profile", "Saves the settings below under a name of your choice ("+user_profiles().string()+").", {}));
             if (at < int(list.size()) && name == list[size_t(at)].name && !list[size_t(at)].built_in)
                 items.push_back(action("profile_delete", "Delete profile \""+name+"\"", "Your settings stay as they are.", {}));
         }
@@ -1243,24 +1305,28 @@ int menu(std::string_view start = {}) {
             "How far in front of you the flat screen stands.", live));
         items.push_back(number("theater_width", "Flat screen width", num("theater_width", "2.2"), 0.1, 0.5, 10, 2, "m",
             "The flat screen's width; its height follows X4's image.", live));
-        items.push_back(toggle("hud_on", "HUD farther away", hud_factor > 0,
+        items.push_back(toggle("hud_on", "HUD Scaled", hud_factor > 0,
             "X4's cockpit HUD sits a hand's width from your face. On: an extension moves it back at the same apparent size, in VR "
             "only. X4 counts as modified then (saves flagged); turn Protected UI Mode off in X4's Extension Settings.", next));
         if (hud_factor > 0)
-            items.push_back(number("hud_factor", "HUD distance", hud_factor, 0.1, 1, 6, 1, "x",
+            items.push_back(number("hud_factor", "HUD Scale Ratio", hud_factor, 0.1, 1, 6, 1, "x",
                 "How many times farther the HUD is, from 1.0 to 6.0 (2.5 is a good start). Enter to type a value.", next));
         {
             const int w = int(num("x4_width", "0")), h = int(num("x4_height", "0"));
             std::vector<std::string> names{"automatic"};
             int at = 0;
             for (const auto& [mw, mh] : modes) { names.push_back(std::to_string(mw)+"x"+std::to_string(mh)); if (mw == w && mh == h) at = int(names.size())-1; }
-            if (at == 0 && w > 0 && h > 0) { names.push_back(std::to_string(w)+"x"+std::to_string(h)); at = int(names.size())-1; }
+            if (at == 0 && w > 0 && h > 0) { names.push_back(std::to_string(w)+"x"+std::to_string(h)+" (custom)"); at = int(names.size())-1; }
+            names.push_back("Custom...");
             items.push_back(choice("resolution", "X4 resolution in VR", names, at,
-                "Automatic: the smallest 16:9 size that covers what SteamVR renders (no wasted pixels). Lower is faster, higher sharper.", next));
+                "Automatic: the smallest 16:9 size that covers what SteamVR renders (no wasted pixels). Lower is faster, higher "
+                "sharper. Custom: type any width x height.", next));
         }
 
+        items.push_back(section("X4 settings for VR"));
+        items.push_back(action("checklist", "In-game settings checklist",
+            "Every X4 setting VR needs, by where it is in X4's settings, with what X4 has now. For troubleshooting."));
         if (!c.to_fix.empty()) {
-            items.push_back(section("X4 settings for VR"));
             items.push_back(info("VR uses its own copy of X4's settings; these are fixed in it at the next VR launch. Your 2D settings aren't touched."));
             for (const auto& fix : c.to_fix)
                 items.push_back(status(fix.label, fix.required ? 2 : 1, std::string(fix.required ? "required" : "recommended")+(fix.current.empty() ? "" : ", now: "+fix.current)));
@@ -1271,12 +1337,13 @@ int menu(std::string_view start = {}) {
             "Paste it in Steam: X4 > Properties > General > Launch options. Steam's Play still starts the normal game."));
         if (!c.desktop) items.push_back(action("desktop", "Add to the app launcher", "\"X4 VR\" in your desktop's app menu, rofi or wofi: "+desktop_file().string()));
         items.push_back(action("report", "Make a bug report", "Packs logs, settings and a summary into ~/x4vr-report-<time>.tar.gz, to attach to a GitHub issue."));
-        items.push_back(action("uninstall", "Uninstall...", "Removes the desktop entry, HUD extension, the mod's copies of X4's settings, and its settings."));
+        items.push_back(action("uninstall", "Uninstall", "Removes the desktop entry, HUD extension, the mod's copies of X4's settings, and its settings."));
         items.push_back(action("quit", "Quit"));
 
         Event e;
         if (!menu.step(items, e)) continue;
-        if (e.kind == Event::Back || e.id == "quit") return 0;
+        if (e.kind == Event::Back) continue; // Esc doesn't close the menu: only Quit does
+        if (e.id == "quit") return 0;
         if (e.kind == Event::Changed) {
             const auto& item = e.item;
             std::string key = e.id, value;
@@ -1288,7 +1355,14 @@ int menu(std::string_view start = {}) {
             }
             if (e.id == "resolution") {
                 int w = 0, h = 0;
-                if (item.choice > 0) std::sscanf(item.choices[size_t(item.choice)].c_str(), "%dx%d", &w, &h);
+                if (item.choices[size_t(item.choice)] == "Custom...") {
+                    const auto typed = menu.prompt(items, "X4 resolution in VR, width x height", "", "0123456789xX");
+                    if (!typed) continue;
+                    if (std::sscanf(typed->c_str(), "%d%*[xX]%d", &w, &h) != 2 || w < 640 || h < 360 || w > 16384 || h > 16384) {
+                        menu.messages = {"Not a usable size: "+*typed+" (for example 3200x1800)"};
+                        continue;
+                    }
+                } else if (item.choice > 0) std::sscanf(item.choices[size_t(item.choice)].c_str(), "%dx%d", &w, &h);
                 const bool ok = x4vr::linux_port::write_setting(path, "x4_width", std::to_string(w)) && x4vr::linux_port::write_setting(path, "x4_height", std::to_string(h));
                 if (!ok) menu.messages = {"Can't write "+path.string()};
                 continue;
@@ -1335,6 +1409,7 @@ int menu(std::string_view start = {}) {
             menu.messages = file.empty() ? std::vector<std::string>{"Couldn't write the report (tar missing?)."}
                                          : std::vector<std::string>{"Report: "+file, "Attach it to a new issue: "+std::string(issues_url)};
         } else if (e.id == "uninstall") uninstall_screen(terminal);
+        else if (e.id == "checklist") checklist_screen(terminal);
     }
 }
 // The menu's actions as commands, for scripts.
