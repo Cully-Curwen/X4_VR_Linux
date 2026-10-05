@@ -14,7 +14,6 @@ Time: about 45 minutes, most of it step 4 in the cockpit.
 mkdir -p ~/src && cd ~/src
 git clone https://github.com/cully-curwen/x4_vr_linux.git
 cd x4_vr_linux
-git checkout claude/pensive-davinci-de53zx
 nix-build
 ```
 
