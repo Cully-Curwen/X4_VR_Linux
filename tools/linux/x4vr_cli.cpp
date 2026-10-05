@@ -976,22 +976,30 @@ std::string make_report() {
 constexpr const char* issues_url = "https://github.com/Cully-Curwen/X4_VR_Linux/issues/new";
 
 // Uninstall: what the mod left, each as a choice.
-// The installed program (cmake --install): the files under the prefix this x4vr runs from.
-// A Nix install lives in /nix/store and goes with the source folder's result link: no box for it.
-// On NixOS (where a CMake install is possible too) the box starts unticked.
-std::filesystem::path install_prefix() { return program.parent_path().parent_path(); }
-bool nix_install() {
-    std::error_code error;
-    return std::filesystem::canonical(program, error).string().rfind("/nix/store/", 0) == 0;
-}
-bool nixos() { return std::filesystem::exists("/etc/NIXOS"); }
-std::vector<std::filesystem::path> installed_files() {
-    const auto prefix = install_prefix();
-    const std::filesystem::path lib = X4VR_INSTALL_LIBDIR;
-    return {prefix/"bin/x4vr", prefix/"bin/x4vr-run", prefix/"bin/x4vr-probe-run",
-            prefix/lib/"libx4vr.so", prefix/lib/"libx4vr_probe.so", prefix/lib/"libVkLayer_x4vr_probe.so",
-            prefix/"share/vulkan/explicit_layer.d/VkLayer_x4vr.json", prefix/"share/vulkan/explicit_layer.d/VkLayer_x4vr_probe.json",
-            prefix/"share/x4vr"};
+// The installed program (cmake --install): the mod's files under the prefix this x4vr runs from
+// and under ~/.local (the guide's prefix), those that exist. /nix/store is skipped: read-only,
+// and a Nix install goes with the source folder's result link.
+// `where`: the install folders where some were found.
+std::vector<std::filesystem::path> installed_files(std::vector<std::filesystem::path>* where = nullptr) {
+    const char* home = std::getenv("HOME");
+    std::vector<std::filesystem::path> prefixes{program.parent_path().parent_path(), std::filesystem::path(home ? home : ".")/".local"};
+    std::vector<std::filesystem::path> found;
+    for (const auto& prefix : prefixes) {
+        std::error_code error;
+        const auto real = std::filesystem::weakly_canonical(prefix, error);
+        if (error || real.string().rfind("/nix/store/", 0) == 0) continue;
+        for (const std::filesystem::path& lib : {std::filesystem::path(X4VR_INSTALL_LIBDIR), std::filesystem::path("lib"), std::filesystem::path("lib64")})
+            for (const auto& file : {real/"bin/x4vr", real/"bin/x4vr-run", real/"bin/x4vr-probe-run", real/lib/"libx4vr.so",
+                                     real/lib/"libx4vr_probe.so", real/lib/"libVkLayer_x4vr_probe.so",
+                                     real/"share/vulkan/explicit_layer.d/VkLayer_x4vr.json",
+                                     real/"share/vulkan/explicit_layer.d/VkLayer_x4vr_probe.json", real/"share/x4vr"})
+                if (std::filesystem::exists(std::filesystem::symlink_status(file, error)) &&
+                    std::find(found.begin(), found.end(), file) == found.end()) {
+                    found.push_back(file);
+                    if (where && std::find(where->begin(), where->end(), real) == where->end()) where->push_back(real);
+                }
+    }
+    return found;
 }
 // The source folder this was built from, if it is still there (a Nix build's isn't).
 std::filesystem::path source_dir() {
@@ -1007,9 +1015,13 @@ std::vector<Removal> removals() {
         {"x4_copies", "Delete the mod's copies of X4's settings", true, "config.xml.x4vr-2d, -vr and -backup. Your 2D settings stay in config.xml."},
         {"state", "Delete the mod's settings, profiles and logs", true, state_dir().string()},
     };
-    if (!nix_install())
-        list.push_back({"program", "Remove the installed program files", !nixos(),
-            "x4vr, x4vr-run, the mod and its data under "+install_prefix().string()+(nixos() ? ". Unticked on NixOS: tick it if you installed with CMake." : ".")});
+    std::vector<std::filesystem::path> places;
+    const auto files = installed_files(&places);
+    std::string where;
+    for (const auto& p : places) where += (where.empty() ? "" : ", ")+p.string();
+    list.push_back({"program", "Remove the installed program files", !files.empty(),
+        files.empty() ? "None found outside /nix/store (a Nix install goes with the source folder)."
+                      : "x4vr, x4vr-run, the mod and its data ("+std::to_string(files.size())+" found) under "+where+"."});
     return list;
 }
 std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
@@ -1044,7 +1056,7 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
     if (on("program")) {
         int removed = 0;
         for (const auto& file : installed_files()) removed += int(std::filesystem::remove_all(file, error) > 0);
-        done.push_back("Program files removed from "+install_prefix().string()+" ("+std::to_string(removed)+").");
+        done.push_back("Program files removed: "+std::to_string(removed)+".");
     }
     done.push_back("Then clear X4's launch option in Steam"+std::string(source_dir().empty() ? "." : " and delete the source folder (see below)."));
     return done;

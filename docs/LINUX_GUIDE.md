@@ -144,9 +144,9 @@ https://github.com/Cully-Curwen/X4_VR_Linux/issues.
    - the HUD extension (X4 closed);
    - the mod's copies of X4's settings (your 2D settings stay);
    - the mod's settings, profiles and logs;
-   - the installed program files (`x4vr`, `x4vr-run`, the mod and its data under `~/.local`).
-     Unticked on NixOS, in case it was installed with Nix; not shown for a Nix install, which
-     goes with the source folder.
+   - the installed program files (`x4vr`, `x4vr-run`, the mod and its data under `~/.local` or
+     wherever `x4vr` runs from), ticked when any are found. A Nix install in `/nix/store` goes
+     with the source folder instead.
 
    "Restore X4's settings from before the mod" is off by default: it brings back the settings
    from before the first VR launch, undoing 2D changes made since.
