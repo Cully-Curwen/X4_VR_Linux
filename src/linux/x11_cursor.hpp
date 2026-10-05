@@ -18,4 +18,7 @@ struct CursorState {
 };
 void start_cursor_reader(); // once; logs why if it can't
 CursorState cursor_state();
+// SteamVR's "Exit game" (VREvent_Quit): asks X4 to close as its window's close button does
+// (WM_DELETE_WINDOW), through the reader's X connection.
+void request_game_close();
 }

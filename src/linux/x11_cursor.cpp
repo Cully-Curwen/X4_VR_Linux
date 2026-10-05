@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -27,6 +28,7 @@ struct GeometryReply { uint8_t response_type, depth; uint16_t sequence; uint32_t
 struct QueryTreeReply { uint8_t response_type, pad0; uint16_t sequence; uint32_t length, root, parent; uint16_t children_len; uint8_t pad1[14]; };
 struct InternAtomReply { uint8_t response_type, pad0; uint16_t sequence; uint32_t length, atom; };
 struct PropertyReply { uint8_t response_type, format; uint16_t sequence; uint32_t length, type, bytes_after, value_len; uint8_t pad0[12]; };
+struct ClientMessage { uint8_t response_type, format; uint16_t sequence; uint32_t window, type; uint32_t data[5]; };
 struct KeymapReply { uint8_t response_type, pad0; uint16_t sequence; uint32_t length; uint8_t keys[32]; };
 struct InputFocusReply { uint8_t response_type, revert_to; uint16_t sequence; uint32_t length, focus; };
 // X keycodes (evdev + 8), as Xwayland uses them.
@@ -63,6 +65,8 @@ struct Xcb {
     KeymapReply* (*query_keymap_reply)(Connection*, Cookie, GenericError**){};
     Cookie (*get_input_focus)(Connection*){};
     InputFocusReply* (*get_input_focus_reply)(Connection*, Cookie, GenericError**){};
+    Cookie (*send_event)(Connection*, uint8_t, uint32_t, uint32_t, const char*){};
+    int (*flush)(Connection*){};
     bool load() {
         lib = dlopen("libxcb.so.1", RTLD_NOW | RTLD_LOCAL);
         xfixes = lib ? dlopen("libxcb-xfixes.so.0", RTLD_NOW | RTLD_LOCAL) : nullptr;
@@ -78,6 +82,7 @@ struct Xcb {
             get(lib, get_property_value, "xcb_get_property_value") && get(lib, get_property_value_length, "xcb_get_property_value_length") &&
             get(lib, query_keymap, "xcb_query_keymap") && get(lib, query_keymap_reply, "xcb_query_keymap_reply") &&
             get(lib, get_input_focus, "xcb_get_input_focus") && get(lib, get_input_focus_reply, "xcb_get_input_focus_reply") &&
+            get(lib, send_event, "xcb_send_event") && get(lib, flush, "xcb_flush") &&
             get(xfixes, xfixes_query_version, "xcb_xfixes_query_version") && get(xfixes, xfixes_query_version_reply, "xcb_xfixes_query_version_reply") &&
             get(xfixes, xfixes_cursor_image, "xcb_xfixes_get_cursor_image") && get(xfixes, xfixes_cursor_image_reply, "xcb_xfixes_get_cursor_image_reply") &&
             get(xfixes, xfixes_cursor_image_pixels, "xcb_xfixes_get_cursor_image_cursor_image");
@@ -86,6 +91,7 @@ struct Xcb {
 
 std::mutex state_mutex;
 CursorState state;
+std::atomic<bool> close_requested{false};
 
 // X4's top-level window: WM_CLASS "X4" or _NET_WM_PID = this process, the largest one.
 uint32_t find_window(const Xcb& x, Connection* c, uint32_t root, uint32_t pid_atom) {
@@ -144,6 +150,11 @@ void reader() {
     uint32_t pid_atom{};
     if (auto* a = x.intern_atom_reply(c, x.intern_atom(c, 1, 11, "_NET_WM_PID"), &error)) { pid_atom = a->atom; std::free(a); }
     std::free(error); error = nullptr;
+    uint32_t protocols_atom{}, delete_atom{};
+    if (auto* a = x.intern_atom_reply(c, x.intern_atom(c, 0, 12, "WM_PROTOCOLS"), &error)) { protocols_atom = a->atom; std::free(a); }
+    std::free(error); error = nullptr;
+    if (auto* a = x.intern_atom_reply(c, x.intern_atom(c, 0, 16, "WM_DELETE_WINDOW"), &error)) { delete_atom = a->atom; std::free(a); }
+    std::free(error); error = nullptr;
     uint32_t window{};
     auto searched = std::chrono::steady_clock::time_point{};
     bool logged = false;
@@ -159,6 +170,12 @@ void reader() {
             searched = now;
             window = find_window(x, c, root, pid_atom);
             if (window && !logged) { logged = true; log("X4VR cursor: reading X4's mouse cursor (X window "+std::to_string(window)+")"); }
+        }
+        if (window && protocols_atom && delete_atom && close_requested.exchange(false)) {
+            ClientMessage message{33, 32, 0, window, protocols_atom, {delete_atom, 0, 0, 0, 0}}; // 33: ClientMessage
+            x.send_event(c, 0, window, 0, reinterpret_cast<const char*>(&message));
+            x.flush(c);
+            log("X4VR cursor: SteamVR asked the game to exit: X4's window asked to close");
         }
         if (window && hotkeys) {
             auto* focus = x.get_input_focus_reply(c, x.get_input_focus(c), &error);
@@ -217,6 +234,7 @@ void start_cursor_reader() {
     static std::once_flag once;
     std::call_once(once, [] { std::thread(reader).detach(); });
 }
+void request_game_close() { close_requested = true; }
 CursorState cursor_state() {
     std::lock_guard lock(state_mutex);
     return state;

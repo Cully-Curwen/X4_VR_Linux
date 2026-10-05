@@ -6,6 +6,7 @@
 #include "linux_runtime.hpp"
 #include "openxr_runtime_stub.hpp"
 #include "settings_control.hpp"
+#include "x11_cursor.hpp"
 #include <link.h>
 #include <strings.h>
 #include <sys/syscall.h>
@@ -155,7 +156,10 @@ std::string RuntimeBootstrap::wait_frame() {
     // dashboard): it resets SteamVR's zero pose, and the mod recentres its own origin with it.
     bool recentred = false;
     for (vr::VREvent_t event{}; session_.system_->PollNextEvent(&event, sizeof(event));) {
-        if (event.eventType == vr::VREvent_Quit) { session_.system_->AcknowledgeQuit_Exiting(); session_.quit_ = true; }
+        if (event.eventType == vr::VREvent_Quit) { // SteamVR's "Exit game": pass it on to X4
+            session_.system_->AcknowledgeQuit_Exiting(); session_.quit_ = true;
+            linux_port::request_game_close();
+        }
         else if (event.eventType == vr::VREvent_SeatedZeroPoseReset || event.eventType == vr::VREvent_StandingZeroPoseReset) recentred = true;
     }
     if (recentred) linux_port::control("recenter", "SteamVR recentre");
