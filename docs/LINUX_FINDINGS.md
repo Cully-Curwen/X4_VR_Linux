@@ -605,3 +605,13 @@ other eye's image by the turn while copying it.
 on X4 9.00 at the known addresses (clamp `0xfeb72b`, zeroing `0xfec070`, camera offset
 `0x1929ff6`, player global `0x3db6948`, frame half `0x72a0fa0`, VR::OpenTrack vtable `0x3c62520`
 with slot 34 `0x1a0dda0`). The in-game scan takes 51 ms. Patches and hook applied; play unchanged.
+
+**X4 resolution and the Steam Frame (2026-10-05).** SteamVR recommends 2644x2644 per eye. The log
+line `SteamVR recommends 2644x2644 per eye; game image 2880x1620 placed at 2827x1587` gives the
+Frame's eye view as about 2.88 x 2.89 tangent units (~110 x 110 degrees) against X4's image at 16:9
+of 3.08 x 1.74 (~114 x 82 degrees; the vertical is X4's FOV at its maximum, so the top and bottom
+of each eye can't be filled at any resolution). Automatic picks 2880x1620 (2% over the 2827x1587
+needed). Custom 2640x1588 (about 5:3, as wide as the eye sees) works in the headset: ~10% fewer
+pixels, no visible loss reported. Still to confirm at 5:3: the world stays fixed when turning the
+head (X4 keeps its vertical view at any shape), and no strip at the outer edge of each eye.
+Planned: automatic computes this shape itself (FEATURES.md).

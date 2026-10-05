@@ -10,6 +10,7 @@ Linux status:
 - **Missing**: Windows has it, Linux doesn't yet.
 - **Not needed**: Windows has it, Linux doesn't need it (reason given).
 - **Linux only**: not in the Windows mod.
+- **Planned**: agreed as a future improvement, not built yet.
 
 Last updated: 2026-10-05.
 
@@ -78,7 +79,8 @@ Last updated: 2026-10-05.
 |---|---|---|---|
 | Launcher window (status, settings, play) [2, 11b] | Win32 window | Works | `x4vr` terminal menu: status with live frame rate, notices, launch, recentre/flat while running, settings tagged live / next launch. |
 | Settings profiles [11b] | No | Linux only, untested | Built-in "Steam Frame" plus the player's own (Save as profile). |
-| X4 resolution choice [12] | Launcher (`x4_width`/`x4_height`) | Untested | Menu: automatic, a 16:9 size or custom; same keys as Windows. |
+| X4 resolution choice [12] | Launcher (`x4_width`/`x4_height`) | Works | Menu: automatic, a 16:9 size or custom; same keys as Windows. Custom 2640x1588 (5:3) confirmed on the Steam Frame. |
+| Automatic resolution in the headset's own shape [12] | No | Planned | Automatic rounds up to a 16:9 size; it could compute the size matching the eyes' view from SteamVR (Steam Frame: about 2640x1588, ~10% fewer pixels than 2880x1620), wide enough that the off-centre eye views leave no strip at the outer edge. Then the Steam Frame profile stays on automatic and follows SteamVR's resolution slider. |
 | In-game settings checklist [12] | README tables | Linux only, untested | Menu screen by X4 settings page, marked from `config.xml`. |
 | Notices (known issues, tips) [11b] | No | Linux only, untested | `share/x4vr/notices.txt`. |
 | One-step start [2, 11b] | Launcher "Play" | Works | Menu "Launch X4 in VR": SteamVR if needed, then `steam -applaunch`. Steam's own Play starts the normal game. |
