@@ -92,14 +92,12 @@ double with_seq(double roll, uint32_t seq) {
     return roll;
 }
 
-// On foot X4 uses the pose one game frame sooner than in the cockpit, so the eye a frame half
-// means flips (Windows: half_xor_use 1 in the cockpit, half_xor_walk 0 on foot). Linux keeps
-// Windows' difference: on foot the eye is flipped by half_xor_use ^ half_xor_walk (1 by default;
-// half_xor_walk=1 turns the flip off).
+// On foot X4 uses the pose one game frame sooner than in the cockpit; on Windows that flipped
+// the eye a frame half means (half_xor_use 1 in the cockpit, half_xor_walk 0 on foot). On Linux
+// the eyes looked right on foot without a flip, so half_xor_walk=1 flips them on foot only, for
+// testing (default 0: no flip).
 uint32_t walk_flip(bool walking) {
-    if (!walking) return 0;
-    const auto s = x4vr::stereo_settings();
-    return uint32_t((s.half_xor_use ^ s.half_xor_walk) & 1);
+    return walking ? uint32_t(x4vr::stereo_settings().half_xor_walk & 1) : 0;
 }
 
 void position_at_use(void* tracker, float* x, float* y, float* z) {
