@@ -701,7 +701,7 @@ ghosting), the frame half (no eye swaps or HUD doubling), the theater screen for
 cursor, hotkeys, SteamVR recentre and "Exit game", sizing from SteamVR, and the HUD distance
 (with the `.xpl` shrink).
 
-**Applied, needs checking in the headset:** the backward clamp patch.
+**Backward clamp patch:** confirmed in the headset (leaning back works).
 
 **Confirmed on foot (2026-10-05):** walking detection (stereo with `theater=1`), the on-foot
 timing (less lag) and the on-foot eye flip.
