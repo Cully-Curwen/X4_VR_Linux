@@ -474,7 +474,8 @@ Windows launcher's mod only replaces the `.lua`. With protection off
 files, and used them. First left as is to stay with the Windows mod; taken up again 2026-10-05:
 `x4vr hud` puts the patched Lua source at each `.xpl` path as well (Lua's loader takes source or
 bytecode). `x4vr hud --refresh` rebuilds an installed extension with it, since the source hash
-now covers the `.xpl` files. Being tested.
+now covers the `.xpl` files. First headset check (2026-10-05): the radar and message HUD look
+bigger than without it, so X4 loads the replaced `.xpl` text; trying other factors.
 
 ## Stage D (backward clamp): search so far, paused
 

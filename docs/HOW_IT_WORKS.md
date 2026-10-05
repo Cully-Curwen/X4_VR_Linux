@@ -578,7 +578,8 @@ It is rebuilt when the game's files change.
   (MD5 from `md5.hpp`). Limits:
   - Linux X4 9.00 loads precompiled `.xpl` UI scripts, so the Lua scale changes alone don't
     apply: the HUD moved back but got smaller. The extension now also puts the patched script
-    text at the `.xpl` paths (Linux only; being tested). Protected UI Mode must be off.
+    text at the `.xpl` paths (Linux only; first check: the radar and message HUD come out bigger, so
+    X4 loads them). Protected UI Mode must be off.
   - X4 reports the game as modified, and warns about Protected UI.
 
 `x4vr game-grep` searches X4's catalogs.
