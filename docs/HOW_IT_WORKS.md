@@ -593,7 +593,7 @@ counterpart of the Windows launcher window:
 - **Add to the app launcher:** `~/.local/share/applications/x4vr.desktop`, `Terminal=true`.
 - **Bug report:** `~/x4vr-report-<time>.tar.gz` with logs, settings, X4's `config.xml` and a
   summary.
-- **Uninstall:** removes what the mod set up (section 15 of LINUX_GUIDE.md lists the rest).
+- **Uninstall:** removes what the mod set up (LINUX_GUIDE.md, section 6, lists the rest).
 
 Each action is also a subcommand (`x4vr help`).
 
