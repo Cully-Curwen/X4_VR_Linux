@@ -487,8 +487,9 @@ Frame (shared pose per eye pair), the virtual screen drawn into the eye images, 
 resolution fixed before each start, eye images at SteamVR's recommended size.
 
 Features the Windows mod has:
-1. **Mouse cursor in VR** (first version, to test in the headset): read over XCB, copied into the
-   game image (`docs/LINUX_FINDINGS.md`).
+1. **Mouse cursor in VR**: done (2026-10-05, confirmed in the headset); read over XCB, copied into
+   the game image (`docs/LINUX_FINDINGS.md`). Possible polish: blended edges, size matched to the
+   scaled game image.
 2. **In-game hotkeys** (Ctrl+F12 recentre, Ctrl+F11 flat): Linux uses `x4vr ctl` bound in the desktop.
 3. **On foot**: head tracking while walking (Windows: on-foot patches); Linux shows the virtual screen.
 4. **Stage D, leaning back**: paused, the zeroing is downstream of the head-tracker bridge
