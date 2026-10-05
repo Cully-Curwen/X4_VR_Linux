@@ -1,4 +1,5 @@
-# Notices shown in the x4vr menu: "issue: ..." (known problems) or "tip: ...", one per line.
+# Notices shown in the x4vr menu, one per line: "issue: ..." (known problems), "tip: ..." or
+# "help: ..." (asking players to contribute).
 issue: OpenXR isn't supported on Linux yet: the mod uses SteamVR (OpenVR).
 issue: The Flatpak version of Steam isn't supported: its sandbox can't run x4vr-run. Use your distribution's Steam package.
 tip: Steam's own Play button starts the normal 2D game. Only "Launch X4 in VR" starts VR.
@@ -7,3 +8,4 @@ tip: Recentre with Ctrl+F12 (X4 focused) or SteamVR's recentre; look straight ah
 tip: Toggle flat screen mode with Ctrl+F11.
 tip: Modified warning: changing the HUD has X4 flagged as modified. Turn Protected UI Mode off (Settings > Extensions).
 tip: Tiling window managers (Hyprland, Sway, i3): make X4's window (class X4) floating, else it renders at the tile's size.
+help: No profile for your headset yet? Once your settings work well, use "Save as profile" and share the file (~/.local/state/x4vr/profiles/) in a GitHub issue, so it can be built in for others.

@@ -592,7 +592,7 @@ shown greyed out: what doesn't apply isn't listed. Enter on a choice opens its o
   `pair_stats.txt` line (`parse_stats_line`, the same format and parser as Windows).
 - **Play:** Launch X4 in VR; while X4 runs in VR, recentre and flat screen.
 - **Notices:** pinned known issues and tips, from `share/x4vr/notices.txt`
-  (`config/linux/notices.txt`, lines `issue: ...` / `tip: ...`).
+  (`config/linux/notices.txt`, lines `issue: ...` / `tip: ...` / `help: ...`, the last in green).
 - **Settings**, each tagged with when it applies:
   - `live`: written to `stereo.txt`, which the mod re-reads every half second: 3D, shared pose,
     world scale, head prediction, stutter protection (`async_submit`), cursor, flat screen mode,

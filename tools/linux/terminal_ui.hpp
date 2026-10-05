@@ -111,7 +111,7 @@ struct Item {
     enum Kind { Section, Info, Status, Notice, Toggle, Choice, Number, Action } kind = Info;
     std::string id, label, value, help;
     std::string tag;                     // shown at the right: "live", "next launch", ...
-    int state = 0;                       // Status: 0 ok, 1 warning, 2 problem, 3 neutral; Notice: 0 tip, 1 issue
+    int state = 0;                       // Status: 0 ok, 1 warning, 2 problem, 3 neutral; Notice: 0 tip, 1 issue, 2 help
     bool on = false;                     // Toggle
     std::vector<std::string> choices;    // Choice
     int choice = 0;
@@ -126,7 +126,7 @@ inline Item info(std::string label) { Item i; i.kind = Item::Info; i.label = std
 inline Item status(std::string label, int state, std::string value) {
     Item i; i.kind = Item::Status; i.label = std::move(label); i.state = state; i.value = std::move(value); return i;
 }
-inline Item notice(bool issue, std::string text) { Item i; i.kind = Item::Notice; i.state = issue; i.label = std::move(text); return i; }
+inline Item notice(int kind, std::string text) { Item i; i.kind = Item::Notice; i.state = kind; i.label = std::move(text); return i; }
 inline Item action(std::string id, std::string label, std::string help = {}, std::string tag = {}) {
     Item i; i.kind = Item::Action; i.id = std::move(id); i.label = std::move(label); i.help = std::move(help); i.tag = std::move(tag); return i;
 }
@@ -281,7 +281,8 @@ private:
             return lines;
         }
         case Item::Notice: {
-            const std::string mark = item.state ? std::string(yellow)+"issue"+reset : std::string(cyan)+"tip  "+reset;
+            const std::string mark = item.state == 1 ? std::string(yellow)+"issue"+reset : item.state == 2 ? std::string(green)+"help "+reset
+                                   : std::string(cyan)+"tip  "+reset;
             const auto lines = wrap(item.label, columns > 12 ? columns-12 : 1);
             std::vector<std::string> out;
             for (size_t i = 0; i < lines.size(); ++i) out.push_back("  "+(i ? std::string(5, ' ') : mark)+"  "+lines[i]);

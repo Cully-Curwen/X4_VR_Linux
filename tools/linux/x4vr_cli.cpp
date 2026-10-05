@@ -1079,18 +1079,18 @@ std::string save_profile(const std::string& name) {
     return "Saved as profile \""+name+"\".";
 }
 
-// ---- notices: known issues and tips, shipped in share/x4vr/notices.txt ------------------------
-// One per line, "issue: text" or "tip: text"; # starts a comment.
-std::vector<std::pair<bool, std::string>> notices() {
-    std::vector<std::pair<bool, std::string>> list;
+// ---- notices: known issues, tips and requests for help, shipped in share/x4vr/notices.txt -----
+// One per line, "issue: text", "tip: text" or "help: text"; # starts a comment.
+std::vector<std::pair<int, std::string>> notices() {
+    std::vector<std::pair<int, std::string>> list;
     std::ifstream in(data_dir()/"notices.txt");
     for (std::string line; std::getline(in, line);) {
         if (line.empty() || line[0] == '#') continue;
-        const bool issue = line.rfind("issue:", 0) == 0;
-        if (!issue && line.rfind("tip:", 0) != 0) continue;
+        const int kind = line.rfind("tip:", 0) == 0 ? 0 : line.rfind("issue:", 0) == 0 ? 1 : line.rfind("help:", 0) == 0 ? 2 : -1;
+        if (kind < 0) continue;
         auto text = line.substr(line.find(':')+1);
         text.erase(0, text.find_first_not_of(' '));
-        list.emplace_back(issue, text);
+        list.emplace_back(kind, text);
     }
     return list;
 }
@@ -1266,7 +1266,7 @@ int menu(std::string_view start = {}) {
 
         if (!board.empty()) {
             items.push_back(section("Notices"));
-            for (const auto& [issue, text] : board) items.push_back(notice(issue, text));
+            for (const auto& [kind, text] : board) items.push_back(notice(kind, text));
         }
 
         items.push_back(section("Settings"));
