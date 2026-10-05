@@ -5,6 +5,7 @@ A working technical reference. For each part of the mod it describes how the Win
 `-DX4VR_LINUX=ON`) does it differently. Addresses are for X4 9.00 (Windows: RVAs in `X4.exe`;
 Linux: absolute addresses in the non-PIE `X4` binary). Keep it current when a part changes.
 Measurements and history are in `STUTTER_RESEARCH.md` (Windows) and `LINUX_FINDINGS.md` (Linux).
+Feature status at a glance: `FEATURES.md`.
 
 Contents:
 
