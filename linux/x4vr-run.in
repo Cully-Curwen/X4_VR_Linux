@@ -75,7 +75,8 @@ if [ "${X4VR_FIX_SETTINGS:-1}" != 0 ]; then
     "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" settings-mode vr >> "$dir/x4vr.log" 2>&1
     "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" fix-settings --auto >> "$dir/x4vr.log" 2>&1
 fi
-# The HUD distance mod (x4vr hud) is built from the game's files: rebuild it after a game update.
+# The HUD distance mod (x4vr hud) is built from the game's files: apply the factor chosen in the
+# menu (stereo.txt hud_factor) and rebuild it after a game update.
 # The game folder is the one of testandlaunch (or X4) in Steam's command.
 if [ -z "${X4VR_GAME_DIR-}" ]; then
     for arg in "$@"; do

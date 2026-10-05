@@ -582,18 +582,36 @@ then rename). The mod picks up the change within 0.5 s.
 ### 11b. The Linux menu (`x4vr`, `tools/linux/x4vr_cli.cpp`, `terminal_ui.hpp`)
 
 A full-screen terminal menu without libraries (termios raw mode, ANSI codes), Linux only. The
-counterpart of the Windows launcher window:
-- **Status:** Steam, SteamVR, the X4 build scan (`x4vr patterns`), the launch option (read
-  from Steam's `localconfig.vdf`, `steam_config.hpp`), X4's VR settings, HUD distance.
-- **Play:** Launch X4 in VR; while X4 runs, recentre and flat screen.
-- **VR settings:** checkboxes and values written to `stereo.txt`, live.
-- **HUD distance:** factor and apply/remove.
-- **Copy the launch option:** wl-copy, xclip or xsel, else OSC 52. The user pastes it in
-  Steam; the tool never writes Steam's files.
-- **Add to the app launcher:** `~/.local/share/applications/x4vr.desktop`, `Terminal=true`.
-- **Bug report:** `~/x4vr-report-<time>.tar.gz` with logs, settings, X4's `config.xml` and a
-  summary.
-- **Uninstall:** removes what the mod set up (LINUX_GUIDE.md, section 6, lists the rest).
+counterpart of the Windows launcher window. One screen in sections, rebuilt every 2 s so it
+always shows what is true now; the selected item's description shows at the bottom. Nothing is
+shown greyed out: what doesn't apply isn't listed.
+- **Status:** SteamVR, the X4 build scan (`x4vr patterns`), the launch option (read from
+  Steam's `localconfig.vdf`, `steam_config.hpp`), X4's VR settings, and X4: not running, in 2D,
+  or in VR with the headset's frame rate, late and repeated frames from the newest
+  `pair_stats.txt` line (`parse_stats_line`, the same format and parser as Windows).
+- **Play:** Launch X4 in VR; while X4 runs in VR, recentre and flat screen.
+- **Notices:** pinned known issues and tips, from `share/x4vr/notices.txt`
+  (`config/linux/notices.txt`, lines `issue: ...` / `tip: ...`).
+- **Settings**, each tagged with when it applies:
+  - `live`: written to `stereo.txt`, which the mod re-reads every half second: 3D, shared pose,
+    world scale, head prediction, stutter protection (`async_submit`), cursor, flat screen mode,
+    distance and width.
+  - `next launch`: applied by `x4vr-run` at the next VR start: HUD distance (`hud_factor`, 1.0-6.0
+    to one decimal, typed or ←→; `x4vr hud --refresh` builds or removes the extension) and X4's
+    resolution (`x4_width`/`x4_height`, the Windows launcher's keys; 0: automatic).
+  - **Profiles:** sets of those settings. Built in: `share/x4vr/profiles/*.txt` (Steam Frame);
+    the player's own: `<state>/profiles/*.txt`, made with "Save as profile". The last loaded or
+    saved is named in `<state>/profile`; "· changed" marks settings that differ from it.
+  - The VR runtime is shown as text: SteamVR (OpenVR) is the only one on Linux.
+- **X4 settings for VR:** the checks the VR copy of `config.xml` fails (required / recommended,
+  with the current value); `x4vr-run` fixes them at the next VR launch.
+- **Setup:**
+  - Copy the launch option: wl-copy, xclip or xsel, else OSC 52. The user pastes it in Steam;
+    the tool never writes Steam's files.
+  - Add to the app launcher: `~/.local/share/applications/x4vr.desktop`, `Terminal=true`.
+  - Bug report: `~/x4vr-report-<time>.tar.gz` with logs, settings, X4's `config.xml` and a
+    summary.
+  - Uninstall: removes what the mod set up (LINUX_GUIDE.md, section 6, lists the rest).
 
 Each action is also a subcommand (`x4vr help`).
 
@@ -613,7 +631,8 @@ X4's HUD anchors sit 0.29-0.44 m in front of the pilot. The tool builds an exten
 It is rebuilt when the game's files change.
 
 - **Windows:** launcher buttons. Refreshed on Play.
-- **Linux:** `x4vr hud <factor>|remove|status|--refresh`, refreshed by `x4vr-run`. Same files
+- **Linux:** the menu's HUD setting (`hud_factor` in `stereo.txt`), applied by `x4vr-run`'s
+  `x4vr hud --refresh` at the next VR start; also `x4vr hud <factor>|remove|status`. Same files
   (MD5 from `md5.hpp`). Limits:
   - Linux X4 9.00 loads precompiled `.xpl` UI scripts, so the Lua scale changes alone don't
     apply: the HUD moved back but got smaller. The extension now also puts the patched script

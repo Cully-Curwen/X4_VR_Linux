@@ -39,7 +39,10 @@ Start the menu in a terminal:
 ~/.local/bin/x4vr
 ```
 
-Arrow keys move, Enter selects, Space ticks a box, ←→ change a value, Esc goes back.
+The menu is one screen in sections: **Status**, **Play**, **Notices** (known issues and tips),
+**Settings**, **X4 settings for VR** (only when something will be fixed) and **Setup**. Arrow
+keys move, Enter selects or types a value, Space ticks a box, ←→ change a value, q quits. The
+selected item is explained at the bottom.
 
 1. **Copy the launch option**, then paste it in Steam: X4 > Properties > General > Launch
    options. It looks like `/home/you/.local/bin/x4vr-run %command%`. The menu copies it to the
@@ -48,9 +51,10 @@ Arrow keys move, Enter selects, Space ticks a box, ←→ change a value, Esc go
    launch from the menu starts VR.
 2. **Add to the app launcher** puts "X4 VR" in your desktop's app menu (and rofi, wofi, etc.), so
    the menu opens in a terminal from there.
-3. Optional: **HUD distance**. Out of the box X4's cockpit HUD sits a hand's width from your
-   face. Pick a factor (2.5 is a good start: 2.5 times farther, same apparent size) and Apply,
-   with X4 closed.
+3. Optional, under **Settings**: **HUD farther away**. Out of the box X4's cockpit HUD sits a
+   hand's width from your face. Turn it on and pick a distance (2.5 is a good start: 2.5 times
+   farther, same apparent size; Enter to type any value from 1.0 to 6.0). It is applied at the
+   next VR launch.
    - X4 then counts as **modified** while the extension is on, and saves made then are flagged,
      like with any extension. The mod only turns it on during VR sessions, so 2D play and 2D
      saves aren't affected.
@@ -89,9 +93,18 @@ So change 2D settings while playing in 2D, and VR settings while playing in VR; 
 
 ### VR settings
 
-The menu's **VR settings** (also `~/.local/state/x4vr/stereo.txt`) apply at once, also while X4
-runs: 3D on/off, shared pose (keep it on for the Steam Frame), mouse cursor, flat screen mode,
-world scale, flat screen distance and width.
+The menu's **Settings** are saved in `~/.local/state/x4vr/stereo.txt`. Each is tagged with when
+it applies:
+- **live**, at once, also while X4 runs: 3D, shared pose (keep it on for the Steam Frame), world
+  scale, head prediction, stutter protection, mouse cursor, flat screen mode, distance and width;
+- **next launch**, at the next VR start: HUD distance and X4's resolution in VR (automatic picks
+  the smallest 16:9 size that covers what SteamVR renders).
+
+**Profiles** hold a set of these settings. "Steam Frame" is built in; change settings and use
+**Save as profile...** to keep your own (in `~/.local/state/x4vr/profiles/`). ←→ on Profile loads
+another; "· changed" means the settings differ from the profile's.
+
+While X4 runs in VR, Status shows the headset's frame rate and late or repeated frames.
 
 ## 4. After an X4 update
 
@@ -144,7 +157,7 @@ The menu's actions are also commands (`x4vr help` lists all):
 | `x4vr launch` | Launch X4 in VR |
 | `x4vr launch-option status` / `copy` | Check / copy the Steam launch option |
 | `x4vr ctl recenter` / `flat` | Recentre / flat screen while X4 runs |
-| `x4vr hud <factor>` / `remove` / `status` | HUD distance (X4 closed) |
+| `x4vr hud <factor>` / `remove` / `status` | HUD distance now (X4 closed) |
 | `x4vr settings-mode status` | Whether X4 has its 2D or VR settings now |
 | `x4vr patterns` | Whether this X4 build is supported |
 | `x4vr report` | Bug report |

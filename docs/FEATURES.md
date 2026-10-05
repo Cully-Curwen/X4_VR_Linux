@@ -63,7 +63,7 @@ Last updated: 2026-10-05.
 
 | Feature | Windows | Linux | Notes |
 |---|---|---|---|
-| HUD distance extension [12] | Launcher box | Works | `x4vr hud <factor>`. |
+| HUD distance extension [12] | Launcher box | Works | Menu setting, applied at the next VR launch; also `x4vr hud <factor>`. |
 | HUD keeps its size (`.xpl` scripts) [12] | Not needed (`.lua` only) | Linux only, works | Linux X4 loads precompiled `.xpl`; the patched text goes there too. Protected UI Mode off. |
 | HUD rebuilt after game updates [12] | Yes, on Play | Works | `x4vr-run` runs `x4vr hud --refresh`. |
 | X4 settings check and fix [12] | Launcher buttons | Works | `x4vr check` / `fix-settings`, run by `x4vr-run`. Windowed mode on Linux. |
@@ -74,7 +74,10 @@ Last updated: 2026-10-05.
 
 | Feature | Windows | Linux | Notes |
 |---|---|---|---|
-| Launcher window (status, settings, play) [2, 11b] | Win32 window | Untested | `x4vr` terminal menu: status, VR settings, HUD, launch, recentre/flat while running. No profiles. |
+| Launcher window (status, settings, play) [2, 11b] | Win32 window | Untested | `x4vr` terminal menu: status with live frame rate, notices, launch, recentre/flat while running, settings tagged live / next launch. |
+| Settings profiles [11b] | No | Linux only, untested | Built-in "Steam Frame" plus the player's own (Save as profile). |
+| X4 resolution choice [12] | Launcher (`x4_width`/`x4_height`) | Untested | Menu: automatic or a 16:9 size; same keys as Windows. |
+| Notices (known issues, tips) [11b] | No | Linux only, untested | `share/x4vr/notices.txt`. |
 | One-step start [2, 11b] | Launcher "Play" | Untested | Menu "Launch X4 in VR": SteamVR if needed, then `steam -applaunch`. Steam's own Play starts the normal game. |
 | Bug report button (zip logs, GitHub issue) [2] | Yes | Untested | Menu / `x4vr report`: `~/x4vr-report-<time>.tar.gz` and the issue link. |
 | Crash recorder (minidumps, debug log) [2] | `crash_watch` | Missing | Exit status logged; system crash dumps via `coredumpctl`. |
