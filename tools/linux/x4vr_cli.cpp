@@ -1285,12 +1285,14 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
                         const auto wanted = *want ? std::string(want) : check.label.substr(check.label.rfind(' ')+1);
                         items.push_back(status(label, check.ok ? 0 : required ? 2 : 1,
                             wanted+(check.ok ? "" : "   now: "+check.current+(required ? "" : " (recommended)"))));
+                        if (!check.ok && !required) items.back().mark = "·";
                         return;
                     }
             items.push_back(status(label, 3, std::string(*want ? want : "the VR resolution")+(have || keys.size() == 0 ? "" : "   (not known yet)")));
+            items.back().mark = "-";
         };
-        items.push_back(info(have ? "Key:  ✓ right   ✗ wrong (fixed at the next VR launch)   ! recommended   "
-                                    "· check by hand in X4 (the mod can't read it)"
+        items.push_back(info(have ? "Key:  ✓ right   ✗ wrong (fixed at the next VR launch)   · recommended   "
+                                    "- check by hand in X4 (the mod can't read it)"
                                   : "X4's VR settings are made at the first VR launch; until then check everything by hand in X4."));
         items.push_back(section("Settings > Controls > Head Tracking Support"));
         row("OpenTrack Support", "On", {"enableopentrack"});

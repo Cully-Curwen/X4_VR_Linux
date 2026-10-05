@@ -111,6 +111,7 @@ struct Item {
     enum Kind { Section, Info, Status, Notice, Toggle, Choice, Number, Action } kind = Info;
     std::string id, label, value, help;
     std::string tag;                     // shown at the right: "live", "next launch", ...
+    std::string mark;                    // Status: another symbol for the state (same colour)
     int state = 0;                       // Status: 0 ok, 1 warning, 2 problem, 3 neutral; Notice: 0 tip, 1 issue, 2 help
     bool on = false;                     // Toggle
     std::vector<std::string> choices;    // Choice
@@ -289,8 +290,10 @@ private:
             return out;
         }
         case Item::Status: {
-            static const char* marks[] = {"\x1b[32m✓\x1b[0m", "\x1b[33m!\x1b[0m", "\x1b[31m✗\x1b[0m", "\x1b[2m·\x1b[0m"};
-            return {"  "+std::string(marks[std::clamp(item.state, 0, 3)])+" "+fit(item.label, label_width-2)+fit(item.value, value_width+tag_width+2)};
+            static const char* colours[] = {green, yellow, red, dim}, *symbols[] = {"✓", "!", "✗", "·"};
+            const int state = std::clamp(item.state, 0, 3);
+            const auto mark = std::string(colours[state])+(item.mark.empty() ? symbols[state] : item.mark)+reset;
+            return {"  "+mark+" "+fit(item.label, label_width-2)+fit(item.value, value_width+tag_width+2)};
         }
         default: break;
         }

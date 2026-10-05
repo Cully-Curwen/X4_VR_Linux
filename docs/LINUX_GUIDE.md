@@ -97,7 +97,7 @@ So change 2D settings while playing in 2D, and VR settings while playing in VR; 
 
 **In-game settings checklist** (menu, X4 settings for VR) lists every X4 setting VR needs, by
 where it is in X4's settings, with what X4's VR settings have now: ✓ right, ✗ wrong (fixed at
-the next VR launch), ! recommended, · check it by hand in X4, the mod can't read it (Controls >
+the next VR launch), · recommended, - check it by hand in X4, the mod can't read it (Controls >
 OpenTrack: head rotation and position factors at 100 %; with HUD Scaled on, Extensions >
 Protected UI Mode off). Head Motion Smoothing isn't listed: the mod turns it off itself.
 
