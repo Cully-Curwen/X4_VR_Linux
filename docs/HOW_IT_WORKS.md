@@ -717,14 +717,18 @@ timing (less lag) and the on-foot eye flip.
 
 **Working on foot (2026-10-05):** head tracking with both Windows on-foot patches ported.
 
+**Done:** the HUD size (`.xpl` scripts, section 12).
+
 **Open:**
-1. Snap turning on foot (comfort), only if X4's own look sensitivity isn't enough. Turn
-   compensation isn't needed with `shared_pose` (section 9).
-2. `pos_scale` and gain calibration on Linux. The cockpit looks slightly large.
-3. HUD `.xpl` scaling: done (the patched scripts also go at the `.xpl` paths).
-4. OpenXR.
-5. Build the Windows target once to confirm it is unchanged.
-6. Rival trackers: not needed, the Linux build has only OpenTrack. Don't run the opentrack app (UDP 4242) alongside.
+1. OpenXR (setups without SteamVR).
+2. Build the Windows target once, to confirm it is unchanged.
+
+**Not needed for now (user's call, 2026-10-05):**
+- `pos_scale` and gain calibration: the cockpit looked slightly large, but it is fine in use.
+- Snap turning on foot: turning the mouse more gently is enough.
+- Turn compensation: not needed with `shared_pose` (section 9).
+- Rival trackers: the Linux build has only OpenTrack. Don't run the opentrack app (UDP 4242)
+  alongside.
 
 ---
 
