@@ -615,3 +615,10 @@ needed). Custom 2640x1588 (about 5:3, as wide as the eye sees) works in the head
 pixels, no visible loss reported. Still to confirm at 5:3: the world stays fixed when turning the
 head (X4 keeps its vertical view at any shape), and no strip at the outer edge of each eye.
 Planned: automatic computes this shape itself (FEATURES.md).
+
+**X4's own UI scale (2026-10-05, idea).** X4's settings have a UI scaling option; its maximum is
+lower than the HUD factors used (2.5-3.5), and it scales menus and fonts too (useful on the flat
+screen). Idea: let the HUD extension only move the HUD back (`uianchor_*` positions) and get the
+size back from X4's UI scale instead of patching the scale factors in X4's UI scripts (Lua and the
+`.xpl` copies). That drops the part that needs Protected UI Mode off. X4 still reports "modified":
+any extension does. Not built; see FEATURES.md (Planned).
