@@ -92,13 +92,23 @@ double with_seq(double roll, uint32_t seq) {
     return roll;
 }
 
+// On foot X4 uses the pose one game frame sooner than in the cockpit, so the eye a frame half
+// means flips (Windows: half_xor_use 1 in the cockpit, half_xor_walk 0 on foot). Linux keeps
+// Windows' difference: on foot the eye is flipped by half_xor_use ^ half_xor_walk (1 by default;
+// half_xor_walk=1 turns the flip off).
+uint32_t walk_flip(bool walking) {
+    if (!walking) return 0;
+    const auto s = x4vr::stereo_settings();
+    return uint32_t((s.half_xor_use ^ s.half_xor_walk) & 1);
+}
+
 void position_at_use(void* tracker, float* x, float* y, float* z) {
     note_tracker_use(tracker, uintptr_t(__builtin_return_address(0)));
     if (field<uint8_t>(tracker, field_fresh)) taken_seq = packet_seq(field<double>(tracker, field_roll));
     SentPacket packet;
     if (taken_seq) { std::lock_guard lock(packets_mutex); packet = packets[taken_seq]; }
     if (!packet.valid) return original_position(tracker, x, y, z);
-    const auto eye = x4vr::render_eye(); // the frame X4 builds now
+    const auto eye = x4vr::render_eye()^walk_flip(packet.walking); // the frame X4 builds now
     auto* position = reinterpret_cast<float*>(static_cast<char*>(tracker)+field_position);
     const float scale = field<float>(tracker, field_scale);
     const std::array<float, 3> centre{position[0], position[1], position[2]};
@@ -251,7 +261,7 @@ void sender_loop() {
         const bool tracked = runtime->predicted_tracking(head, settings.predict+(walking ? 1.f/90 : 0.f)) == x4vr::FrameStatus::ready;
         if (!tracked && !settings.synth) continue;
         if (!tracked) head = x4vr::Matrix::identity();
-        const auto eye = x4vr::render_eye(); // one game frame renders one eye
+        const auto eye = x4vr::render_eye()^walk_flip(walking); // one game frame renders one eye
         // A fullscreen menu goes to the theater screen, and so does any view without ship controls.
         const bool flat = settings.theater == 2 ||
                           (settings.theater == 1 && game.sampled && (game.fullscreen_menu || !(walking || game.controlling_ship)));

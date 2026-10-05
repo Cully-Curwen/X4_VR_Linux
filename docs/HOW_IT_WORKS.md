@@ -484,8 +484,12 @@ neither counts.
   `theater=1`; the game-state log line shows `walking=`.
 - **Timing, from Windows:** on foot the pose is predicted one frame (1/90 s) further, and poses
   are recorded as walking, so the reprojection pose uses `delay_walk` (1) instead of `delay`.
-  Windows' eye flip at send (`eye ^ walking`) isn't ported: Linux picks the eye at use from the
-  frame half, and the eyes were right on foot. Not tested yet.
+  Test: the lag is better on foot, and `delay_walk=2` didn't help further.
+- **Eye flip on foot**, from Windows: on foot X4 uses the pose one frame sooner, so the eye a
+  frame half means flips. Windows maps it with `half_xor_use=1` in the cockpit and
+  `half_xor_walk=0` on foot. Linux keeps that difference: on foot the eye (at send and at use)
+  is flipped by `half_xor_use ^ half_xor_walk`, 1 by default. `half_xor_walk=1` turns it off.
+  This was added after "depth feels off on foot" (2026-10-05); not tested yet.
 - Not ported: turn compensation (mouse turns on foot).
 
 ---
