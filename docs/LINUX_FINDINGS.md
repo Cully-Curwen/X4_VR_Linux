@@ -486,6 +486,21 @@ Searches for the Windows shape (sign flip with the constant at `0x2e245d0`, comp
 first candidates. The zeroing is downstream, wherever the camera reads the bridge's `+0x10`;
 finding it needs a different approach (e.g. watching the value at runtime). Paused 2026-10-04.
 
+**Runtime watch (2026-10-05, `X4VR_WATCH_HEAD=1`, `src/linux/head_watch.cpp`).** Hardware
+watchpoints, on every thread, over 10 windows of 20 s (cockpit and other states):
+- The bridge's `+0x10` stayed `0,0,0` and nothing touched it, also in the cockpit with the head
+  moving: X4 doesn't use the bridge for the cockpit view. The "only caller" above was wrong.
+- `VR::OpenTrack` (heap object) `+0xd0` position / `+0x100` angles: written by slot 2's update
+  (`0x1a1b8b2..0x1a1b8e2`), read by slot 34 (`0x1a0dda8..0x1a0ddd0`) and the function just before
+  it (`0x1a0dd68..0x1a0dd97`, the angles accessor). Nothing else in X4 reads them.
+- Slot 34 has **one caller, return address `0xfec24e`**, about once per frame while head tracking
+  applies; it stops when it doesn't (window 10). That function is where the cockpit view gets
+  the head position, so it is where the backward clamp and the on-foot gating should be.
+- With `theater=1` (default), a view without ship controls goes to the theater screen and the
+  sender sends the centred pose (position 0). So far, standing in the ship read as "X4 zeroes
+  the pose on foot", but the mod sent the zero itself. Windows has a walking check
+  (`freetrack_client.cpp`); Linux doesn't yet. Testing on foot needs `theater=0`.
+
 ## Mouse cursor
 
 X4's cursor is the X server's (Xwayland), not part of its swapchain, as on Windows. The Windows
