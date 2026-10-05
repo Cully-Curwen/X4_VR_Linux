@@ -32,12 +32,6 @@
 
 namespace x4vr {
 namespace {
-// Linux-only diagnostic (stereo.txt `submit_right_first=1`): submits the right eye before the left,
-// to see whether the runtime applies each eye's own pose (docs/LINUX_FINDINGS.md, stage C).
-std::atomic<bool> submit_right_first{false};
-// Linux-only diagnostic (stereo.txt `pose_from_eye=0|1`): submits both eyes with that eye's pose, to
-// see whether the runtime uses one eye's pose for both (-1, default: each eye its own).
-std::atomic<int> pose_from_eye{-1};
 std::atomic<bool> shared_pose_setting{true};
 thread_local bool runtime_thread = false;
 struct RuntimeCall {
@@ -186,13 +180,10 @@ std::string RuntimeBootstrap::submit_frame(const std::array<vr::VRVulkanTextureD
     session_.adopt_bootstrap_thread();
     vr::EVRCompositorError error{};
     auto descriptors = images;
-    const bool right_first = submit_right_first.load();
-    const int from_eye = pose_from_eye.load();
-    for (int k = 0; k < 2; ++k) {
-        const int i = right_first ? 1-k : k;
+    for (int i = 0; i < 2; ++i) {
         vr::VRTextureWithPose_t texture{};
         texture.handle = &descriptors[i]; texture.eType = vr::TextureType_Vulkan; texture.eColorSpace = vr::ColorSpace_Auto;
-        for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) texture.mDeviceToAbsoluteTracking.m[r][c] = poses[from_eye < 0 ? i : from_eye].m[r][c];
+        for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) texture.mDeviceToAbsoluteTracking.m[r][c] = poses[i].m[r][c];
         error = session_.compositor_->Submit(static_cast<vr::EVREye>(i), &texture, &bounds[i],
                                              with_pose ? vr::Submit_TextureWithPose : vr::Submit_Default);
         if (error != vr::VRCompositorError_None) return "Submit failed: OpenVR compositor error " + std::to_string(error);
@@ -311,8 +302,6 @@ StereoSettings read_settings() {
     StereoSettings next;
     const auto root = capture_dir();
     if (root.empty()) return next;
-    bool right_first = false;
-    int from_eye = -1;
     bool shared = true;
     std::ifstream file(root+"/stereo.txt");
     for (std::string line; std::getline(file, line);) {
@@ -321,8 +310,6 @@ StereoSettings read_settings() {
         const auto key = line.substr(0, split);
         const auto value = std::atof(line.c_str()+split+1);
         if (key == "stereo") next.stereo = value != 0;
-        else if (key == "submit_right_first") right_first = value != 0;
-        else if (key == "pose_from_eye") from_eye = value < 0 ? -1 : int(value) & 1;
         else if (key == "shared_pose") shared = value != 0;
         else if (key == "delay") next.delay = static_cast<int>(value);
         else if (key == "ipd_scale") next.ipd_scale = static_cast<float>(value);
@@ -366,8 +353,6 @@ StereoSettings read_settings() {
             for (auto& v : target) in >> v;
         }
     }
-    submit_right_first = right_first;
-    pose_from_eye = from_eye;
     shared_pose_setting = shared;
     return next;
 }

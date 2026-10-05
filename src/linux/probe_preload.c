@@ -453,6 +453,10 @@ static long ts_ms(const struct timespec* t) { return t ? (long)(t->tv_sec*1000+t
         return result;                                                                             \
     } while (0)
 
+// glibc declares poll's fds as write-only (access attribute), so newer GCC calls reading them
+// "maybe uninitialized"; the caller's pollfds are always initialised.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 EXPORT int poll(struct pollfd* fds, nfds_t count, int timeout) {
     typedef int (*fn)(struct pollfd*, nfds_t, int);
     if (!polls_tracked(fds, count)) return NEXT(fn, poll)(fds, count, timeout);
@@ -468,6 +472,7 @@ EXPORT int ppoll(struct pollfd* fds, nfds_t count, const struct timespec* timeou
     if (!polls_tracked(fds, count)) return NEXT(fn, ppoll)(fds, count, timeout, mask);
     TIMED_WAIT(F_POLL, "ppoll", ts_ms(timeout), NEXT(fn, ppoll)(fds, count, timeout, mask));
 }
+#pragma GCC diagnostic pop
 static bool selects_tracked(int count, fd_set* readable) {
     const int fd = atomic_load(&tracked);
     return atomic_load_explicit(&active, memory_order_relaxed) && fd >= 0 && fd < count && fd < FD_SETSIZE && readable && FD_ISSET(fd, readable);

@@ -451,7 +451,8 @@ old, the rest split evenly between the eyes; per-eye optics mirror-symmetric, no
 eye still ghosted on head movement: with no eye offset (`ipd_scale=0`), swapped offsets, swapped
 halves, right eye submitted first, and in pair mode; mono (same image and pose in both eyes) was
 clean. `pose_from_eye=1` (both eyes submitted with the right eye's pose) moved the ghosting to the
-left eye, `pose_from_eye=0` kept it in the right: **SteamVR's link to the Frame reprojects both
+left eye, `pose_from_eye=0` kept it in the right (both diagnostic switches, like `submit_right_first`,
+were temporary and are removed): **SteamVR's link to the Frame reprojects both
 eyes with the left eye's pose.**
 
 Fix (`shared_pose=1`, default): the pose sender skips the packet before each right-eye frame, so X4

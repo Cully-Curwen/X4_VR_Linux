@@ -505,10 +505,11 @@ Known limits, accepted for now:
 8. **Tiling window managers** resize X4's window; float it (class `X4`) to keep the resolution.
 
 Before an upstream PR:
-9. Remove or document the diagnostic switches (`submit_right_first`, `pose_from_eye`).
-10. Fix the Phase 0 probe's `-Wmaybe-uninitialized` error with newer GCC.
+9. Done: diagnostic switches removed (results kept in `docs/LINUX_FINDINGS.md`).
+10. Done: the probe builds with newer GCC (all 9 tests pass).
 11. Update this plan and the README with a Linux section (install with Nix, launch option, Frame findings).
-12. Rebuild Windows once to confirm it is unchanged.
+12. Windows: outside the Linux folders only the top-level `CMakeLists.txt` (an opt-in branch that
+    returns before the Windows build) and `.gitignore` changed since `be68c82`; still to build on Windows.
 
 
 - **Both eyes from one simulation step:** clock gating in the preload shim (`clock_gettime` on the
