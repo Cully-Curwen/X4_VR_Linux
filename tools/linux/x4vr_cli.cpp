@@ -1289,17 +1289,12 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
                     }
             items.push_back(status(label, 3, std::string(*want ? want : "the VR resolution")+(have || keys.size() == 0 ? "" : "   (not known yet)")));
         };
-        items.push_back(info(have ? "✓ right   ✗ wrong (fixed at the next VR launch)   · check it in X4: not in its settings file"
-                                  : "X4's VR settings are made at the first VR launch; until then check everything in X4."));
+        items.push_back(info(have ? "Key:  ✓ right   ✗ wrong (fixed at the next VR launch)   ! recommended   "
+                                    "· check by hand in X4 (the mod can't read it)"
+                                  : "X4's VR settings are made at the first VR launch; until then check everything by hand in X4."));
         items.push_back(section("Settings > Controls > Head Tracking Support"));
         row("OpenTrack Support", "On", {"enableopentrack"});
         items.push_back(section("Settings > Controls > OpenTrack"));
-        { // opentrackfilterstrength: 1 = no smoothing. The mod sets it while X4 runs and X4 saves it.
-            std::string strength;
-            const bool known = have && x4vr::launcher::xml_value(xml, "opentrackfilterstrength", strength);
-            items.push_back(status("Head Motion Smoothing", known ? (strength == "1" ? 0 : 1) : 3,
-                known && strength != "1" ? "Off   now: "+strength+" (the mod turns it off when X4 starts)" : "Off (the mod turns it off)"));
-        }
         row("Head Rotation Factor", "100 %", {});
         row("Head Position Factor", "100 %", {});
         items.push_back(section("Settings > Display"));

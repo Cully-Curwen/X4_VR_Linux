@@ -618,7 +618,8 @@ shown greyed out: what doesn't apply isn't listed. Enter on a choice opens its o
 - **X4 settings for VR:** the checks the VR copy of `config.xml` fails (required / recommended,
   with the current value); `x4vr-run` fixes them at the next VR launch. "In-game settings
   checklist" opens the README's settings tables as a screen, by X4 settings page, each row
-  marked from `config.xml` or "check it in X4" (Controls > OpenTrack: smoothing and the factors;
+  marked from `config.xml` or "check by hand in X4" (Controls > OpenTrack: the factors, which X4
+  doesn't save; smoothing isn't listed, the mod sets it;
   Extensions > Protected UI Mode, listed only with HUD Scaled on).
 - **Setup:**
   - Copy the launch option: wl-copy, xclip or xsel, else OSC 52. The user pastes it in Steam;
