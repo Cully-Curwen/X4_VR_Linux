@@ -51,7 +51,7 @@ runtime. What differs is how each reaches X4:
 | Shared runtime | `x4_openvr.dll`, loaded by both DLLs | Linked into `libx4vr.so` (one library) |
 | Start | `X4VRLauncher.exe` (+ `crash_watch.exe`) | `x4vr-run %command%` as Steam launch option |
 | VR runtime | OpenVR (default) or OpenXR | OpenVR only (OpenXR is a stub) |
-| Finding X4 code | Byte signatures searched in `X4.exe` (`include/x4vr/code_scan.hpp`) | Fixed 9.00 addresses, bytes checked before use |
+| Finding X4 code | Byte signatures searched in `X4.exe` (`include/x4vr/code_scan.hpp`) | Byte patterns searched in X4's loaded code, and RTTI for the tracker's vtable (`src/linux/code_scan.hpp`); `x4vr patterns` checks a build |
 
 ---
 
@@ -245,7 +245,7 @@ a frame was rendered for.
 
 | | Windows | Linux |
 |---|---|---|
-| Found by | Signature `48 63 05 ?? ?? ?? ?? 48 83 f0 01 48 69 c8 70 02 00 00`, all matches naming one global | Fixed: global `0x72a0fa0`, read by `0x218e220` (bytes `8b 05 … 83 f0 01 c3` checked, displacement must resolve to the global) |
+| Found by | Signature `48 63 05 ?? ?? ?? ?? 48 83 f0 01 48 69 c8 70 02 00 00`, all matches naming one global | Pattern `8b 05 ?? ?? ?? ?? 83 f0 01 c3` (its reader, 9.00: `0x218e220`), all matches naming one global |
 | Global | RVA `0x6b66280` | `0x72a0fa0` |
 | `render_eye()` | `half ^ half_xor_render` | same |
 | `presented_frame()` | eye = `half ^ half_xor_present`, `half_xor_present=1` | `half_xor_present=0` (measured, stage C) |
@@ -345,9 +345,9 @@ layout.data`, checks `tracker+get_data == FTGetData`) and swaps two vtable slots
 
 ### Linux
 
-- `install_eye_hook()` finds `VR::OpenTrack` by its fixed vtable. It checks that the vtable
-  and type_info are in X4, that `vtable[-1]` is the type_info, the name `N2VR9OpenTrackE`,
-  that `vtable[34] == 0x1a0dda0`, and the code bytes `f3 0f 10 87 d0 00 00 00`. Then it swaps
+- `install_eye_hook()` uses the X4 scan: `VR::OpenTrack`'s vtable is found through its RTTI
+  name `N2VR9OpenTrackE` (type name → type_info → vtable, `elf_classes.cpp`), and slot 34 must
+  hold `f3 0f 10 87 d0 00 00 00` (9.00: vtable `0x3c62520`, slot 34 `0x1a0dda0`). Then it swaps
   slot 34 (`mprotect`, atomic store).
 - `position_at_use`:
   - if the fresh flag `+0xa8` is set, reads the packet sequence from the roll at `+0xa0`;
@@ -386,8 +386,17 @@ Windows has no shared-pose path. Each eye's pose comes from its own game frame.
   searched in X4's code sections and must match exactly once. Already-patched bytes count as
   done. `VirtualProtect`, then `memcpy`, then `FlushInstructionCache`. Versions 8.00 and 9.00
   are supported by rows of signatures.
-- **Linux** (`apply_patches` / `apply_patch` in `pose_sender.cpp`): fixed 9.00 addresses.
-  - The surrounding bytes are compared first; a mismatch is logged and X4 is left alone.
+- **Linux** (`apply_patches` / `apply_patch` in `pose_sender.cpp`, patterns in
+  `src/linux/code_scan.hpp`): the same idea as Windows.
+  - At startup the pose sender's thread scans X4's loaded code once (`scan_x4`) and logs each
+    site (`X4VR scan:` lines). Each pattern must match exactly once. `??` wildcards cover call and
+    RIP displacements; struct offsets and short jumps stay literal.
+  - The camera-offset patch also checks the block its new jump lands on. The player global is
+    read from that site's RIP operand.
+  - The patched byte must hold its original value (or the patched one: "already patched").
+    Anything else is logged and X4 is left alone.
+  - `x4vr patterns [X4 path]` runs the same scan on the file, to check a new X4 build before
+    playing.
   - Each patch is **one byte**, written with an atomic store between `mprotect` RWX and R-X,
     so it is safe while X4 runs.
   - `X4VR_PATCHES=0` turns them off.
@@ -733,6 +742,10 @@ timing (less lag) and the on-foot eye flip.
 ---
 
 ## 16. Address reference
+
+The Linux mod finds these by pattern (section 8); the Linux addresses are X4 9.00's, for
+reading disassembly. The head-watch diagnostics (`X4VR_WATCH_HEAD`) still use fixed 9.00
+addresses.
 
 | What | Windows 9.00 (RVA) | Linux 9.00 |
 |---|---|---|

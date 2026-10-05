@@ -36,6 +36,15 @@ void start_pose_sender();
 // its code and data addresses are fixed). Checked before reading or patching X4 at known addresses.
 bool in_executable(uintptr_t address, size_t size);
 
+// Where the X4 code and data the mod uses are, found by byte pattern and RTTI (code_scan.hpp)
+// instead of fixed X4 9.00 addresses. scan_x4() scans the running game once (a fraction of a
+// second; the pose sender's thread calls it) and logs what it found; x4_sites() is null until then.
+}
+namespace x4vr::linux_port::code { struct X4Sites; }
+namespace x4vr::linux_port {
+void scan_x4();
+const code::X4Sites* x4_sites();
+
 // SteamVR's link to the Steam Frame applies the left eye's submitted pose to both eyes (measured
 // with pose_from_eye, docs/LINUX_FINDINGS.md). With shared_pose (stereo.txt, default 1) X4 builds
 // both eyes of a pair from one head pose (the pose sender skips the packet before a right-eye

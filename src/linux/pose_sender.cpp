@@ -14,6 +14,7 @@
 // right, +pitch looks up, +roll tilts left, +x moves left, +y up, -z forward. Positions are sent
 // in OpenTrack centimetres. Overrides without rebuilding: X4VR_OT_YAW, _PITCH, _ROLL, _X, _Y, _Z.
 #include "linux_runtime.hpp"
+#include "code_scan.hpp"
 #include "opentrack.hpp"
 #include <arpa/inet.h>
 #include <dlfcn.h>
@@ -69,10 +70,8 @@ x4vr::Matrix synthetic_pose(const float v[6]) {
 // change). The accessor hook (same frame, after the update) notes which packet X4 took, adds that
 // packet's eye offset for the frame being built, calls the original and restores the centre, and
 // records the packet's headset pose for the layer.
-constexpr uintptr_t opentrack_vtable = 0x3c62520, opentrack_type_info = 0x3c61bb0;
-constexpr size_t position_slot = 34;
-constexpr uintptr_t position_code_address = 0x1a0dda0;
-constexpr unsigned char position_code[] = {0xf3, 0x0f, 0x10, 0x87, 0xd0, 0x00, 0x00, 0x00}; // movss 0xd0(%rdi),%xmm0
+// The vtable, by RTTI, and its slot 34 code are found by the X4 scan (code_scan.hpp).
+constexpr size_t position_slot = code::x4::opentrack_position_slot;
 constexpr size_t field_position = 0xd0, field_scale = 0x114, field_roll = 0xa0, field_fresh = 0xa8;
 
 struct SentPacket { x4vr::Matrix head; std::array<std::array<float, 3>, 2> delta{}; bool flat{}, walking{}, valid{}; };
@@ -128,28 +127,20 @@ bool swap_slot(void** slot, void* replacement, void** original) {
     mprotect(start, size_t(page), PROT_READ);
     return true;
 }
-void install_eye_hook() {
+void install_eye_hook(const code::X4Sites& sites) {
     const char* off = std::getenv("X4VR_EYE_AT_USE");
     if (off && *off == '0') { log("X4VR pose: eye at use off (X4VR_EYE_AT_USE=0); eyes chosen when packets are sent"); return; }
-    auto** vtable = reinterpret_cast<void**>(opentrack_vtable);
-    const char expected_name[] = "N2VR9OpenTrackE";
-    bool ok = in_executable(opentrack_vtable-8, 8*(position_slot+2)) && in_executable(opentrack_type_info, 16) &&
-              reinterpret_cast<uintptr_t>(vtable[-1]) == opentrack_type_info;
-    if (ok) {
-        const auto name = *reinterpret_cast<const char* const*>(opentrack_type_info+8);
-        ok = in_executable(reinterpret_cast<uintptr_t>(name), sizeof expected_name) && !std::memcmp(name, expected_name, sizeof expected_name);
-    }
-    ok = ok && reinterpret_cast<uintptr_t>(vtable[position_slot]) == position_code_address &&
-         in_executable(position_code_address, sizeof position_code) &&
-         !std::memcmp(reinterpret_cast<const void*>(position_code_address), position_code, sizeof position_code);
-    if (!ok) { log("X4VR pose: eye-at-use hook doesn't match this X4 (only Linux 9.00 is known); eyes chosen when packets are sent"); return; }
+    auto** vtable = reinterpret_cast<void**>(sites.opentrack_vtable);
+    const bool ok = sites.opentrack_vtable && in_executable(sites.opentrack_vtable, 8*(position_slot+1)) &&
+                    reinterpret_cast<uintptr_t>(vtable[position_slot]) == sites.opentrack_position;
+    if (!ok) { log("X4VR pose: eye-at-use hook: VR::OpenTrack's position accessor not found in this X4; eyes chosen when packets are sent"); return; }
     void* original{};
     if (!swap_slot(&vtable[position_slot], reinterpret_cast<void*>(&position_at_use), &original)) {
         log("X4VR pose: eye-at-use hook not installed (vtable not writable)"); return;
     }
     original_position = reinterpret_cast<TrackerPosition>(original);
     eye_hook = true;
-    log("X4VR pose: eye-at-use hook installed (X4 9.00 VR::OpenTrack slot 34)");
+    log("X4VR pose: eye-at-use hook installed (VR::OpenTrack slot 34)");
 }
 
 // ---- Stage D and on foot: code patches ------------------------------------------------------
@@ -167,60 +158,47 @@ void install_eye_hook() {
 //   before composing the head offset (camera +0x5a0..+0x5df, Windows +0x590). Its `je` to the
 //   exit (0x1929ffd -> 0x192a216) goes to the block that composes the offset without it
 //   (0x192a284 -> 0x192a15e, Windows 0x97a5a8) instead: displacement 0x213 -> 0x281.
-struct CodePatch {
-    const char* what;
-    uintptr_t address;                // the expected bytes' start
-    std::vector<unsigned char> expected;
-    size_t at;                        // the patched byte
-    unsigned char value;
-};
-// True once the patch is in place (patched now or earlier).
-bool apply_patch(const CodePatch& patch) {
-    const auto* code = reinterpret_cast<const unsigned char*>(patch.address);
-    if (!in_executable(patch.address, patch.expected.size())) { log(std::string("X4VR patch: ")+patch.what+" not in this X4; left unchanged"); return false; }
-    auto expected = patch.expected;
-    if (std::memcmp(code, expected.data(), expected.size()) != 0) {
-        expected[patch.at] = patch.value;
-        const bool done = !std::memcmp(code, expected.data(), expected.size());
-        log(std::string("X4VR patch: ")+patch.what+(done ? " already patched" : " doesn't match this X4 (only Linux 9.00 is known); left unchanged"));
-        return done;
-    }
+// Changes one byte at site+at from `from` to `to`; true once it is in place (patched now or
+// earlier). The site comes from the X4 scan (0: its pattern isn't in this X4).
+bool apply_patch(const char* what, uint64_t site, size_t at, unsigned char from, unsigned char to) {
+    const auto address = uintptr_t(site)+at;
+    if (!site || !in_executable(address, 1)) { log(std::string("X4VR patch: ")+what+": not found in this X4; left unchanged"); return false; }
+    auto* target = reinterpret_cast<unsigned char*>(address);
+    if (*target == to) { log(std::string("X4VR patch: ")+what+" already patched"); return true; }
+    if (*target != from) { log(std::string("X4VR patch: ")+what+": unexpected byte; left unchanged"); return false; }
     const long page = sysconf(_SC_PAGESIZE);
-    auto* target = const_cast<unsigned char*>(code)+patch.at;
-    auto* start = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(target) & ~uintptr_t(page-1));
-    if (mprotect(start, size_t(page), PROT_READ | PROT_WRITE | PROT_EXEC) != 0) { log(std::string("X4VR patch: ")+patch.what+": code not writable"); return false; }
-    __atomic_store_n(target, patch.value, __ATOMIC_SEQ_CST);
+    auto* start = reinterpret_cast<void*>(address & ~uintptr_t(page-1));
+    if (mprotect(start, size_t(page), PROT_READ | PROT_WRITE | PROT_EXEC) != 0) { log(std::string("X4VR patch: ")+what+": code not writable"); return false; }
+    __atomic_store_n(target, to, __ATOMIC_SEQ_CST);
     mprotect(start, size_t(page), PROT_READ | PROT_EXEC);
-    log(std::string("X4VR patch: ")+patch.what+" patched");
+    log(std::string("X4VR patch: ")+what+" patched");
     return true;
 }
 // Both on-foot patches in place: walking counts as stereo (Windows: on_foot_tracking).
 std::atomic<bool> on_foot_tracking{false};
-// The rendered camera ([[0x3db6948]+0x3e8], the global both on-foot patch sites use) in mode 0
+// X4's player global (9.00: 0x3db6948), from the camera-offset site; 0 if not found.
+std::atomic<uintptr_t> player_global{0};
+// The rendered camera ([[player global]+0x3e8], the global both on-foot patch sites use) in mode 0
 // (+0x880) without a movement controller (+0x18): the player walking. Windows: [[manager]+0x3d0],
 // +0x868, +0x20 (camera_on_foot). X4's main thread only.
 bool camera_on_foot() {
-    const auto player = *reinterpret_cast<const uintptr_t*>(0x3db6948);
+    const auto global = player_global.load();
+    const auto player = global ? *reinterpret_cast<const uintptr_t*>(global) : 0;
     const auto camera = player ? *reinterpret_cast<const uintptr_t*>(player+0x3e8) : 0;
     return camera && !*reinterpret_cast<const uintptr_t*>(camera+0x18) && !*reinterpret_cast<const int32_t*>(camera+0x880);
 }
-void apply_patches() {
+void apply_patches(const code::X4Sites& sites) {
     const char* off = std::getenv("X4VR_PATCHES");
     if (off && *off == '0') { log("X4VR patch: code patches off (X4VR_PATCHES=0)"); return; }
-    // cmp $7,%eax; je +0x19; movss -0xb0(%rbp),%xmm1; pxor %xmm0,%xmm0; comiss %xmm0,%xmm1; jbe +8; movss %xmm0,-0xb0(%rbp)
-    apply_patch({"backward head-position clamp", 0xfeb72b,
-                 {0x83, 0xf8, 0x07, 0x74, 0x19, 0xf3, 0x0f, 0x10, 0x8d, 0x50, 0xff, 0xff, 0xff, 0x66, 0x0f, 0xef, 0xc0,
-                  0x0f, 0x2f, 0xc8, 0x76, 0x08, 0xf3, 0x0f, 0x11, 0x85, 0x50, 0xff, 0xff, 0xff}, 20, 0xeb});
-    // call 0x1e07060; test %al,%al; je 0xfeb6fc
-    const bool zeroing = apply_patch({"on-foot head-pose zeroing", 0xfec070, {0xe8, 0xeb, 0xaf, 0xe1, 0x00, 0x84, 0xc0, 0x0f, 0x84, 0x7f, 0xf6, 0xff, 0xff}, 8, 0x81});
-    // mov 0x18(%rbx),%r12; test %r12,%r12; je 0x192a216 -> 0x192a284: movaps 0x10/0x20/0x30/0x0(%rbp),
-    // %xmm6/7/5/8; jmp 0x192a15e
-    if (in_executable(0x192a284, 22) &&
-        !std::memcmp(reinterpret_cast<const void*>(0x192a284),
-                     "\x0f\x28\x75\x10\x0f\x28\x7d\x20\x0f\x28\x6d\x30\x44\x0f\x28\x45\x00\xe9\xc4\xfe\xff\xff", 22))
-        on_foot_tracking = zeroing && apply_patch({"on-foot camera offset", 0x1929ff6, {0x4c, 0x8b, 0x63, 0x18, 0x4d, 0x85, 0xe4, 0x0f, 0x84, 0x13, 0x02, 0x00, 0x00}, 9, 0x81});
-    else
-        log("X4VR patch: on-foot camera offset doesn't match this X4 (only Linux 9.00 is known); left unchanged");
+    namespace x4 = code::x4;
+    apply_patch("backward head-position clamp", sites.backward_clamp, x4::backward_clamp_at, 0x76, 0xeb); // jbe -> jmp
+    const bool zeroing = apply_patch("on-foot head-pose zeroing", sites.onfoot_zeroing, x4::onfoot_zeroing_at, 0x84, 0x81); // je -> jno
+    const bool offset = apply_patch("on-foot camera offset", sites.camera_offset, x4::camera_offset_at, 0x13,
+                                    uint8_t(x4::camera_offset_jump)); // je displacement 0x213 -> 0x281
+    if (zeroing && offset && sites.player_global && in_executable(uintptr_t(sites.player_global), 8)) {
+        player_global = uintptr_t(sites.player_global);
+        on_foot_tracking = true;
+    }
 }
 
 void sender_loop() {
@@ -399,6 +377,15 @@ GameState game_state() {
 }
 void start_pose_sender() {
     static std::once_flag once;
-    std::call_once(once, [] { apply_patches(); install_eye_hook(); std::thread(sender_loop).detach(); start_head_watch(); });
+    std::call_once(once, [] {
+        std::thread([] {
+            scan_x4(); // the X4 code the hook and patches use, found by pattern (a fraction of a second)
+            const auto* sites = x4_sites();
+            apply_patches(*sites);
+            install_eye_hook(*sites);
+            sender_loop();
+        }).detach();
+        start_head_watch();
+    });
 }
 }

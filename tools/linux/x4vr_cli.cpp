@@ -1,6 +1,7 @@
 // x4vr: the Linux port's command-line tool. Subcommands so far are the Phase 0 measurements of
 // docs/LINUX_PORT_PLAN.md; settings, HUD and report commands join them later.
 #include "elf_classes.hpp"
+#include "code_scan.hpp"
 #include "../launcher/hud_mod.hpp"
 #include "../launcher/launcher_settings.hpp"
 #include "md5.hpp"
@@ -64,6 +65,11 @@ void usage() {
         "      game update (x4vr-run does that before every start). Game folder: $X4VR_GAME_DIR, else\n"
         "      Steam's default library. X4 then counts as modified (no online features; saves made\n"
         "      with it stay flagged).\n"
+        "\n"
+        "  patterns [path to the X4 executable]\n"
+        "      Finds the X4 code the mod patches and hooks by its bytes, as the mod does at startup,\n"
+        "      and prints where (default: X4 in the game folder). A site it doesn't find stays\n"
+        "      unpatched in the game; the mod logs the same list (\"X4VR scan\").\n"
         "\n"
         "  game-grep <text-regex> [path-regex]\n"
         "      Searches the game's catalog files (the base game's copy of each file) whose path matches\n"
@@ -579,6 +585,19 @@ int elf_classes(const std::vector<std::string_view>& args) {
 }
 }
 
+// The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
+int patterns(const std::vector<std::string_view>& args) {
+    if (args.size() > 1) { usage(); return 2; }
+    const std::filesystem::path path = args.empty() ? game_dir()/"X4" : std::filesystem::path(args[0]);
+    if (path.empty() || !std::filesystem::exists(path)) { std::cerr << "X4 not found; give its path\n"; return 1; }
+    const auto sites = x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load(path.string()));
+    std::cout << path.string() << ":\n";
+    for (const auto& note : sites.notes) std::cout << "  " << note << '\n';
+    const bool all = sites.backward_clamp && sites.onfoot_zeroing && sites.camera_offset && sites.frame_half_global && sites.opentrack_vtable;
+    std::cout << (all ? "All found: the mod supports this X4.\n" : "Some not found: those features stay off in this X4.\n");
+    return all ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     const std::string_view command = argv[1];
@@ -590,6 +609,7 @@ int main(int argc, char** argv) {
         if (command == "ctl") return ctl(args);
         if (command == "hud") return hud(args);
         if (command == "game-grep") return game_grep(args);
+        if (command == "patterns") return patterns(args);
         if (command == "check" && args.empty()) return check_settings(false, false);
         if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))
             return check_settings(true, !args.empty());
