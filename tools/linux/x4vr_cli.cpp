@@ -1165,6 +1165,64 @@ std::optional<x4vr::launcher::Stats> headset_stats() {
     return stats;
 }
 
+// ---- tiling window managers: rules that float the VR window ------------------------------------
+// X4 renders at its window's size, and a tiling window manager resizes the window (and honours
+// X4's fullscreen request, which shrinks it to the monitor). In VR the window's class is X4VR
+// (x4vr-run sets SDL_APP_ID), so a rule can float it and leave 2D (class X4) alone.
+struct TilingRule { std::string id, name, where, rule; bool tested; };
+std::vector<TilingRule> tiling_rules() {
+    return {
+        {"hyprland_lua", "Hyprland 0.55+ (Lua config)", "~/.config/hypr/hyprland.lua",
+         "hl.window_rule({ name = \"x4-vr\", match = { class = \"^(X4VR)$\" }, float = true, "
+         "suppress_event = \"fullscreen maximize\", fullscreen_state = \"0 0\" })", true},
+        {"hyprland_conf", "Hyprland (hyprland.conf)", "~/.config/hypr/hyprland.conf",
+         "windowrule = float, class:^(X4VR)$\nwindowrule = suppressevent fullscreen maximize, class:^(X4VR)$", false},
+        {"sway", "Sway", "~/.config/sway/config", "for_window [class=\"X4VR\"] floating enable, fullscreen disable", false},
+        {"i3", "i3", "~/.config/i3/config", "for_window [class=\"X4VR\"] floating enable, fullscreen disable", false},
+    };
+}
+// The tiling window manager this session runs, if one of those: "hyprland", "sway", "i3" or "".
+std::string tiling_wm() {
+    if (const char* h = std::getenv("HYPRLAND_INSTANCE_SIGNATURE"); h && *h) return "hyprland";
+    if (const char* s = std::getenv("SWAYSOCK"); s && *s) return "sway";
+    if (const char* i = std::getenv("I3SOCK"); i && *i) return "i3";
+    return {};
+}
+void tiling_screen(x4vr::tui::Terminal& terminal) {
+    using namespace x4vr::tui;
+    Menu menu(terminal);
+    menu.title = "X4 VR  ·  Tiling window manager rules";
+    menu.keys = "↑↓ move   Enter copy   Esc back";
+    menu.label_width = 60;
+    const auto wm = tiling_wm();
+    const auto rules = tiling_rules();
+    for (;;) {
+        std::vector<Item> items{
+            info("X4 renders at its window's size. A tiling window manager resizes it (or makes it fullscreen at the monitor's "
+                 "size), so the headset gets a smaller image. In VR the window's class is X4VR (2D keeps X4), so a rule can float "
+                 "only the VR window at the size the mod sets. Add the rule for yours to its config; it reloads on save."),
+        };
+        for (const auto& r : rules) {
+            const bool here = r.id.rfind(wm.empty() ? "-" : wm, 0) == 0;
+            items.push_back(section(r.name+(here ? "  (this session)" : "")+(r.tested ? "" : "  (untested)")));
+            items.push_back(info("In "+r.where+":"));
+            std::istringstream lines(r.rule);
+            for (std::string line; std::getline(lines, line);) items.push_back(info("  "+line));
+            items.push_back(action(r.id, "Copy this rule", "Copies the rule above to the clipboard."));
+        }
+        items.push_back(section("Check"));
+        items.push_back(info("Launch in VR, then hyprctl clients (Hyprland) or swaymsg -t get_tree (Sway): the X4VR window should be "
+                             "floating, not fullscreen, at the VR resolution. Remove the rule when uninstalling."));
+        items.push_back(action("back", "Back"));
+        Event e;
+        if (!menu.step(items, e)) continue;
+        if (e.kind == Event::Back || e.id == "back") return;
+        if (e.kind != Event::Activate) continue;
+        for (const auto& r : rules)
+            if (r.id == e.id) menu.messages = {"Copied ("+copy_to_clipboard(r.rule)+"): paste it into "+r.where+"."};
+    }
+}
+
 void uninstall_screen(x4vr::tui::Terminal& terminal) {
     using namespace x4vr::tui;
     auto chosen = removals();
@@ -1182,6 +1240,10 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
         const auto source = source_dir();
         items.push_back(info("2. Delete the GitHub clone directory"+(source.empty() ? std::string(" you built the mod from.")
                                                                                   : ": "+source.string())));
+        if (const auto wm = tiling_wm(); !wm.empty())
+            items.push_back(info("3. Remove the X4VR window rule from your "+std::string(wm == "hyprland" ? "Hyprland" : wm == "sway" ? "Sway" : "i3")
+                                 +" config, if you added one "
+                                 "(Setup > Tiling window manager rules shows it)."));
         Event e;
         if (!menu.step(items, e)) continue;
         if (e.kind == Event::Back || (e.kind == Event::Activate && e.id == "back")) return;
@@ -1405,6 +1467,8 @@ int menu(std::string_view start = {}) {
         items.push_back(section("Setup"));
         items.push_back(action("option_copy", "Copy the Steam launch option",
             "Paste it in Steam: X4 > Properties > General > Launch options. Steam's Play still starts the normal game."));
+        items.push_back(action("tiling", "Tiling window manager rules",
+            "Hyprland, Sway, i3: a rule that floats the VR window (class X4VR) so X4 keeps the VR resolution. 2D isn't affected."));
         if (!c.desktop) items.push_back(action("desktop", "Add to the app launcher", "\"X4 VR\" in your desktop's app menu, rofi or wofi: "+desktop_file().string()));
         items.push_back(action("report", "Make a bug report", "Packs logs, settings and a summary into ~/x4vr-report-<time>.tar.gz, to attach to a GitHub issue."));
         items.push_back(action("uninstall", "Uninstall", "Removes the desktop entry, HUD extension, the mod's copies of X4's settings, and its settings."));
@@ -1480,6 +1544,7 @@ int menu(std::string_view start = {}) {
                                          : std::vector<std::string>{"Report: "+file, "Attach it to a new issue: "+std::string(issues_url)};
         } else if (e.id == "uninstall") uninstall_screen(terminal);
         else if (e.id == "checklist") checklist_screen(terminal);
+        else if (e.id == "tiling") tiling_screen(terminal);
     }
 }
 // The menu's actions as commands, for scripts.

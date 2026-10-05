@@ -133,16 +133,18 @@ The HUD extension is rebuilt from the new game files at the next VR launch.
   says why: `~/.local/state/x4vr/x4vr.log`.
 - **X4 closes right after starting in VR:** make a bug report (below).
 - **Black screen in the headset:** Ctrl+F11 shows the flat screen.
-- **Tiling window managers** (Hyprland, Sway, i3): X4 renders at its window's size. In VR its
-  window has its own class, `X4VR` (2D keeps `X4`), so a rule can make only the VR window
-  floating, so it keeps the resolution set for VR. Hyprland (`hyprland.conf`):
+- **Tiling window managers** (Hyprland, Sway, i3): X4 renders at its window's size, and a tiling
+  window manager resizes it or makes it fullscreen at the monitor's size. In VR its window has its
+  own class, `X4VR` (2D keeps `X4`), so a rule can float only the VR window. The menu's
+  **Setup > Tiling window manager rules** shows the rule for each, with a copy button. Hyprland
+  0.55+ (Lua config, confirmed working):
 
-  ```
-  windowrule = float, class:^(X4VR)$
+  ```lua
+  hl.window_rule({ name = "x4-vr", match = { class = "^(X4VR)$" }, float = true,
+                   suppress_event = "fullscreen maximize", fullscreen_state = "0 0" })
   ```
 
-  Older Hyprland versions use `windowrulev2` with the same arguments. Check the class with
-  `hyprctl clients` while X4 runs in VR.
+  Check with `hyprctl clients` while X4 runs in VR: class `X4VR`, `floating: 1`, `fullscreen: 0`.
 
 **Bug reports:** the menu's **Make a bug report** packs logs, settings and a summary into
 `~/x4vr-report-<time>.tar.gz`. Attach it to a new issue at
@@ -161,7 +163,8 @@ https://github.com/Cully-Curwen/X4_VR_Linux/issues.
 
    "Restore X4's settings from before the mod" is off by default: it brings back the settings
    from before the first VR launch, undoing 2D changes made since.
-2. In Steam: clear X4's launch option (X4 > Properties > General > Launch options).
+2. In Steam: clear X4's launch option (X4 > Properties > General > Launch options). If you added
+   a tiling window manager rule for `X4VR`, remove it from that config too.
 3. Delete the GitHub clone directory; the uninstall screen shows its path (e.g. `rm -rf ~/x4vr-src`).
 
 Saves made while the HUD extension was on stay flagged as modified; that is X4's own rule.

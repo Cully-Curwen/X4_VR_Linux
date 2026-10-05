@@ -58,7 +58,7 @@ Last updated: 2026-10-05.
 | Theater screen for menus and views without ship controls [10] | SteamVR overlay | Works | Drawn into the eye images: overlays don't show on the Frame. |
 | Theater toggle (Ctrl+F11) [10, 11] | Yes | Works | Also `x4vr ctl flat`. |
 | Mouse cursor in VR [11] | SteamVR overlays | Works | Read over XCB, copied into the image. |
-| Own window class in VR (`X4VR`) | No | Linux only, untested | `SDL_APP_ID` set by `x4vr-run`: window manager rules for VR only (e.g. Hyprland floating). |
+| Own window class in VR (`X4VR`) | No | Linux only, works | `SDL_APP_ID` set by `x4vr-run`: window manager rules for VR only. Hyprland Lua rule confirmed; Sway, i3 and `hyprland.conf` rules untested. Menu: Setup > Tiling window manager rules. |
 | SteamVR "Exit game" closes X4 [11] | No | Linux only, works | |
 
 ## HUD and X4 settings
