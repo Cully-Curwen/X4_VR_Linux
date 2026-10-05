@@ -1001,10 +1001,24 @@ std::vector<std::filesystem::path> installed_files(std::vector<std::filesystem::
     }
     return found;
 }
-// The source folder this was built from, if it is still there (a Nix build's isn't).
+// The source folder this was built from (the GitHub clone), if it can be found:
+// - a CMake build: the folder compiled in, if still there;
+// - a Nix build (compiled in /build/source, gone): the folder holding the `result` link this
+//   x4vr runs through, else the one Nix records as a garbage-collector root for this build.
 std::filesystem::path source_dir() {
-    const std::filesystem::path dir = X4VR_SOURCE_DIR;
-    return std::filesystem::exists(dir/"linux/CMakeLists.txt") ? dir : std::filesystem::path();
+    const auto is_source = [](const std::filesystem::path& dir) { return std::filesystem::exists(dir/"linux/x4vr-run.in"); };
+    if (const std::filesystem::path dir = X4VR_SOURCE_DIR; is_source(dir)) return dir;
+    for (auto dir = program.parent_path(); dir.has_relative_path(); dir = dir.parent_path())
+        if (dir.filename().string().rfind("result", 0) == 0 && is_source(dir.parent_path())) return dir.parent_path();
+    std::error_code error;
+    const auto store = std::filesystem::canonical(program, error).parent_path().parent_path(); // /nix/store/<hash>-x4vr
+    if (error || store.string().rfind("/nix/store/", 0) != 0) return {};
+    for (const auto& root : std::filesystem::directory_iterator("/nix/var/nix/gcroots/auto", error)) {
+        std::error_code link_error;
+        const auto link = std::filesystem::read_symlink(root.path(), link_error); // .../source/result
+        if (!link_error && std::filesystem::canonical(link, link_error) == store && is_source(link.parent_path())) return link.parent_path();
+    }
+    return {};
 }
 struct Removal { std::string id, label; bool on; std::string help; };
 std::vector<Removal> removals() {
@@ -1058,7 +1072,7 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         for (const auto& file : installed_files()) removed += int(std::filesystem::remove_all(file, error) > 0);
         done.push_back("Program files removed: "+std::to_string(removed)+".");
     }
-    done.push_back("Then clear X4's launch option in Steam"+std::string(source_dir().empty() ? "." : " and delete the source folder (see below)."));
+    done.push_back("Then clear X4's launch option in Steam and delete the GitHub clone folder (see below).");
     return done;
 }
 
@@ -1165,8 +1179,9 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
         items.push_back(action("back", "Back"));
         items.push_back(section("Then, by hand"));
         items.push_back(info("1. In Steam: X4 > Properties > General > Launch options: clear the line."));
-        if (const auto source = source_dir(); !source.empty())
-            items.push_back(info("2. Delete the source folder: "+source.string()));
+        const auto source = source_dir();
+        items.push_back(info("2. Delete the GitHub clone folder"+(source.empty() ? std::string(" you built the mod from.")
+                                                                                  : ": "+source.string())));
         Event e;
         if (!menu.step(items, e)) continue;
         if (e.kind == Event::Back || (e.kind == Event::Activate && e.id == "back")) return;
