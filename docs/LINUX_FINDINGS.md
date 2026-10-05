@@ -549,3 +549,12 @@ over XCB (loaded at runtime, `src/linux/x11_cursor.cpp`): X4's window by `WM_CLA
 opaque pixels (alpha >= 128; a transfer can't blend) into each copied game image at the pointer's
 place, so it shows in the cockpit and on the virtual screen. Tested against Xvfb (window found by
 class, position and image read, hidden outside the window). `cursor=0` in stereo.txt turns it off.
+
+**On-foot camera offset found (2026-10-05, `X4VR_WATCH_HEAD=4` + disassembly).** The camera
+update `0x1646510` calls the cockpit reader `0x1628ce0` only when `0x1628210` returns true: in a
+ship (`[[0x3db6948]+0x238]+0x6aa8` != the invalid id at `0x3daa6f0`), or when controller
+`+0x780` is the player entity and the movement controller `+0x18` is set. Then it composes the
+offset into the camera (`+0x10..+0x40`) and sets `+0x2c0`; otherwise it takes a previously
+applied offset out again. The reader writes identity without a movement controller. Patches
+(`apply_patches`): `0x1646545` `0x85` → `0x81` (`jne` → `jno`) and `0x1628d4a` `0x3d` →
+`0x73` (to the reader's return `0x1628dbe`). These are Windows' two Camera::GetOffset conditions.

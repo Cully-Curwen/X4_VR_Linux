@@ -421,7 +421,7 @@ What the Linux function does:
 | **Backward clamp:** X4 zeroes backward head position (z > 0), pinning leaning back and the rear eye when looking sideways | Signature `f3 0f 10 45 67 0f 57 05 ?? ?? ?? ?? 0f 2f c6 73 04 44 89 65 67` at `0x9fdb3e`, `jae` (+15) → `jmp` | `0xfeb73f` `jbe` (`76 08`) → `jmp` (`eb`); 30 bytes from `0xfeb72b` checked |
 | **Rival trackers:** TrackIR / Tobii come after FreeTrack in X4's pick; a foreign `NPClient64.dll` (vorpX) or an eye tracker replaced the headset pose | TrackIR `je` +11 and Tobii `je` +18 → `jmp` (`0xfa34fc`, `0xfa353c`) | Not ported; Linux has no TrackIR/Tobii DLL loading |
 | **On-foot zeroing:** without a ship, X4 hands the camera a zero pose | `je` at +101 of the bridge signature (`0x9fd9ae`) → `jmp` | `0xfec078`: `je` (`0f 84`) → `jno` (`0f 81`), always taken after `test` |
-| **On-foot camera offset:** `Camera::GetOffset` applies the head offset (`Camera+0x590`) only through a movement controller (`Camera+0x20`), null on foot | `0x97a413`: `je` displacement `0x276` → `0x18a`, into the offset block | **Not found yet** (section 9) |
+| **On-foot camera offset:** `Camera::GetOffset` applies the head offset (`Camera+0x590`) only through a movement controller (`Camera+0x20`), null on foot | `0x97a413`: `je` displacement `0x276` → `0x18a`, into the offset block | Two bytes (testing): the camera update's gate `0x1646544` `jne` → `jno` (`0x1646545` `0x85` → `0x81`), so the reader runs without a ship; and the reader's `je` to identity without a movement controller (`0x1628d49`, `74 3d`) → to its return (`74 73`), so it keeps the offset |
 
 Both on-foot patches on Windows must reference the same camera-manager global, otherwise
 neither counts.
@@ -469,7 +469,13 @@ neither counts.
     `+0x18` (slot `0x138`), or writes identity without it. This is Windows' `Camera::GetOffset`
     shape. It isn't called on foot.
   - **On foot:** `0x11d9380` composes the offset into a transform it is given, 4 times a frame.
-  - `X4VR_WATCH_HEAD=4` records their callers, to find where the on-foot result goes.
+  - `X4VR_WATCH_HEAD=4`: the cockpit reader is called by the camera update `0x1646510` (at
+  `0x1646743`), gated by `0x1628210`. That returns true in a ship (seat id
+  `[[0x3db6948]+0x238]+0x6aa8` valid) or when the controller belongs to the player and has a
+  movement controller (`+0x18`). On foot neither, so the offset never reaches the camera.
+  `0x11d9380` is called from `0xebcfae`, `0x1314317` and `0x1314407`, not the view.
+- The two "on-foot camera offset" patches (section 8) make the gate pass and keep the offset
+  without a movement controller. Not yet confirmed in the headset.
 - Moving the head on foot currently feels laggy. SteamVR reprojects each image with the pose it
   was sent with, but X4 doesn't apply that pose on foot.
 - **No walking detection yet.** With `theater=1`, on foot counts as "not controlling ship" and
@@ -710,7 +716,7 @@ cursor, hotkeys, SteamVR recentre and "Exit game", sizing from SteamVR, and the 
 | Head-tracker input → camera function | bridge `0x9fd870` | camera input `0xfeb000..0xfed400` |
 | Backward clamp branch | `0x9fdb4d` (`jae`) | `0xfeb73f` (`jbe`) |
 | On-foot zeroing branch | `0x9fd9ae`+101 | `0xfec077` (`je`) |
-| Camera::GetOffset movement-controller exit | `0x97a413`+5 | not found |
+| Camera::GetOffset movement-controller exit | `0x97a413`+5 | gate `0x1646544` (`0x1628210`), reader exit `0x1628d49` (reader `0x1628ce0`) |
 | Tracker position accessor | FreeTrack tracker slot `0x108` (`0xf377b0`) | `VR::OpenTrack` slot 34 `0x1a0dda0` |
 | Tracker still check | slot `0x28` (`0xf376c0`) | none (slot 6 is a stub) |
 | Tracker pick (rival trackers) | `0xfa34fc`, `0xfa353c` | – |
