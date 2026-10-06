@@ -333,6 +333,9 @@ std::string capture_dir() {
 }
 StereoSettings read_settings() {
     StereoSettings next;
+    // Linux: roll in degrees (OpenTrack). Measured on the Steam Frame (2026-10): 2.387 keeps the
+    // stars still with the head tilted 30 degrees; yaw and pitch's 2.1177 turned the view too little.
+    next.roll_gain = 2.387f;
     const auto root = capture_dir();
     if (root.empty()) return next;
     bool shared = true;

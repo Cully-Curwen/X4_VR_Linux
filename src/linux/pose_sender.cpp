@@ -347,13 +347,11 @@ void sender_loop() {
         const double yaw = std::atan2(m[0][2], m[2][2])*degrees;
         const double pitch = std::asin(std::fmax(-1.f, std::fmin(1.f, -m[1][2])))*degrees;
         const double roll = std::atan2(m[1][0], m[1][1])*degrees;
-        // As on Windows, X4 scales angles down (85 of 180 degrees); the gains undo it. Roll: the
-        // default roll_gain (pi, Windows' FreeTrack value) gives 2.387 here, measured in the headset
-        // on the Steam Frame (2026-10: stars still with the head tilted 30 degrees; 1.0 turned the
-        // view too little). pos_scale 3.6 as on Windows: leaning, the cockpit stays in place.
-        constexpr float roll_per_gain = 2.387f/3.14159265f;
+        // As on Windows, X4 scales angles down (85 of 180 degrees); the gains undo it. In degrees
+        // here, so each gain is a plain factor (Windows' roll_gain pi is for FreeTrack's radians).
+        // pos_scale 3.6 as on Windows: leaning, the cockpit stays in place.
         const opentrack::Pose pose{settings.pos_scale*sx*m[0][3], settings.pos_scale*sh*m[1][3], settings.pos_scale*sz*m[2][3],
-                                   settings.yaw_gain*sy*yaw, settings.pitch_gain*sp*pitch, settings.roll_gain*roll_per_gain*sr*roll};
+                                   settings.yaw_gain*sy*yaw, settings.pitch_gain*sp*pitch, settings.roll_gain*sr*roll};
         auto sent = pose;
         sent.roll = with_seq(sent.roll, seq);
         const auto packet = opentrack::encode(sent);
