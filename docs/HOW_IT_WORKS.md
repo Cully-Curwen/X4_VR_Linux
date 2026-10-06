@@ -142,7 +142,7 @@ status (SteamVR, X4 build support, launch option, live frame rate), notices
 (`config/linux/notices.txt`), settings with profiles (`config/linux/profiles/`), the in-game
 settings checklist, tiling window manager rules, bug report and uninstall. Settings tagged *live*
 go to `stereo.txt`, which the mod re-reads every 0.5 s; *next launch* ones are applied by
-`x4vr-run`. Every action is also a subcommand (`x4vr help`).
+`x4vr-run`. A few subcommands remain for `x4vr-run` and for when the menu can't help (`x4vr help`).
 
 ## Settings and diagnostics
 

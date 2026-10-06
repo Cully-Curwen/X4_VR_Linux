@@ -1,5 +1,6 @@
 // x4vr: the Linux port's tool. Without arguments, a full-screen menu (checks, VR settings, Launch
-// in VR, HUD distance, bug report, uninstall); its actions are also subcommands (x4vr help).
+// in VR, HUD distance, bug report, uninstall). Subcommands: the steps x4vr-run takes, plus a few
+// for when the menu can't help (x4vr help).
 #include "elf_classes.hpp"
 #include "code_scan.hpp"
 #include "../launcher/hud_mod.hpp"
@@ -17,7 +18,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
-#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <csignal>
@@ -43,66 +43,23 @@ namespace {
 
 void usage() {
     std::cout <<
-        "Usage: x4vr [command] [options]\n"
+        "Usage: x4vr [command]\n"
         "\n"
         "  (no command) or menu\n"
         "      The menu: checks, VR settings, Launch X4 in VR, HUD distance, bug report, uninstall.\n"
-        "\n"
-        "  launch\n"
-        "      Launch X4 in VR: starts SteamVR if needed, then X4 through Steam (steam -applaunch) with\n"
-        "      the mod. Steam's own Play button starts the normal game.\n"
-        "\n"
-        "  launch-option status | copy\n"
-        "      X4's Steam launch option (x4vr-run %command%), needed for Launch: shows whether it is\n"
-        "      set, or copies it to paste in Steam (X4 > Properties > General > Launch options).\n"
-        "\n"
-        "  settings-mode vr | 2d | status\n"
-        "      Keeps X4's settings for 2D and VR apart (config.xml.x4vr-2d / -vr): x4vr-run switches to\n"
-        "      VR before a VR launch and back to 2D when X4 exits.\n"
-        "\n"
-        "  install-desktop\n"
-        "      Adds \"X4 VR\" (this menu, in a terminal) to the app launcher (rofi, desktop menus).\n"
-        "\n"
+        "  uninstall\n"
+        "      The menu's uninstall screen.\n"
         "  report\n"
         "      Packs logs, settings and a summary into ~/x4vr-report-<time>.tar.gz for a bug report.\n"
-        "\n"
-        "  uninstall\n"
-        "      Removes what the mod set up (desktop entry, HUD extension, its settings and copies).\n"
-        "\n"
-        "  check\n"
-        "      Checks X4's settings (config.xml) for VR: FOV, anti-aliasing, upscaling, frame\n"
-        "      generation, VSync, frame rate limit, OpenTrack support, and the resolution SteamVR\n"
-        "      uses, in windowed mode (X4VR_RESOLUTION=WxH or 0 overrides).\n"
-        "\n"
-        "  fix-settings [--auto]\n"
-        "      Sets what check reports, keeping everything else (backup: config.xml.x4vr-backup,\n"
-        "      made once). Refuses while X4 runs: X4 rewrites config.xml when it exits. --auto: quiet\n"
-        "      unless something changed (x4vr-run uses it before every start).\n"
-        "\n"
-        "  hud <factor> | remove | status | --refresh\n"
-        "      Moves X4's cockpit HUD <factor> times further away at the same apparent size (1 to 6;\n"
-        "      2.5 is a good start): writes the extension extensions/x4vr_hud, built from your own game\n"
-        "      files, as the Windows launcher does. X4 must be closed. --refresh applies the factor chosen\n"
-        "      in the menu (stereo.txt hud_factor) and rebuilds it after a game update (x4vr-run does\n"
-        "      that before every VR start). Game directory: $X4VR_GAME_DIR, else\n"
-        "      Steam's default library. X4 then counts as modified (no online features; saves made\n"
-        "      with it stay flagged).\n"
-        "\n"
         "  patterns [path to the X4 executable]\n"
-        "      Finds the X4 code the mod patches and hooks by its bytes, as the mod does at startup,\n"
-        "      and prints where (default: X4 in the game directory). A site it doesn't find stays\n"
-        "      unpatched in the game; the mod logs the same list (\"X4VR scan\").\n"
-        "\n"
+        "      Finds the X4 code the mod patches and hooks, as the mod does at startup, and prints where.\n"
         "  ctl recenter | flat\n"
-        "      While X4 runs with x4vr-run: recentre the view (and the virtual screen), or switch\n"
-        "      the flat virtual screen on/off. Edits stereo.txt in $X4VR_DIR (default\n"
-        "      ~/.local/state/x4vr). Bind them to keys in your desktop (Ctrl+F12 / Ctrl+F11 on Windows).\n";
-}
-
-template<class T> bool parse_number(std::string_view text, T& value) {
-    const auto end = text.data()+text.size();
-    const auto [ptr, ec] = std::from_chars(text.data(), end, value);
-    return ec == std::errc() && ptr == end;
+        "      While X4 runs in VR: recentre, or switch the flat screen (for desktop key bindings).\n"
+        "\n"
+        "Used by x4vr-run before and after X4 runs:\n"
+        "  settings-mode vr | 2d | status   X4's VR settings in place, or its 2D ones back\n"
+        "  fix-settings [--auto]            X4's VR settings fixed for VR (backup: config.xml.x4vr-backup)\n"
+        "  hud --refresh                    the HUD extension as chosen in the menu, rebuilt after a game update\n";
 }
 
 // ---- check / fix-settings --------------------------------------------------------------------
@@ -208,7 +165,8 @@ std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
     return checks;
 }
 std::string read_text(const std::filesystem::path& path) { return x4vr::steam::read_file(path); }
-int check_settings(bool fix, bool automatic) {
+// Fixes X4's VR settings for VR; `automatic` (x4vr-run): quiet unless something changed.
+int check_settings(bool automatic) {
     const auto path = x4_config();
     if (path.empty()) { std::cerr << "X4's config.xml not found under ~/.config/EgoSoft/X4 (start X4 once).\n"; return automatic ? 0 : 1; }
     const auto xml = read_text(path);
@@ -222,10 +180,6 @@ int check_settings(bool fix, bool automatic) {
         if (!c.ok && present) fixable.push_back(c);
         if (!automatic) std::printf("%-4s %-36s %s%s\n", c.ok ? "ok" : c.required ? "FIX" : "tip", c.label.c_str(), c.current.c_str(),
                                     c.ok || present ? "" : "  (not in this config.xml: change it in the game)");
-    }
-    if (!fix) {
-        if (!automatic) std::cout << (fixable.empty() ? "Nothing to fix." : "Run 'x4vr fix-settings' with X4 closed to fix these.") << '\n';
-        return 0;
     }
     if (fixable.empty()) { if (!automatic) std::cout << "Nothing to fix.\n"; return 0; }
     if (x4_running()) { std::cerr << "X4 is running: close it first (it rewrites config.xml when it exits).\n"; return 1; }
@@ -327,58 +281,28 @@ double wanted_hud() {
 // `hud <factor>` / `remove` install at once (X4 closed); the menu sets hud_factor in stereo.txt
 // and x4vr-run's `hud --refresh` applies it at the next VR launch, also rebuilding the extension
 // after a game update.
-int hud(const std::vector<std::string_view>& args) {
-    if (args.size() != 1) { usage(); return 2; }
+int hud_refresh() {
     const auto game = game_dir();
-    const bool refresh = args[0] == "--refresh";
-    if (game.empty()) {
-        if (refresh) return 0;
-        std::cerr << "X4's game directory not found: set X4VR_GAME_DIR to the directory with 01.cat.\n";
-        return 1;
-    }
+    if (game.empty()) return 0;
     const auto extension = game/"extensions/x4vr_hud";
     const auto installed = installed_hud(extension);
     const double installed_scale = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
-    if (args[0] == "status") {
-        if (installed_scale > 0) std::cout << "HUD distance mod installed: factor " << installed.at("scale") << " (" << extension.string() << ")\n";
-        else std::cout << "HUD distance mod not installed (X4's default HUD distance).\n";
-        if (const double wanted = wanted_hud(); wanted >= 0 && std::fabs(wanted-installed_scale) > 0.001)
-            std::cout << "At the next VR launch: " << (wanted > 0 ? "factor "+x4vr::launcher::format_number(wanted) : std::string("removed")) << '\n';
-        return 0;
-    }
-    if (x4_running()) { std::cerr << "X4 is running: close it first (it loads extensions at startup).\n"; return refresh ? 0 : 1; }
+    if (x4_running()) { std::cerr << "X4 is running: close it first (it loads extensions at startup).\n"; return 0; }
     std::error_code ignored;
-    double scale = 0;
-    if (refresh) {
-        const double wanted = wanted_hud();
-        if (wanted == 0 && installed_scale > 0) { std::filesystem::remove_all(extension, ignored); std::cout << "x4vr: HUD distance mod removed\n"; return 0; }
-        if (wanted > 0 && std::fabs(wanted-installed_scale) > 0.001) scale = wanted; // changed in the menu
-        else if (installed_scale <= 0 || (installed.count("source") && installed.at("source") == source_hash(hud_originals(game)))) return 0;
-        else { // after a game update the mod would replace new game files with old copies
-            std::string error;
-            if (install_hud(game, installed_scale, error)) { std::cout << "x4vr: HUD distance mod rebuilt for the updated game files\n"; return 0; }
-            std::filesystem::remove_all(extension, ignored);
-            std::cout << "x4vr: HUD distance mod removed: it no longer matches this X4 version (" << error << ")\n";
-            return 0;
-        }
-    } else if (args[0] == "remove") {
-        std::filesystem::remove_all(extension, ignored);
-        x4vr::linux_port::write_setting(settings_file(), "hud_factor", "0");
-        std::cout << "HUD distance mod removed.\n";
-        return 0;
-    } else if (!parse_number(args[0], scale) || scale < 1 || scale > 6) {
-        std::cerr << "HUD distance: use a factor between 1 and 6 (2.5 is a good start).\n";
-        return 2;
-    }
+    const double wanted = wanted_hud();
+    if (wanted == 0 && installed_scale > 0) { std::filesystem::remove_all(extension, ignored); std::cout << "x4vr: HUD distance mod removed\n"; return 0; }
     std::string error;
-    if (!install_hud(game, scale, error)) { std::cerr << "Could not build the HUD mod: " << error << '\n'; return 1; }
-    if (!refresh && std::filesystem::exists(settings_file())) x4vr::linux_port::write_setting(settings_file(), "hud_factor", x4vr::launcher::format_number(scale));
-    std::cout << (refresh ? "x4vr: " : "") << "HUD distance mod installed: factor " << x4vr::launcher::format_number(scale) << " (" << extension.string() << ")\n";
-    if (!refresh) {
-        std::cout << "X4 will report a modified game: online features are off, and saves made with the mod stay flagged.\n";
-        std::cout << "X4's Protected UI Mode blocks the HUD's size factors: turn it off in X4 (Extension Settings), else the HUD only moves back and shrinks.\n";
+    if (wanted > 0 && std::fabs(wanted-installed_scale) > 0.001) { // changed in the menu
+        if (!install_hud(game, wanted, error)) { std::cerr << "Could not build the HUD mod: " << error << '\n'; return 1; }
+        std::cout << "x4vr: HUD distance mod installed: factor " << x4vr::launcher::format_number(wanted) << " (" << extension.string() << ")\n";
+        enable_hud_in_vr();
+        return 0;
     }
-    enable_hud_in_vr();
+    if (installed_scale <= 0 || (installed.count("source") && installed.at("source") == source_hash(hud_originals(game)))) return 0;
+    // After a game update the mod would replace new game files with old copies.
+    if (install_hud(game, installed_scale, error)) { std::cout << "x4vr: HUD distance mod rebuilt for the updated game files\n"; return 0; }
+    std::filesystem::remove_all(extension, ignored);
+    std::cout << "x4vr: HUD distance mod removed: it no longer matches this X4 version (" << error << ")\n";
     return 0;
 }
 
@@ -418,43 +342,40 @@ std::string quoted_path(const std::filesystem::path& path) {
 }
 std::string wanted_launch_option() { return quoted_path(run_script())+" %command%"; }
 
-// Starts a program detached from this terminal (its own session, output discarded).
-bool spawn(const std::vector<std::string>& argv) {
+// Runs a program. `detach`: in its own session, not waited for, output discarded. Else waited for,
+// `input` on its standard input, output appended to `log` (none: discarded); true on exit status 0.
+struct Run { bool detach = false; const std::string* input = nullptr; std::filesystem::path log; };
+bool run(const std::vector<std::string>& argv, const Run& how = {}) {
+    int fds[2]{-1, -1};
+    if (how.input && pipe(fds) != 0) return false;
     const pid_t child = fork();
-    if (child < 0) return false;
     if (child == 0) {
-        setsid();
-        if (fork() != 0) _exit(0);
+        if (how.detach) { setsid(); if (fork() != 0) _exit(0); }
         const int null = ::open("/dev/null", O_RDWR);
-        if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); }
+        const int out = how.log.empty() ? null : ::open(how.log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+        dup2(how.input ? fds[0] : null, 0); dup2(out, 1); dup2(out, 2);
+        if (how.input) { close(fds[0]); close(fds[1]); }
         std::vector<char*> args;
         for (const auto& a : argv) args.push_back(const_cast<char*>(a.c_str()));
         args.push_back(nullptr);
         execvp(args[0], args.data());
         _exit(127);
     }
-    int status = 0;
-    waitpid(child, &status, 0);
-    return true;
-}
-// Runs a program and waits; its output goes to `log`. True on exit status 0.
-bool run_and_wait(const std::vector<std::string>& argv, const std::filesystem::path& log) {
-    const pid_t child = fork();
+    if (how.input) {
+        close(fds[0]);
+        if (child > 0) { // the program may have exited already (not installed): no SIGPIPE
+            struct sigaction ignore{}, previous{};
+            ignore.sa_handler = SIG_IGN;
+            sigaction(SIGPIPE, &ignore, &previous);
+            (void)!::write(fds[1], how.input->data(), how.input->size());
+            sigaction(SIGPIPE, &previous, nullptr);
+        }
+        close(fds[1]);
+    }
     if (child < 0) return false;
-    if (child == 0) {
-        const int out = ::open(log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
-        const int null = ::open("/dev/null", O_RDONLY);
-        if (null >= 0) dup2(null, 0);
-        if (out >= 0) { dup2(out, 1); dup2(out, 2); }
-        std::vector<char*> args;
-        for (const auto& a : argv) args.push_back(const_cast<char*>(a.c_str()));
-        args.push_back(nullptr);
-        execvp(args[0], args.data());
-        _exit(127);
-    }
     int status = 0;
     waitpid(child, &status, 0);
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    return how.detach || (WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
 // X4's launch option in every Steam account: 0 none set, 1 ours, 2 an x4vr-run elsewhere (an
@@ -487,34 +408,8 @@ LaunchOption launch_option() {
 // Copies text to the clipboard: wl-copy (Wayland), xclip or xsel (X11), else the terminal's
 // own clipboard (OSC 52, which most terminals support). Returns how.
 std::string copy_to_clipboard(const std::string& text) {
-    for (const auto& tool : std::vector<std::vector<std::string>>{{"wl-copy"}, {"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}}) {
-        int fds[2];
-        if (pipe(fds) != 0) break;
-        const pid_t child = fork();
-        if (child == 0) {
-            dup2(fds[0], 0);
-            close(fds[0]); close(fds[1]);
-            const int null = ::open("/dev/null", O_WRONLY);
-            if (null >= 0) { dup2(null, 1); dup2(null, 2); }
-            std::vector<char*> args;
-            for (const auto& a : tool) args.push_back(const_cast<char*>(a.c_str()));
-            args.push_back(nullptr);
-            execvp(args[0], args.data());
-            _exit(127);
-        }
-        close(fds[0]);
-        if (child > 0) { // the tool may have exited already (not installed): no SIGPIPE
-            struct sigaction ignore{}, previous{};
-            ignore.sa_handler = SIG_IGN;
-            sigaction(SIGPIPE, &ignore, &previous);
-            (void)!::write(fds[1], text.data(), text.size());
-            sigaction(SIGPIPE, &previous, nullptr);
-        }
-        close(fds[1]);
-        int status = 0;
-        if (child > 0) waitpid(child, &status, 0);
-        if (child > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0) return tool[0];
-    }
+    for (const auto& tool : std::vector<std::vector<std::string>>{{"wl-copy"}, {"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}})
+        if (run(tool, {.input = &text})) return tool[0];
     static const char* table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string encoded;
     for (size_t i = 0; i < text.size(); i += 3) {
@@ -698,7 +593,7 @@ bool launch_vr(const std::function<void(const std::string&)>& progress, const st
     }
     if (!steamvr_running()) {
         progress("Starting SteamVR... (put the headset on and connect it)");
-        spawn({"steam", "steam://rungameid/250820"});
+        run({"steam", "steam://rungameid/250820"}, {.detach = true});
         for (int i = 0; i < 180 && !steamvr_running(); ++i) {
             if (cancelled()) { progress("Cancelled."); return false; }
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -710,7 +605,7 @@ bool launch_vr(const std::function<void(const std::string&)>& progress, const st
     std::filesystem::create_directories(state_dir(), error);
     if (!write_text(state_dir()/"launch.request", std::to_string(std::time(nullptr))+"\n")) { progress("Can't write the launch request."); return false; }
     progress("Starting X4 through Steam... If the headset isn't connected yet, X4 waits up to 2 minutes for it: put it on.");
-    spawn({"steam", "-applaunch", std::string(x4vr::steam::x4_app)});
+    run({"steam", "-applaunch", std::string(x4vr::steam::x4_app)}, {.detach = true});
     for (int i = 0; i < 240 && !x4_running(); ++i) {
         if (cancelled()) { progress("Stopped waiting; X4 may still start."); return true; }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -748,7 +643,7 @@ std::string make_report() {
         for (const auto& note : x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load((game/"X4").string())).notes) summary << "  " << note << "\n";
     }
     write_text(staging/"summary.txt", summary.str());
-    const bool ok = run_and_wait({"tar", "czf", out.string(), "-C", staging.string(), "."}, staging.parent_path()/"x4vr-report-tar.log");
+    const bool ok = run({"tar", "czf", out.string(), "-C", staging.string(), "."}, {.log = staging.parent_path()/"x4vr-report-tar.log"});
     std::filesystem::remove_all(staging, error);
     return ok ? out.string() : std::string();
 }
@@ -1351,23 +1246,6 @@ int menu(std::string_view start = {}) {
         else if (e.id == "tiling") tiling_screen(terminal);
     }
 }
-// The menu's actions as commands, for scripts.
-int launch_command() {
-    return launch_vr([](const std::string& line) { std::cout << line << '\n'; }, [] { return false; }) ? 0 : 1;
-}
-int launch_option_command(const std::vector<std::string_view>& args) {
-    if (args.size() != 1) { usage(); return 2; }
-    if (args[0] == "status") {
-        const auto o = launch_option();
-        std::cout << (o.accounts == 0 ? "No Steam account here has started X4 yet.\n"
-                      : o.state == 1 ? "Set: "+o.value+"\n" : o.state == 0 ? "Not set.\n" : "Set to: "+o.value+" (wanted: "+wanted_launch_option()+")\n");
-        return o.state == 1 ? 0 : 1;
-    }
-    if (args[0] != "copy") { usage(); return 2; }
-    const auto how = copy_to_clipboard(wanted_launch_option());
-    std::cout << "Copied (" << how << "): " << wanted_launch_option() << '\n' << launch_option_steps() << '\n';
-    return 0;
-}
 }
 
 // The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
@@ -1401,10 +1279,7 @@ int main(int argc, char** argv) {
     try {
         if (command == "menu") return menu();
         if (command == "uninstall") return menu("uninstall");
-        if (command == "launch" && args.empty()) return launch_command();
-        if (command == "launch-option") return launch_option_command(args);
         if (command == "settings-mode") return settings_mode(args);
-        if (command == "install-desktop" && args.empty()) { std::cout << install_desktop() << '\n'; return 0; }
         if (command == "report" && args.empty()) {
             const auto file = make_report();
             if (file.empty()) { std::cerr << "Couldn't write the report (tar missing?)\n"; return 1; }
@@ -1412,11 +1287,10 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (command == "ctl") return ctl(args);
-        if (command == "hud") return hud(args);
+        if (command == "hud" && args.size() == 1 && args[0] == "--refresh") return hud_refresh();
         if (command == "patterns") return patterns(args);
-        if (command == "check" && args.empty()) return check_settings(false, false);
         if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))
-            return check_settings(true, !args.empty());
+            return check_settings(!args.empty());
         if (command == "help" || command == "--help" || command == "-h") { usage(); return 0; }
         usage();
         return 2;
