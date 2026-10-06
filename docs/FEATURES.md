@@ -1,8 +1,7 @@
 # Features: Windows and Linux
 
 What the Windows mod has and whether Linux has it, plus Linux's own extras ("No" under Windows).
-Linux status: **Works** (tested with a Steam Frame, SteamVR, X4 9.00), **Missing**, **Not needed**
-or **Planned**.
+Linux status: **Works** (tested with a Steam Frame, SteamVR, X4 9.00), **Missing** or **Not needed**.
 
 ## VR and rendering
 
@@ -58,13 +57,3 @@ or **Planned**.
 | Install and uninstall | Yes | Works | |
 | Crash recorder | Yes | Missing | Linux logs the exit status. |
 | Diagnostics | Full set | Partial | Traces, eye dump, pair stats. |
-
-## Planned
-
-| Feature | Note |
-|---|---|
-| Automatic resolution in the headset's shape | About 10% fewer pixels on the Steam Frame (2640×1588 instead of 2880×1620). |
-| HUD sized by X4's own UI scale | Would avoid editing X4's UI scripts, so no "modified" flag and Protected UI Mode can stay on. |
-| Curved flat screen | Every part faces you, so the corners are as readable as the centre. |
-| Both eyes from one game step | Holding X4's clock for the second frame of a pair. |
-| Eye check from X4's camera matrix | A wrong-eye counter for new X4 versions. |
