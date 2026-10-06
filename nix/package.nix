@@ -1,4 +1,4 @@
-# The X4 VR mod's native Linux build (docs/LINUX_PORT_PLAN.md). Classic Nix, no flakes:
+# The X4 VR mod's native Linux build (docs/LINUX_GUIDE.md). Classic Nix, no flakes:
 #   nix-build                          (from the repository root, via default.nix)
 #   pkgs.callPackage ./nix/package.nix {}   (from configuration.nix)
 # Build it from the same nixpkgs as the system's Steam, so the libraries it loads into X4 match

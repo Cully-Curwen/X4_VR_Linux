@@ -1,7 +1,9 @@
-# Linux port: Phase 0 findings
+# Linux port: findings
 
-Measurements for `docs/LINUX_PORT_PLAN.md`. One section per Phase 0 step; each records the raw
-facts first, then what they mean for the plan.
+The measurements behind the Linux port, in the order they were made: the first sections (0.1 to
+0.7) explored X4, SteamVR and the machine before any mod code existed; later sections record each
+stage in the headset. Each records the raw facts first, then what they meant for the port. How the
+mod works now: `HOW_IT_WORKS.md`; feature status: `FEATURES.md`.
 
 Machine: NixOS, AMD Ryzen 9 7900X3D (with integrated RDNA2 GPU), AMD Radeon RX 7900 XT,
 Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from Steam.
@@ -321,7 +323,7 @@ Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from
 - The menu then shows "OpenTrack connection established" and a new **OpenTrack** section:
   *head motion smoothing 5*, *head rotation factor 100%*, *head position factor 100%*.
 
-### What the camera does (by eye, test table in docs/LINUX_PHASE0.md)
+### What the camera does (by eye, fake head poses sent one at a time from a terminal)
 
 | Test | Result |
 |---|---|

@@ -1,6 +1,5 @@
 // x4vr: the Linux port's tool. Without arguments, a full-screen menu (checks, VR settings, Launch
-// in VR, HUD distance, bug report, uninstall); its actions and the Phase 0 measurements
-// (docs/LINUX_PORT_PLAN.md) are also subcommands (x4vr help).
+// in VR, HUD distance, bug report, uninstall); its actions are also subcommands (x4vr help).
 #include "elf_classes.hpp"
 #include "code_scan.hpp"
 #include "../launcher/hud_mod.hpp"
@@ -732,11 +731,8 @@ std::vector<std::filesystem::path> installed_files(std::vector<std::filesystem::
         const auto real = std::filesystem::weakly_canonical(prefix, error);
         if (error || real.string().rfind("/nix/store/", 0) == 0) continue;
         for (const std::filesystem::path& lib : {std::filesystem::path(X4VR_INSTALL_LIBDIR), std::filesystem::path("lib"), std::filesystem::path("lib64")})
-            // The probe files: installed by builds before 2026-10-06, still removed here.
-            for (const auto& file : {real/"bin/x4vr", real/"bin/x4vr-run", real/"bin/x4vr-probe-run", real/lib/"libx4vr.so",
-                                     real/lib/"libx4vr_probe.so", real/lib/"libVkLayer_x4vr_probe.so",
-                                     real/"share/vulkan/explicit_layer.d/VkLayer_x4vr.json",
-                                     real/"share/vulkan/explicit_layer.d/VkLayer_x4vr_probe.json", real/"share/x4vr"})
+            for (const auto& file : {real/"bin/x4vr", real/"bin/x4vr-run", real/lib/"libx4vr.so",
+                                     real/"share/vulkan/explicit_layer.d/VkLayer_x4vr.json", real/"share/x4vr"})
                 if (std::filesystem::exists(std::filesystem::symlink_status(file, error)) &&
                     std::find(found.begin(), found.end(), file) == found.end()) {
                     found.push_back(file);

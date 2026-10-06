@@ -366,8 +366,7 @@ A port for the native Linux build of X4 (9.00), developed alongside the Windows 
 build is unchanged, and the Linux one is opt-in (`-DX4VR_LINUX=ON`). Tested with a Steam Frame
 through SteamVR on an AMD GPU (RADV), Hyprland and NixOS. Install and play:
 [docs/LINUX_GUIDE.md](docs/LINUX_GUIDE.md) (a terminal menu, `x4vr`, sets it up and launches VR;
-Steam's Play button keeps starting the normal game). The design and open items are in
-[docs/LINUX_PORT_PLAN.md](docs/LINUX_PORT_PLAN.md), measurements in
+Steam's Play button keeps starting the normal game). Measurements behind the port are in
 [docs/LINUX_FINDINGS.md](docs/LINUX_FINDINGS.md). How each part works on Windows and Linux:
 [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md); feature status: [docs/FEATURES.md](docs/FEATURES.md).
 

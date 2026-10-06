@@ -93,12 +93,22 @@ runtime. What differs is how each reaches X4:
 - Top-level `CMakeLists.txt`: with `X4VR_LINUX=ON` it goes to `linux/CMakeLists.txt` and
   returns before the Windows project, so the Windows build is unchanged. Without the flag, a
   non-Windows host stops with an error.
+- **Maintaining the Linux copies.** Windows files are never edited for Linux. Files that build
+  unchanged (`math.cpp`, `session.cpp`, `eye_targets.cpp`, `launcher_settings.hpp`, `hud_mod.hpp`)
+  are shared. Two that call Win32 have Linux copies with those calls replaced:
+  `src/linux/vr_layer.cpp` (from `observe_layer.cpp`) and `src/linux/runtime_bootstrap.cpp`.
+  Each copy's first comment names its Windows original and the commit it was copied from.
+  `src/linux/code_scan.hpp` is a counterpart of `include/x4vr/code_scan.hpp` for ELF, not a copy. A fix to the Windows file is carried over by diffing the original against
+  that commit and applying the change to the copy. If the copies should become one code base, the
+  alternative is a small platform header, each Win32 call behind a function with a Windows and a
+  Linux version.
 - Targets:
   - `libx4vr.so` (`x4vr_mod`): `src/linux/vr_layer.cpp`, `runtime_bootstrap.cpp`,
     `pose_sender.cpp`, `x11_cursor.cpp`, and the shared `src/eye_targets.cpp`,
     `src/math.cpp` and `src/session.cpp`.
-    - It is linked with static libstdc++/libgcc and `--exclude-libs,ALL`. The version script
-      `linux/x4vr.map` exports only the three Vulkan loader entry points.
+    - It is linked with static libstdc++/libgcc and `--exclude-libs,ALL`: it loads into X4,
+      which runs inside Steam's runtime container with that container's (older) C++ runtime.
+      The version script `linux/x4vr.map` exports only the three Vulkan loader entry points.
     - OpenVR is built from source as a static library (`x4vr_openvr_api`), so it can't clash
       with libraries in X4's Steam runtime container.
   - `x4vr` CLI (`tools/linux/x4vr_cli.cpp`). It reuses the Windows launcher logic
@@ -716,10 +726,6 @@ Request files in the capture directory are deleted when seen:
 
 - **Logs:** `x4vr.log` with pose, game-state, patch, sizing, pair and frame-half lines.
   `stderr.log` holds X4's own output.
-- **Removed research tools** (in the git history, `src/linux/head_watch.cpp` and the Phase 0
-  probes): hardware watchpoints through `perf_event_open` found X4's camera input function and
-  the on-foot offset readers; the probe layer and socket preload, and the `x4vr` commands
-  `vr-check`, `udp-send`, `elf-classes` and `game-grep`, served the first port stages.
 
 ---
 

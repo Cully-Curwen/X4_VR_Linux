@@ -1,4 +1,4 @@
-// Linux copy of src/runtime_bootstrap.cpp at commit 5064391 (docs/LINUX_PORT_PLAN.md, section 3).
+// Linux copy of src/runtime_bootstrap.cpp at commit 5064391 (docs/HOW_IT_WORKS.md, sections 2 and 3).
 // Changed for Linux only: environment and logging calls, file deletion, the background thread's
 // sleep, the trace clock and thread id, no X4 frame-half global yet (stage C), no OpenXR backend
 // yet (openxr_runtime_stub.hpp), and the Linux additions of linux_runtime.hpp at the end.

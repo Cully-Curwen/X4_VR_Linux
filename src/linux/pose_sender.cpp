@@ -1,5 +1,5 @@
 // OpenTrack pose sender: the Linux counterpart of src/freetrack_client.cpp at commit be68c82
-// (docs/LINUX_PORT_PLAN.md, sections 4 and 6). Windows answers X4's FTGetData calls; Linux X4 reads
+// (docs/HOW_IT_WORKS.md, section 6). Windows answers X4's FTGetData calls; Linux X4 reads
 // OpenTrack UDP packets on its own thread (docs/LINUX_FINDINGS.md, 0.6), so this sends one packet
 // after every present: the frame X4 builds next uses it. The pose logic is the Windows one (theater
 // decision, recentring, synthetic calibration poses, eye offsets, reprojection poses).

@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 // Linux-only additions to the shared runtime. include/x4vr/runtime_bootstrap.hpp stays the Windows
-// header, unchanged (docs/LINUX_PORT_PLAN.md, section 3); what Linux needs beyond it lives here.
+// header, unchanged (docs/HOW_IT_WORKS.md, section 2); what Linux needs beyond it lives here.
 #include <x4vr/runtime_bootstrap.hpp>
 #include <memory>
 #include <string>
@@ -28,7 +28,7 @@ struct GameState {
 void sample_game_state(); // X4's main thread only
 GameState game_state();
 
-// Pose sender (stage A, docs/LINUX_PORT_PLAN.md section 7): sends the head pose to X4's OpenTrack
+// Pose sender (docs/HOW_IT_WORKS.md, section 6): sends the head pose to X4's OpenTrack
 // socket once per present. Started by the layer once the runtime exists; X4 only.
 void start_pose_sender();
 

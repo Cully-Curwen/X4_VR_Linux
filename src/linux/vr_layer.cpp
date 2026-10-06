@@ -1,5 +1,5 @@
-// VK_LAYER_X4VR: the Linux copy of src/observe_layer.cpp at commit 62569df (docs/LINUX_PORT_PLAN.md,
-// section 3). The alternate-eye presenter, the submission thread, theater mode, pacing and the stats
+// VK_LAYER_X4VR: the Linux copy of src/observe_layer.cpp at commit 62569df (docs/HOW_IT_WORKS.md,
+// sections 2 and 4). The alternate-eye presenter, the submission thread, theater mode, pacing and the stats
 // files are the Windows code. Changed for Linux:
 // - the layer is the whole mod (libx4vr.so): VR starts only in X4 (linux_port::is_x4_process), the
 //   library pins itself, and it starts the OpenTrack pose sender (pose_sender.cpp);
