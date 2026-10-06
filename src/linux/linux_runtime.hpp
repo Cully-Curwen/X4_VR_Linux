@@ -55,7 +55,4 @@ bool shared_pose();
 // has focus (x11_cursor.cpp) and SteamVR's recentre (runtime_bootstrap.cpp). Edits stereo.txt.
 void control(const char* action, const char* source);
 
-// Diagnostic (X4VR_WATCH_HEAD=1, head_watch.cpp): logs which X4 code reads the head position.
-void start_head_watch();
-void note_tracker_use(void* tracker, uintptr_t caller); // from the eye-at-use hook; cheap when off
 }

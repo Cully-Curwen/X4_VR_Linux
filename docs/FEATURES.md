@@ -89,5 +89,5 @@ Last updated: 2026-10-05.
 | Bug report button (zip logs, GitHub issue) [2] | Yes | Works | Menu / `x4vr report`: `~/x4vr-report-<time>.tar.gz` and the issue link. |
 | Crash recorder (minidumps, debug log) [2] | `crash_watch` | Missing | Exit status logged; system crash dumps via `coredumpctl`. |
 | Install / uninstall | `install.ps1` / `uninstall.ps1` | Works | CMake install (any distro) or Nix; menu "Copy the launch option" and "Add to the app launcher" (rofi) confirmed; menu / `x4vr uninstall`. Steam's launch option is set and cleared by the user. |
-| Diagnostics (traces, dumps, pair stats) [13] | Full set | Partial | Linux: trace, submit trace, eye dump, pair stats, head watch (`X4VR_WATCH_HEAD`). No probe images or camera trace. |
+| Diagnostics (traces, dumps, pair stats) [13] | Full set | Partial | Linux: trace, submit trace, eye dump, pair stats. No probe images or camera trace. |
 | Windows build check after Linux changes | — | Missing | Shared files changed by hand only; needs a Windows or CI build. |

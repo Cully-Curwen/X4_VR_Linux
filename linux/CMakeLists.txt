@@ -1,4 +1,4 @@
-# Native Linux build (docs/LINUX_PORT_PLAN.md), selected with -DX4VR_LINUX=ON from the top-level
+# Native Linux build (docs/HOW_IT_WORKS.md, docs/LINUX_GUIDE.md), selected with -DX4VR_LINUX=ON from the top-level
 # CMakeLists.txt. Dependencies come from the system (Nix); nothing is downloaded.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,7 +53,7 @@ target_compile_definitions(x4vr PRIVATE X4VR_INSTALL_LIBDIR="${CMAKE_INSTALL_LIB
 # entry points, no unresolved symbols.
 add_library(x4vr_mod SHARED ${X4VR_ROOT}/src/linux/vr_layer.cpp ${X4VR_ROOT}/src/linux/runtime_bootstrap.cpp
   ${X4VR_ROOT}/src/linux/pose_sender.cpp ${X4VR_ROOT}/src/linux/x11_cursor.cpp
-  ${X4VR_ROOT}/src/linux/head_watch.cpp ${X4VR_ROOT}/src/eye_targets.cpp)
+  ${X4VR_ROOT}/src/eye_targets.cpp)
 set_target_properties(x4vr_mod PROPERTIES OUTPUT_NAME x4vr CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 target_include_directories(x4vr_mod PRIVATE ${X4VR_ROOT}/src/linux)
 target_link_libraries(x4vr_mod PRIVATE x4vr_vr x4vr_elf Threads::Threads)
@@ -62,40 +62,17 @@ target_link_options(x4vr_mod PRIVATE -static-libstdc++ -static-libgcc -Wl,--excl
   -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/x4vr.map)
 set_target_properties(x4vr_mod PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/x4vr.map)
 
-# Phase 0 probes (docs/LINUX_PHASE0.md): the socket probe is preloaded into the whole Steam launch
-# chain, so it is C with nothing but libc.
-add_library(x4vr_probe SHARED ${X4VR_ROOT}/src/linux/probe_preload.c)
-set_target_properties(x4vr_probe PROPERTIES C_VISIBILITY_PRESET hidden)
-target_compile_options(x4vr_probe PRIVATE ${X4VR_WARNINGS})
-target_link_options(x4vr_probe PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,defs)
-
-add_library(VkLayer_x4vr_probe SHARED ${X4VR_ROOT}/src/linux/probe_layer.cpp)
-target_include_directories(VkLayer_x4vr_probe PRIVATE ${VULKAN_HEADERS_DIR})
-target_compile_definitions(VkLayer_x4vr_probe PRIVATE VK_NO_PROTOTYPES)
-set_target_properties(VkLayer_x4vr_probe PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
-target_compile_options(VkLayer_x4vr_probe PRIVATE ${X4VR_WARNINGS})
-target_link_options(VkLayer_x4vr_probe PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,-z,defs)
-
 # Layer manifests: for the installed package, and for tests in the build tree.
-foreach(layer IN ITEMS x4vr x4vr_probe)
-  if(layer STREQUAL "x4vr")
-    set(file libx4vr.so)
-  else()
-    set(file libVkLayer_x4vr_probe.so)
-  endif()
-  set(X4VR_LAYER_PATH ${CMAKE_INSTALL_FULL_LIBDIR}/${file})
-  configure_file(VkLayer_${layer}.json.in ${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_${layer}.json @ONLY)
-  set(X4VR_LAYER_PATH ${CMAKE_CURRENT_BINARY_DIR}/${file})
-  configure_file(VkLayer_${layer}.json.in ${CMAKE_CURRENT_BINARY_DIR}/layer/VkLayer_${layer}.json @ONLY)
-endforeach()
+set(X4VR_LAYER_PATH ${CMAKE_INSTALL_FULL_LIBDIR}/libx4vr.so)
+configure_file(VkLayer_x4vr.json.in ${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_x4vr.json @ONLY)
+set(X4VR_LAYER_PATH ${CMAKE_CURRENT_BINARY_DIR}/libx4vr.so)
+configure_file(VkLayer_x4vr.json.in ${CMAKE_CURRENT_BINARY_DIR}/layer/VkLayer_x4vr.json @ONLY)
 configure_file(x4vr-run.in ${CMAKE_CURRENT_BINARY_DIR}/x4vr-run @ONLY)
-configure_file(x4vr-probe-run.in ${CMAKE_CURRENT_BINARY_DIR}/x4vr-probe-run @ONLY)
 
 install(TARGETS x4vr RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS x4vr_mod x4vr_probe VkLayer_x4vr_probe LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_x4vr.json ${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_x4vr_probe.json
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/vulkan/explicit_layer.d)
-install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/x4vr-run ${CMAKE_CURRENT_BINARY_DIR}/x4vr-probe-run DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS x4vr_mod LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_x4vr.json DESTINATION ${CMAKE_INSTALL_DATADIR}/vulkan/explicit_layer.d)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/x4vr-run DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES ${X4VR_ROOT}/config/linux/stereo.txt ${X4VR_ROOT}/config/linux/notices.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/x4vr)
 install(DIRECTORY ${X4VR_ROOT}/config/linux/profiles/ DESTINATION ${CMAKE_INSTALL_DATADIR}/x4vr/profiles)
 
@@ -147,10 +124,4 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   target_compile_options(steam_config_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME steam_config COMMAND steam_config_tests)
 
-  add_executable(probe_socket_fixture ${X4VR_ROOT}/tests/linux/probe_socket_fixture.cpp)
-  target_include_directories(probe_socket_fixture PRIVATE ${X4VR_ROOT}/src/linux)
-  target_compile_options(probe_socket_fixture PRIVATE ${X4VR_WARNINGS})
-  add_test(NAME probe_preload COMMAND ${CMAKE_COMMAND} -DFIXTURE=$<TARGET_FILE:probe_socket_fixture>
-           -DPROBE=$<TARGET_FILE:x4vr_probe> -DDIR=${CMAKE_CURRENT_BINARY_DIR}/probe-test
-           -P ${X4VR_ROOT}/tests/linux/probe_preload_test.cmake)
 endif()

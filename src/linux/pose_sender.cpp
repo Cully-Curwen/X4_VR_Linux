@@ -102,7 +102,6 @@ uint32_t walk_flip(bool walking) {
 }
 
 void position_at_use(void* tracker, float* x, float* y, float* z) {
-    note_tracker_use(tracker, uintptr_t(__builtin_return_address(0)));
     if (field<uint8_t>(tracker, field_fresh)) taken_seq = packet_seq(field<double>(tracker, field_roll));
     SentPacket packet;
     if (taken_seq) { std::lock_guard lock(packets_mutex); packet = packets[taken_seq]; }
@@ -144,8 +143,8 @@ void install_eye_hook(const code::X4Sites& sites) {
 }
 
 // ---- Stage D and on foot: code patches ------------------------------------------------------
-// X4 9.00's per-frame camera input function (0xfeb..., docs/LINUX_FINDINGS.md, found with
-// X4VR_WATCH_HEAD) reads the tracker's angles (slot 33) and position (slot 34, called from
+// X4 9.00's per-frame camera input function (0xfeb..., docs/LINUX_FINDINGS.md, found with a
+// hardware-watchpoint diagnostic, since removed) reads the tracker's angles (slot 33) and position (slot 34, called from
 // 0xfec248) and hands them to the camera controller (0x1933d00). The Windows mod's patches have
 // counterparts there; each is one byte, so it is atomic while X4 runs:
 // - Backward clamp: `if (tracker type != 7 && z > 0) z = 0` (0xfeb72b..0xfeb749) pinned leaning
@@ -385,7 +384,6 @@ void start_pose_sender() {
             install_eye_hook(*sites);
             sender_loop();
         }).detach();
-        start_head_watch();
     });
 }
 }

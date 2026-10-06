@@ -95,7 +95,7 @@ runtime. What differs is how each reaches X4:
   non-Windows host stops with an error.
 - Targets:
   - `libx4vr.so` (`x4vr_mod`): `src/linux/vr_layer.cpp`, `runtime_bootstrap.cpp`,
-    `pose_sender.cpp`, `x11_cursor.cpp`, `head_watch.cpp`, and the shared `src/eye_targets.cpp`,
+    `pose_sender.cpp`, `x11_cursor.cpp`, and the shared `src/eye_targets.cpp`,
     `src/math.cpp` and `src/session.cpp`.
     - It is linked with static libstdc++/libgcc and `--exclude-libs,ALL`. The version script
       `linux/x4vr.map` exports only the three Vulkan loader entry points.
@@ -103,9 +103,8 @@ runtime. What differs is how each reaches X4:
       with libraries in X4's Steam runtime container.
   - `x4vr` CLI (`tools/linux/x4vr_cli.cpp`). It reuses the Windows launcher logic
     `tools/launcher/hud_mod.hpp` and `launcher_settings.hpp`, which are header-only.
-  - Phase 0 probes: `libx4vr_probe.so` and `libVkLayer_x4vr_probe.so`.
   - Tests (`ctest`): the shared suites plus `opentrack_tests`, `md5_tests`,
-    `elf_classes_tests` and `probe_preload`.
+    `elf_classes_tests`, `code_scan_tests` and `steam_config_tests`.
 - Install: the layer manifest `VkLayer_x4vr.json` goes to `share/vulkan/explicit_layer.d`;
   `x4vr-run` and `x4vr` go to `bin`; the default `stereo.txt` goes to `share/x4vr`.
 - **Starting:** the `x4vr` menu (section 11b) launches VR: SteamVR first if needed, then a
@@ -322,7 +321,7 @@ for 6 little-endian doubles: x, y, z (cm) and yaw, pitch, roll (degrees). Format
   are logged.
 - Head smoothing set to 1 as on Windows.
 - Start order (`start_pose_sender`): `apply_patches()`, `install_eye_hook()`, the sender
-  thread, then `start_head_watch()`.
+  thread.
 
 **`VR::OpenTrack` in Linux 9.00:**
 - vtable `0x3c62520`, type_info `0x3c61bb0` (`N2VR9OpenTrackE`).
@@ -423,8 +422,8 @@ Windows has no shared-pose path. Each eye's pose comes from its own game frame.
 ### The X4 function they patch
 
 Windows notes call it the "head-tracker bridge" (`0x9fd870`). On Linux it is **X4's per-frame
-camera input function**, around `0xfeb000..0xfed400`. It was found with the head watch
-(section 13): the tracker's position accessor has exactly one caller, the call at `0xfec248`.
+camera input function**, around `0xfeb000..0xfed400`. It was found with a head-watch
+diagnostic (hardware watchpoints, since removed): the tracker's position accessor has exactly one caller, the call at `0xfec248`.
 
 Note: Linux also has a class `U::HeadTrackerCameraBridge` (vtable `0x3b1c240`, static object
 `0x3e60820`). It is **not** this function, and it isn't used for the cockpit view: its stored
@@ -481,7 +480,7 @@ neither counts.
   `Camera::GetOffset`'s "no movement controller" exit (`0x1929fff`). The second is waiting for
   its headset test.
 - How the second was found, 2026-10-05:
-  - `X4VR_WATCH_HEAD=2`: on foot X4 reads the tracker every frame and hands the pose to the
+  - Head watch (hardware breakpoints, since removed): on foot X4 reads the tracker every frame and hands the pose to the
     camera controller `0x1933d00`, as in the cockpit.
   - The controller stores the head offset at `+0x5a0` (position) and `+0x5b0` (rotation)
     (`0x1935ac1`). Windows: `Camera+0x590`.
@@ -656,8 +655,6 @@ It is rebuilt when the game's files change.
     Protected UI Mode must be off.
   - X4 reports the game as modified, and warns about Protected UI.
 
-`x4vr game-grep` searches X4's catalogs.
-
 ### X4 settings (`launcher_settings.hpp`, `check_x4` / `fix_x4`)
 
 Required:
@@ -719,20 +716,10 @@ Request files in the capture directory are deleted when seen:
 
 - **Logs:** `x4vr.log` with pose, game-state, patch, sizing, pair and frame-half lines.
   `stderr.log` holds X4's own output.
-- **Head watch** (`src/linux/head_watch.cpp`): hardware breakpoints and watchpoints through
-  `perf_event_open` on the mod's own threads (no root needed; `perf_event_paranoid` ≤ 2).
-  - `X4VR_WATCH_HEAD=1`: watchpoints on `VR::OpenTrack` `+0xd0/+0xd8/+0x100/+0x108`. Logs
-    which code touches them and the position accessor's callers. This is how the camera input
-    function was found.
-  - `X4VR_WATCH_HEAD=2`: execution breakpoints on the camera input function's branch points
-    (two sets of 4, alternating), plus the camera mode `[[0x3db6948]+0x3e8]+0x880`.
-  - `X4VR_WATCH_HEAD=3`: watchpoints on the camera controller's head offset (`+0x5a0..+0x5bf`),
-    re-opened when the controller changes.
-  - `X4VR_WATCH_HEAD=4`: execution breakpoints at the offset readers' entries that sample the
-    stack pointer and the 8 bytes there (the return address), to log who calls them.
-  - Both record 10 windows of 20 s, labelled with the game state, and start with a self-test.
-- **Phase 0 tools:** `x4vr vr-check`, `udp-send`, `elf-classes` (RTTI → vtables), and the
-  probes `x4vr-probe-run`.
+- **Removed research tools** (in the git history, `src/linux/head_watch.cpp` and the Phase 0
+  probes): hardware watchpoints through `perf_event_open` found X4's camera input function and
+  the on-foot offset readers; the probe layer and socket preload, and the `x4vr` commands
+  `vr-check`, `udp-send`, `elf-classes` and `game-grep`, served the first port stages.
 
 ---
 
@@ -783,7 +770,6 @@ The code defaults are in `runtime_bootstrap.hpp`. The shipped files override som
 | `X4VR_HOTKEYS=0` | no hotkeys |
 | `X4VR_EYE_AT_USE=0` | no eye-at-use hook |
 | `X4VR_PATCHES=0` | no code patches |
-| `X4VR_WATCH_HEAD=1` … `4` | head watch diagnostics |
 | `X4VR_OPENTRACK_PORT` | default 4242 |
 | `X4VR_OT_YAW/_PITCH/_ROLL/_X/_Y/_Z` | axis sign and scale |
 
@@ -821,8 +807,7 @@ timing (less lag) and the on-foot eye flip.
 ## 16. Address reference
 
 The Linux mod finds these by pattern (section 8); the Linux addresses are X4 9.00's, for
-reading disassembly. The head-watch diagnostics (`X4VR_WATCH_HEAD`) still use fixed 9.00
-addresses.
+reading disassembly.
 
 | What | Windows 9.00 (RVA) | Linux 9.00 |
 |---|---|---|
