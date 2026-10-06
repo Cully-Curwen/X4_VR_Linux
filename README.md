@@ -364,8 +364,9 @@ display settings.
 
 A port for the native Linux version of X4 9.00, through SteamVR. It covers stereo in the cockpit
 and on foot, head tracking, the virtual screen for menus, the mouse cursor and the HUD distance.
-OpenXR isn't supported on Linux yet. It was tested with a Steam Frame on an AMD GPU; the Windows
-build is unchanged.
+OpenXR isn't supported on Linux yet. It was tested with a Steam Frame on an AMD GPU. NVIDIA and
+Intel GPUs should work but are untested: please send a bug report either way. The Windows build
+is unchanged.
 
 ### What you need
 
@@ -397,6 +398,11 @@ at the bottom of the screen.
    rules*.
 3. Choose *Launch X4 in VR*. It starts SteamVR if needed.
 4. Look straight ahead and press Ctrl+F12 to recenter. Ctrl+F11 switches to the flat screen.
+
+On a laptop with two GPUs, X4 must run on the one the headset uses, else it runs flat. Put the
+usual setting in front of the launch option, e.g. `__NV_PRIME_RENDER_OFFLOAD=1
+__GLX_VENDOR_LIBRARY_NAME=nvidia` (NVIDIA) or `DRI_PRIME=1` (AMD). The menu's *GPU* status line
+shows which GPU the last VR session used.
 
 The mod keeps your 2D X4 settings apart from the VR ones and puts them back when X4 closes. If
 something goes wrong, the log is `~/.local/state/x4vr/x4vr.log`, and *Make a bug report* packs it

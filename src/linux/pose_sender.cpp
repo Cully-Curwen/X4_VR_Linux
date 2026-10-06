@@ -149,7 +149,7 @@ std::array<SentPacket, 256> packets; // by sequence number (1..255)
 uint32_t taken_seq{}; // the packet X4's updates took last (game thread only)
 std::atomic<bool> eye_hook{false};
 using TrackerPosition = void (*)(void*, float*, float*, float*);
-TrackerPosition original_position{};
+std::atomic<TrackerPosition> original_position{};
 
 template<class T> T field(void* tracker, size_t offset) { T v; std::memcpy(&v, static_cast<char*>(tracker)+offset, sizeof v); return v; }
 uint32_t packet_seq(double roll) { uint64_t bits; std::memcpy(&bits, &roll, 8); return uint32_t(bits & 0xff); }
@@ -174,23 +174,25 @@ void position_at_use(void* tracker, float* x, float* y, float* z) {
     if (field<uint8_t>(tracker, field_fresh)) taken_seq = packet_seq(field<double>(tracker, field_roll));
     SentPacket packet;
     if (taken_seq) { std::lock_guard lock(packets_mutex); packet = packets[taken_seq]; }
-    if (!packet.valid) return original_position(tracker, x, y, z);
+    const auto original = original_position.load();
+    if (!packet.valid) return original(tracker, x, y, z);
     const auto eye = x4vr::render_eye()^walk_flip(packet.walking); // the frame X4 builds now
     auto* position = reinterpret_cast<float*>(static_cast<char*>(tracker)+field_position);
     const float scale = field<float>(tracker, field_scale);
     const std::array<float, 3> centre{position[0], position[1], position[2]};
     for (int i = 0; i < 3; ++i) position[i] += packet.delta[eye][i]*scale;
-    original_position(tracker, x, y, z);
+    original(tracker, x, y, z);
     for (int i = 0; i < 3; ++i) position[i] = centre[i];
     x4vr::record_render_pose(packet.head, eye, packet.flat, packet.walking);
     x4vr::trace_event('U', x4vr::frame_tag(), float(eye), float(taken_seq), float(field<uint8_t>(tracker, field_fresh))); // use
 }
 
-bool swap_slot(void** slot, void* replacement, void** original) {
+// `on_original` gets the slot's old value before the swap: X4 may call the slot at once.
+bool swap_slot(void** slot, void* replacement, void (*on_original)(void*)) {
     const long page = sysconf(_SC_PAGESIZE);
     auto* start = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(slot) & ~uintptr_t(page-1));
     if (mprotect(start, size_t(page), PROT_READ | PROT_WRITE) != 0) return false;
-    *original = *slot;
+    on_original(*slot);
     __atomic_store_n(slot, replacement, __ATOMIC_SEQ_CST);
     mprotect(start, size_t(page), PROT_READ);
     return true;
@@ -203,11 +205,10 @@ void install_eye_hook(const code::X4Sites& sites) {
     const bool ok = sites.opentrack_vtable && in_executable(sites.opentrack_vtable, 8*(position_slot+1)) &&
                     reinterpret_cast<uintptr_t>(vtable[position_slot]) == sites.opentrack_position;
     if (!ok) { log("X4VR pose: eye-at-use hook: VR::OpenTrack's position accessor not found in this X4; eyes chosen when packets are sent"); return; }
-    void* original{};
-    if (!swap_slot(&vtable[position_slot], reinterpret_cast<void*>(&position_at_use), &original)) {
+    if (!swap_slot(&vtable[position_slot], reinterpret_cast<void*>(&position_at_use),
+                   [](void* original) { original_position.store(reinterpret_cast<TrackerPosition>(original)); })) {
         log("X4VR pose: eye-at-use hook not installed (vtable not writable)"); return;
     }
-    original_position = reinterpret_cast<TrackerPosition>(original);
     eye_hook = true;
     log("X4VR pose: eye-at-use hook installed (VR::OpenTrack slot 34)");
 }

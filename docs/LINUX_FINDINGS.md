@@ -655,3 +655,13 @@ After a restart at the automatic resolution (2880x1620) everything was fine. Not
   both `stereo.txt` files set it to 1. A `stereo.txt` without the line (old or hand-edited) falls
   back to counting presents, which can swap the eyes. Windows has the same gap. Kept as Windows for
   now; a Linux default of 1 in `read_settings` (like `roll_gain`) would close it.
+- **GPU vendors:** only AMD (RADV, one graphics queue: the shared-queue path) is tested. A driver
+  with a spare graphics queue (NVIDIA's has several) gets the mod's own queue, as on Windows:
+  that Linux path is untested. Intel's ANV likely shares, like RADV. The menu's GPU line and the
+  bug report show which path ran.
+- **D1/D2 edge cases left as they are:** the vtable page goes back to read-only after the hook
+  (right for X4 9.00's `.data.rel.ro`; wrong if a build put the vtable on a page with code);
+  X4's present blocks the mod's submit for a moment on a shared queue (inherent); inline submission
+  (`async_submit=0`) waits for SteamVR under the queue lock; the once-a-second IPD read can wait
+  behind `WaitGetPoses`; Vulkan debug-label calls aren't under the queue lock (X4 doesn't use them);
+  trace lines can interleave.

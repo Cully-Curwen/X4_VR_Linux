@@ -493,6 +493,8 @@ const volatile int32_t* frame_half_global() {
 namespace linux_port {
 bool shared_pose() { return shared_pose_setting.load(); }
 void control(const char* action, const char* source) {
+    static std::mutex mutex; // the hotkey thread and the submission thread (SteamVR's recentre)
+    std::lock_guard lock(mutex);
     const auto root = capture_dir();
     const int value = root.empty() ? -1 : control_settings(root+"/stereo.txt", action);
     if (value < 0) { log(std::string("X4VR control: ")+source+": can't update stereo.txt"); return; }

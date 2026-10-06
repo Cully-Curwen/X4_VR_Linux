@@ -34,8 +34,8 @@ inline bool write_setting(const std::filesystem::path& path, std::string_view ke
     auto found = std::find_if(lines.begin(), lines.end(), [&](const std::string& l) { return l.rfind(prefix, 0) == 0; });
     if (found == lines.end()) lines.push_back(prefix+value);
     else *found = prefix+value;
-    // Own temporary per process: the menu and the mod (hotkeys, SteamVR's recentre) may write at once.
-    const auto temporary = path.string()+".tmp"+std::to_string(getpid());
+    // Own temporary per thread: the menu and the mod (hotkeys, SteamVR's recentre) may write at once.
+    const auto temporary = path.string()+".tmp"+std::to_string(getpid())+"-"+std::to_string(gettid());
     {
         std::ofstream out(temporary, std::ios::trunc);
         for (const auto& line : lines) out << line << '\n';

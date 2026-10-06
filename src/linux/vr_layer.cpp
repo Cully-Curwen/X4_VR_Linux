@@ -1349,8 +1349,9 @@ VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue2(VkDevice device, const VkDeviceQueu
 }
 VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info) {
     const auto data = device_for(queue); if (!data || !data->QueuePresentKHR) return VK_ERROR_INITIALIZATION_FAILED;
+    // X4's main thread; outside the queue lock: X4's own functions shouldn't wait under it.
+    if (data->runtime) x4vr::linux_port::sample_game_state();
     auto queue_lock = lock_if_shared(queue); // before the presenter lock, as everywhere
-    if (data->runtime) x4vr::linux_port::sample_game_state(); // X4's main thread
     auto& p = presenter();
     std::unique_lock lock(p.mutex);
     VkSemaphore copied{};

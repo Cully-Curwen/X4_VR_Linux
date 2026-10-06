@@ -636,6 +636,32 @@ Checks current_checks() {
     c.desktop = std::filesystem::exists(desktop_file());
     return c;
 }
+// The GPU of the last VR session, from the mod's log: its name and the mod's queue (its own, as
+// on Windows, when the driver has a spare graphics queue, e.g. NVIDIA; else shared with X4, e.g.
+// AMD's RADV), or why VR was off on it. `state` as status().
+std::string gpu_summary(int& state) {
+    for (const auto* name : {"x4vr.log", "x4vr.previous.log"}) {
+        std::string found, line;
+        std::istringstream text(read_text(state_dir()/name));
+        while (std::getline(text, line))
+            if (line.rfind("X4VR layer: device created on ", 0) == 0 || line.rfind("X4VR layer: VR disabled for this device", 0) == 0) found = line;
+        if (found.rfind("X4VR layer: VR disabled", 0) == 0) {
+            state = 2;
+            const auto colon = found.find(": ", 30);
+            return "VR was off: "+(colon == std::string::npos ? std::string("see Bug report") : found.substr(colon+2));
+        }
+        if (!found.empty()) {
+            const auto start = std::string_view("X4VR layer: device created on ").size();
+            const auto end = found.find(", VR queue: ");
+            const auto gpu = found.substr(start, end == std::string::npos ? std::string::npos : end-start);
+            const auto queue = end == std::string::npos ? std::string() : found.substr(end+12, found.find(';', end)-end-12);
+            state = queue.rfind("none", 0) == 0 ? 2 : 0;
+            return gpu+(queue.rfind("shared", 0) == 0 ? " (shared queue)" : queue.rfind("private", 0) == 0 ? " (own queue)" : " (no VR queue)");
+        }
+    }
+    state = 3;
+    return "known after the first VR launch";
+}
 std::string scan_summary(const x4vr::linux_port::code::X4Sites& sites, int& state) {
     const bool all = sites.backward_clamp && sites.onfoot_zeroing && sites.camera_offset && sites.frame_half_global && sites.opentrack_vtable;
     const bool core = sites.opentrack_vtable && sites.frame_half_global;
@@ -714,6 +740,8 @@ std::string make_report() {
     summary << "steam running: " << c.steam << "\nsteamvr running: " << c.steamvr << "\nx4 running: " << c.x4
             << "\nlaunch option: " << c.option.value << " (state " << c.option.state << ")\nhud factor: " << c.hud
             << (c.hud_off_in_x4 ? " (off in X4)" : "") << "\nx4 settings to fix: " << c.settings_to_fix << "\n";
+    int gpu_state = 3;
+    summary << "gpu: " << gpu_summary(gpu_state) << "\n";
     if (const auto game = game_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
         summary << "x4 scan (" << (game/"X4").string() << "):\n";
         for (const auto& note : x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load((game/"X4").string())).notes) summary << "  " << note << "\n";
@@ -1123,6 +1151,9 @@ int menu(std::string_view start = {}) {
         items.push_back(section("Status"));
         items.push_back(status("SteamVR", c.steamvr ? 0 : 3, c.steamvr ? "running" : "not running (Launch starts it)"));
         items.push_back(status("X4 build", scan_state, scan_text));
+        int gpu_state = 3;
+        const auto gpu_text = gpu_summary(gpu_state);
+        items.push_back(status("GPU", gpu_state, gpu_text));
         items.push_back(status("Steam launch option", c.option.state == 1 ? 0 : 2,
             c.option.state == 1 ? (c.option.value == wanted_launch_option() ? "set" : "set: "+c.option.value) : c.option.state == 2 ? "points to another x4vr-run: copy it again (Setup)"
             : c.option.state == 3 ? "set to something else: "+c.option.value : c.option.accounts ? "not set: copy it (Setup)" : "start X4 once from Steam first"));
