@@ -335,6 +335,9 @@ StereoSettings read_settings() {
     StereoSettings next;
     // Linux: roll in degrees (OpenTrack). Measured on the Steam Frame (2026-10): 2.387 keeps the
     // stars still with the head tilted 30 degrees; yaw and pitch's 2.1177 turned the view too little.
+    // X4's tracker scales all three angles alike (0x1a1b7c9, 0x1a0dd60), so the difference is
+    // likely in the camera controller (0x1933d00, not read): about 75 degrees of roll for the
+    // tracker's full range (180/75 = 2.4), where yaw and pitch get 85 (180/85 = 2.1177).
     next.roll_gain = 2.387f;
     const auto root = capture_dir();
     if (root.empty()) return next;
