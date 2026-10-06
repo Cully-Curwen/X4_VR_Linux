@@ -1334,7 +1334,7 @@ int main(int argc, char** argv) {
     { // this executable as started, unresolved, so a symlinked install path stays as given
         std::error_code error;
         const std::string first = argc > 0 ? argv[0] : "";
-        if (first.find('/') != std::string::npos) program = std::filesystem::absolute(first, error);
+        if (first.find('/') != std::string::npos) program = std::filesystem::absolute(first, error).lexically_normal(); // ./x -> /dir/x
         else if (const char* path = std::getenv("PATH")) {
             std::istringstream dirs(path);
             for (std::string dir; std::getline(dirs, dir, ':');)
