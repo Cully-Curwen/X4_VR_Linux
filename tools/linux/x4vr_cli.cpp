@@ -6,7 +6,10 @@
 #include "../launcher/hud_mod.hpp"
 #include "../launcher/launcher_settings.hpp"
 #include "md5.hpp"
+#include "gpu_status.hpp"
+#include "launch_option.hpp"
 #include "settings_control.hpp"
+#include "settings_swap.hpp"
 #include "state_files.hpp"
 #include "steam_config.hpp"
 #include "terminal_ui.hpp"
@@ -378,32 +381,13 @@ bool run(const std::vector<std::string>& argv, const Run& how = {}) {
     return how.detach || (WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
-// X4's launch option in every Steam account: 0 none set, 1 ours, 2 an x4vr-run elsewhere (an
-// older build), 3 something else; `accounts` = how many accounts know X4. Ours in any account
-// wins (another account on the machine may have its own), then 2, 3, 0. Ours is our x4vr-run
-// followed by %command%, with anything around it (settings in front, X4 arguments after).
-struct LaunchOption { int state = 0; int accounts = 0; std::string value; };
-bool is_ours(const std::string& option) {
-    const auto path = run_script().string();
-    for (auto run = option.find(path); run != std::string::npos; run = option.find(path, run+1)) {
-        const auto end = run+path.size();
-        const bool starts = run == 0 || option[run-1] == ' ' || option[run-1] == '"' || option[run-1] == '\'';
-        const bool ends = end < option.size() && (option[end] == ' ' || option[end] == '"' || option[end] == '\'');
-        if (starts && ends && option.find("%command%", end) != std::string::npos) return true;
-    }
-    return false;
-}
+// X4's launch option in every Steam account (launch_option.hpp).
+using x4vr::linux_port::LaunchOption;
 LaunchOption launch_option() {
-    LaunchOption result;
-    for (const auto& file : x4vr::steam::local_configs()) {
-        const auto value = x4vr::steam::launch_options(x4vr::steam::read_file(file));
-        if (!value) continue;
-        ++result.accounts;
-        const int state = value->empty() ? 0 : is_ours(*value) ? 1 : value->find("x4vr-run") != std::string::npos ? 2 : 3;
-        static constexpr int rank[] = {0, 3, 2, 1}; // by state
-        if (result.accounts == 1 || rank[state] > rank[result.state]) { result.state = state; result.value = *value; }
-    }
-    return result;
+    std::vector<std::string> values;
+    for (const auto& file : x4vr::steam::local_configs())
+        if (const auto value = x4vr::steam::launch_options(x4vr::steam::read_file(file))) values.push_back(*value);
+    return x4vr::linux_port::judge_launch_options(values, run_script().string());
 }
 // Copies text to the clipboard: wl-copy (Wayland), xclip or xsel (X11), else the terminal's
 // own clipboard (OSC 52, which most terminals support). Returns how.
@@ -425,19 +409,10 @@ std::string copy_to_clipboard(const std::string& text) {
 }
 std::string launch_option_steps() { return "In Steam: X4 > Properties > General > Launch options, paste it there."; }
 
-// X4's settings for 2D and for VR, kept apart: launching in VR saves config.xml as
-// config.xml.x4vr-2d and puts the VR copy (config.xml.x4vr-vr, if any) in its place; when X4
-// exits, config.xml goes back to x4vr-vr and the 2D copy returns. So Steam's Play keeps the
-// player's own settings, and VR keeps its own (x4vr-run, then fix-settings on top). A marker
-// (x4-settings.vr: the config path) survives a crash: the next start of either kind restores 2D.
+// X4's settings for 2D and for VR, kept apart (settings_swap.hpp); the marker names the config
+// while X4 has its VR settings.
 std::filesystem::path settings_marker() { return state_dir()/"x4-settings.vr"; }
-bool copy_over(const std::filesystem::path& from, const std::filesystem::path& to) {
-    std::error_code error;
-    const auto temporary = to.string()+".x4vr-tmp";
-    std::filesystem::copy_file(from, temporary, std::filesystem::copy_options::overwrite_existing, error);
-    if (!error) std::filesystem::rename(temporary, to, error);
-    return !error;
-}
+using x4vr::linux_port::copy_over;
 // The HUD distance extension only in VR: X4's per-user content.xml records it as
 // <extension id="x4vr_hud" enabled="..."/>; switched off for 2D (no farther HUD, no "modified"
 // flag on 2D saves) and on for VR. Without an entry yet (X4 adds it once it has seen the
@@ -451,33 +426,18 @@ void hud_extension_enabled(const std::filesystem::path& config, bool on) {
 }
 int settings_mode(const std::vector<std::string_view>& args) {
     if (args.size() != 1 || (args[0] != "vr" && args[0] != "2d" && args[0] != "status")) { usage(); return 2; }
-    const auto marker = settings_marker();
-    std::filesystem::path config = read_text(marker);
-    while (!config.empty() && std::isspace(static_cast<unsigned char>(config.string().back()))) config = config.string().substr(0, config.string().size()-1);
-    const bool in_vr = !config.empty();
-    if (config.empty()) config = x4_config();
-    if (args[0] == "status") { std::cout << (in_vr ? "X4 has its VR settings (" : "X4 has its 2D settings (") << config.string() << ")\n"; return 0; }
+    const auto in_vr = x4vr::linux_port::config_in_vr(settings_marker());
+    const auto config = in_vr.empty() ? x4_config() : in_vr;
+    if (args[0] == "status") { std::cout << (!in_vr.empty() ? "X4 has its VR settings (" : "X4 has its 2D settings (") << config.string() << ")\n"; return 0; }
     if (config.empty()) return 0; // X4 never started: nothing to keep apart
     for (int i = 0; i < 20 && x4_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500)); // X4 finishing its exit
     if (x4_running()) { std::cerr << "X4 is running: its settings are switched when it isn't.\n"; return 1; }
-    const std::filesystem::path two_d = config.string()+".x4vr-2d", vr = config.string()+".x4vr-vr";
-    std::error_code error;
-    if (args[0] == "vr") {
-        if (in_vr) return 0; // already (a launch that didn't get to restore 2D)
-        if (!copy_over(config, two_d)) { std::cerr << "x4vr: can't save X4's 2D settings to " << two_d << '\n'; return 1; }
-        if (std::filesystem::exists(vr) && !copy_over(vr, config)) { std::cerr << "x4vr: can't load X4's VR settings\n"; return 1; }
-        std::filesystem::create_directories(marker.parent_path(), error);
-        write_text(marker, config.string()+"\n");
-        hud_extension_enabled(config, true);
-        std::cout << "x4vr: X4's 2D settings saved (" << two_d.filename().string() << "), VR settings in place\n";
-        return 0;
+    const auto done = x4vr::linux_port::switch_settings(settings_marker(), config, args[0] == "vr");
+    if (!done.ok) { std::cerr << "x4vr: " << done.message << '\n'; return 1; }
+    if (done.changed) {
+        hud_extension_enabled(config, args[0] == "vr");
+        std::cout << "x4vr: " << done.message << '\n';
     }
-    if (!in_vr) return 0;
-    if (!copy_over(config, vr)) { std::cerr << "x4vr: can't save X4's VR settings to " << vr << '\n'; return 1; }
-    if (std::filesystem::exists(two_d) && !copy_over(two_d, config)) { std::cerr << "x4vr: can't restore X4's 2D settings\n"; return 1; }
-    std::filesystem::remove(marker, error);
-    hud_extension_enabled(config, false);
-    std::cout << "x4vr: X4's VR settings saved (" << vr.filename().string() << "), 2D settings restored\n";
     return 0;
 }
 std::string install_desktop() {
@@ -532,29 +492,10 @@ Checks current_checks() {
     c.desktop = std::filesystem::exists(desktop_file());
     return c;
 }
-// The GPU of the last VR session, from the mod's log: its name and the mod's queue (its own, as
-// on Windows, when the driver has a spare graphics queue, e.g. NVIDIA; else shared with X4, e.g.
-// AMD's RADV), or why VR was off on it. `state` as status().
+// The GPU of the last VR session (gpu_status.hpp). `state` as status().
 std::string gpu_summary(int& state) {
-    for (const auto* name : {"x4vr.log", "x4vr.previous.log"}) {
-        std::string found, line;
-        std::istringstream text(read_text(state_dir()/name));
-        while (std::getline(text, line))
-            if (line.rfind("X4VR layer: device created on ", 0) == 0 || line.rfind("X4VR layer: VR disabled for this device", 0) == 0) found = line;
-        if (found.rfind("X4VR layer: VR disabled", 0) == 0) {
-            state = 2;
-            const auto colon = found.find(": ", 30);
-            return "VR was off: "+(colon == std::string::npos ? std::string("see Bug report") : found.substr(colon+2));
-        }
-        if (!found.empty()) {
-            const auto start = std::string_view("X4VR layer: device created on ").size();
-            const auto end = found.find(", VR queue: ");
-            const auto gpu = found.substr(start, end == std::string::npos ? std::string::npos : end-start);
-            const auto queue = end == std::string::npos ? std::string() : found.substr(end+12, found.find(';', end)-end-12);
-            state = queue.rfind("none", 0) == 0 ? 2 : 0;
-            return gpu+(queue.rfind("shared", 0) == 0 ? " (shared queue)" : queue.rfind("private", 0) == 0 ? " (own queue)" : " (no VR queue)");
-        }
-    }
+    for (const auto* name : {"x4vr.log", "x4vr.previous.log"})
+        if (const auto gpu = x4vr::linux_port::gpu_from_log(read_text(state_dir()/name))) { state = gpu->state; return gpu->text; }
     state = 3;
     return "known after the first VR launch";
 }
