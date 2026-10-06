@@ -372,25 +372,40 @@ is unchanged.
 
 - X4: Foundations from Steam (the native Linux version), started once.
 - SteamVR with your headset working. Steam from your distribution or Valve, not the Flatpak.
-- To build: GCC 13+ or Clang 16+, CMake 3.24+, Git and the Vulkan headers.
+- To build: Git, plus either Nix (NixOS) or GCC 13+ / Clang 16+, CMake 3.24+ and the Vulkan
+  headers from your distribution (e.g. `vulkan-headers`, or `libvulkan-dev` on Debian and Ubuntu).
 
 ### Install
 
+**With CMake (any distribution):**
+
 ```bash
 git clone https://github.com/ToffelsKater/X4_VR.git ~/x4vr-src
-git clone --depth 1 https://github.com/ValveSoftware/openvr ~/x4vr-src/external/openvr
 cd ~/x4vr-src
-cmake -S . -B build -DX4VR_LINUX=ON -DCMAKE_BUILD_TYPE=Release \
-      -DOPENVR_SOURCE_DIR=$PWD/external/openvr -DCMAKE_INSTALL_PREFIX=$HOME/.local
+cmake -S . -B build -DX4VR_LINUX=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$HOME/.local
 cmake --build build -j && cmake --install build
 ```
 
-On NixOS, run `nix-build linux/nix` in the source directory instead (from your channel's nixpkgs).
+The first `cmake` downloads Valve's OpenVR sources (about 1 GB), which are built into the mod.
+The menu is then `~/.local/bin/x4vr`.
+
+**With Nix (NixOS), from your channel's nixpkgs:**
+
+```bash
+git clone https://github.com/ToffelsKater/X4_VR.git ~/x4vr-src
+cd ~/x4vr-src
+nix-build linux/nix
+```
+
+The menu is then `~/x4vr-src/result/bin/x4vr`. To have it installed system-wide instead, add
+`(pkgs.callPackage /path/to/x4vr-src/linux/nix { })` to `environment.systemPackages`.
+
+To update either way: `git pull` in `~/x4vr-src`, then the same build commands again.
 
 ### Setup and playing
 
-Run `~/.local/bin/x4vr`. This terminal menu replaces the Windows launcher, and explains each item
-at the bottom of the screen.
+Run `x4vr` (see above for where it is). This terminal menu replaces the Windows launcher, and
+explains each item at the bottom of the screen.
 
 1. Choose *Copy the Steam launch option* and paste it into X4 > Properties > General > Launch
    options. Steam's Play button still starts the normal game; only the menu starts VR.

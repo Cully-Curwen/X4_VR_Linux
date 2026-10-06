@@ -1,5 +1,6 @@
 # Native Linux build (README.md, docs/HOW_IT_WORKS.md), selected with -DX4VR_LINUX=ON from the top-level
-# CMakeLists.txt. Dependencies come from the system (Nix); nothing is downloaded.
+# CMakeLists.txt. Dependencies come from the system, except OpenVR's sources: fetched at configure
+# time unless OPENVR_SOURCE_DIR names a copy (Nix passes nixpkgs' openvr.src).
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
@@ -11,9 +12,17 @@ set(X4VR_ROOT ${PROJECT_SOURCE_DIR})
 find_path(VULKAN_HEADERS_DIR vulkan/vk_layer.h REQUIRED)
 # OpenVR's client library is built from source into the mod: the packaged one loads its own
 # libstdc++ and jsoncpp, which could clash with the older ones in X4's Steam runtime container.
-set(OPENVR_SOURCE_DIR "" CACHE PATH "OpenVR SDK source tree (Valve's openvr repository)")
+set(OPENVR_SOURCE_DIR "" CACHE PATH "OpenVR SDK source tree (Valve's openvr repository); empty: fetched")
+if(NOT OPENVR_SOURCE_DIR)
+  # The version nixpkgs has; SOURCE_SUBDIR names no CMakeLists.txt, so OpenVR's own build stays out.
+  include(FetchContent)
+  FetchContent_Declare(openvr GIT_REPOSITORY https://github.com/ValveSoftware/openvr.git GIT_TAG v2.15.6
+                       GIT_SHALLOW TRUE SOURCE_SUBDIR do-not-build)
+  FetchContent_MakeAvailable(openvr)
+  set(OPENVR_SOURCE_DIR ${openvr_SOURCE_DIR})
+endif()
 if(NOT EXISTS "${OPENVR_SOURCE_DIR}/src/openvr_api_public.cpp")
-  message(FATAL_ERROR "Set OPENVR_SOURCE_DIR to an OpenVR source tree (linux/nix/default.nix passes nixpkgs' openvr.src).")
+  message(FATAL_ERROR "No OpenVR source tree at OPENVR_SOURCE_DIR (${OPENVR_SOURCE_DIR}).")
 endif()
 
 # -Wno-missing-field-initializers: the Windows code initialises Vulkan structs as Info{VK_STRUCTURE_TYPE_...}.
