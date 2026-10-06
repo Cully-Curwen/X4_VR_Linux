@@ -40,6 +40,18 @@ GameState state;
 
 // X4's exported UI queries (its Lua API); the executable exports them, so dlsym finds them.
 template<class F> F game_export(const char* name) { return reinterpret_cast<F>(dlsym(RTLD_DEFAULT, name)); }
+bool fullscreen_menu() { // X4 9.00: first argument true = any fullscreen menu, name ignored
+    static const auto query = game_export<bool (*)(bool, const char*)>("IsFullscreenMenuDisplayed");
+    return query && query(true, nullptr);
+}
+bool game_flag(const char* name) {
+    const auto query = game_export<bool (*)()>(name);
+    return query && query();
+}
+bool at_ship_controls() {
+    static const auto query = game_export<bool (*)()>("IsPlayerControllingShip");
+    return !query || query();
+}
 float setting(const char* name, float fallback) {
     const char* text = std::getenv(name);
     return text && *text ? std::strtof(text, nullptr) : fallback;
@@ -126,6 +138,7 @@ bool swap_slot(void** slot, void* replacement, void** original) {
     mprotect(start, size_t(page), PROT_READ);
     return true;
 }
+// Windows: eye_hook_ready, checked on each FTGetData call; here installed once after the scan.
 void install_eye_hook(const code::X4Sites& sites) {
     const char* off = std::getenv("X4VR_EYE_AT_USE");
     if (off && *off == '0') { log("X4VR pose: eye at use off (X4VR_EYE_AT_USE=0); eyes chosen when packets are sent"); return; }
@@ -157,10 +170,11 @@ void install_eye_hook(const code::X4Sites& sites) {
 //   exit (0x1929ffd -> 0x192a216) goes to the block that composes the offset without it
 //   (0x192a284 -> 0x192a15e, Windows 0x97a5a8) instead: displacement 0x213 -> 0x281.
 // Changes one byte at site+at from `from` to `to`; true once it is in place (patched now or
-// earlier). The site comes from the X4 scan (0: its pattern isn't in this X4).
-bool apply_patch(const char* what, uint64_t site, size_t at, unsigned char from, unsigned char to) {
+// earlier). The site comes from the X4 scan (0: its signature isn't in this X4). Windows:
+// patch_code, which searches the signature itself.
+bool patch_code(const char* what, uint64_t site, size_t at, unsigned char from, unsigned char to) {
     const auto address = uintptr_t(site)+at;
-    if (!site || !in_executable(address, 1)) { log(std::string("X4VR patch: ")+what+": not found in this X4; left unchanged"); return false; }
+    if (!site || !in_executable(address, 1)) return false;
     auto* target = reinterpret_cast<unsigned char*>(address);
     if (*target == to) { log(std::string("X4VR patch: ")+what+" already patched"); return true; }
     if (*target != from) { log(std::string("X4VR patch: ")+what+": unexpected byte; left unchanged"); return false; }
@@ -171,6 +185,15 @@ bool apply_patch(const char* what, uint64_t site, size_t at, unsigned char from,
     mprotect(start, size_t(page), PROT_READ | PROT_EXEC);
     log(std::string("X4VR patch: ")+what+" patched");
     return true;
+}
+void log_mismatch(const char* what) {
+    log(std::string("X4VR patch: ")+what+": signature mismatch; left unchanged");
+}
+// X4's camera input zeroes backward head position (z > 0), pinning leaning back and the rear eye
+// when looking sideways: its `jbe` past the zeroing becomes `jmp`.
+void unclamp_backward_position(const code::X4Sites& sites) {
+    if (!patch_code("backward head-position clamp", sites.backward_clamp, code::x4::backward_clamp_at, 0x76, 0xeb))
+        log_mismatch("backward head-position clamp");
 }
 // Both on-foot patches in place: walking counts as stereo (Windows: on_foot_tracking). The camera
 // offsets camera_on_foot reads (+0x3e8, +0x880, +0x18) are pinned by the scan's signatures.
@@ -186,18 +209,25 @@ bool camera_on_foot() {
     const auto camera = player ? *reinterpret_cast<const uintptr_t*>(player+0x3e8) : 0;
     return camera && !*reinterpret_cast<const uintptr_t*>(camera+0x18) && !*reinterpret_cast<const int32_t*>(camera+0x880);
 }
+// Head tracking on foot: both on-foot patches (the zeroing's `je` -> `jno`, GetOffset's exit
+// displacement 0x213 -> 0x281), then walking detection through the player global.
+bool enable_on_foot_tracking(const code::X4Sites& sites) {
+    namespace x4 = code::x4;
+    if (!patch_code("on-foot head-pose zeroing", sites.onfoot_zeroing, x4::onfoot_zeroing_at, 0x84, 0x81) ||
+        !patch_code("on-foot camera offset", sites.camera_offset, x4::camera_offset_at, 0x13, uint8_t(x4::camera_offset_jump)) ||
+        !sites.player_global || !in_executable(uintptr_t(sites.player_global), 8)) {
+        log_mismatch("on-foot head-pose zeroing or camera offset");
+        return false;
+    }
+    player_global = uintptr_t(sites.player_global);
+    return true;
+}
+// Windows does these on FTGetData's first call; here once the scan is done.
 void apply_patches(const code::X4Sites& sites) {
     const char* off = std::getenv("X4VR_PATCHES");
     if (off && *off == '0') { log("X4VR patch: code patches off (X4VR_PATCHES=0)"); return; }
-    namespace x4 = code::x4;
-    apply_patch("backward head-position clamp", sites.backward_clamp, x4::backward_clamp_at, 0x76, 0xeb); // jbe -> jmp
-    const bool zeroing = apply_patch("on-foot head-pose zeroing", sites.onfoot_zeroing, x4::onfoot_zeroing_at, 0x84, 0x81); // je -> jno
-    const bool offset = apply_patch("on-foot camera offset", sites.camera_offset, x4::camera_offset_at, 0x13,
-                                    uint8_t(x4::camera_offset_jump)); // je displacement 0x213 -> 0x281
-    if (zeroing && offset && sites.player_global && in_executable(uintptr_t(sites.player_global), 8)) {
-        player_global = uintptr_t(sites.player_global);
-        on_foot_tracking = true;
-    }
+    unclamp_backward_position(sites);
+    on_foot_tracking = enable_on_foot_tracking(sites);
 }
 
 void sender_loop() {
@@ -334,15 +364,12 @@ void sender_loop() {
 void sample_game_state() {
     // Only exports that null-check their game objects outside a game (Windows notes: IsHUDActive
     // crashes at the main menu); the menu and ship queries only once X4 applies head tracking.
-    static const auto tracking = game_export<bool (*)()>("IsHeadTrackingActive");
-    static const auto menu = game_export<bool (*)(bool, const char*)>("IsFullscreenMenuDisplayed");
-    static const auto controlling = game_export<bool (*)()>("IsPlayerControllingShip");
     GameState next;
     next.sampled = true;
-    next.head_tracking = tracking && tracking();
+    next.head_tracking = game_flag("IsHeadTrackingActive");
     if (next.head_tracking) {
-        next.fullscreen_menu = menu && menu(true, nullptr); // X4 9.00: first argument true = any fullscreen menu
-        next.controlling_ship = !controlling || controlling();
+        next.fullscreen_menu = fullscreen_menu();
+        next.controlling_ship = at_ship_controls();
         next.walking = on_foot_tracking && !next.controlling_ship && camera_on_foot();
         // X4 smooths tracker input with alpha = 1/strength; its menu minimum is 5, which lags
         // rotation and averages alternating eye offsets away. The exported setter accepts 1.

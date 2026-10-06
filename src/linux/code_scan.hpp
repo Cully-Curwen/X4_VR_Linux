@@ -21,6 +21,8 @@
 namespace x4vr::linux_port::code {
 using Pattern = std::vector<int>; // byte value, or -1 for a wildcard
 
+// parse and matches are the same as in include/x4vr/code_scan.hpp, which can't be included here
+// (it includes <windows.h>).
 inline Pattern parse(std::string_view text) {
     Pattern bytes;
     for (size_t i = 0; i+1 < text.size(); i += 3) {
