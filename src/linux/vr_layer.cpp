@@ -184,6 +184,10 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* ci, 
         log(std::string("X4VR layer: VR runtime unavailable, X4 runs without VR: ")+error.what());
         runtime.reset();
         augmented = *ci;
+    } catch (...) {
+        log("X4VR layer: VR runtime unavailable, X4 runs without VR");
+        runtime.reset();
+        augmented = *ci;
     }
     chain->u.pLayerInfo = chain->u.pLayerInfo->pNext;
     const auto result = create(&augmented, alloc, output);
@@ -282,6 +286,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical, const V
         }
     } catch (const std::exception& error) {
         log(std::string("X4VR layer: VR disabled for this device: ")+error.what());
+        runtime.reset();
+        augmented = *ci;
+        vr_family = UINT32_MAX; shared = false;
+    } catch (...) {
+        log("X4VR layer: VR disabled for this device");
         runtime.reset();
         augmented = *ci;
         vr_family = UINT32_MAX; shared = false;
@@ -779,7 +788,7 @@ void pair_stats(const x4vr::StereoSettings& s, std::array<bool, 2> fresh, double
     out << milliseconds() << ' ' << t.submits << ' ' << t.stale[0] << ' ' << t.stale[1] << ' ' << t.late << ' ' << t.failed << ' '
         << t.fallbacks << ' ' << std::fixed << std::setprecision(2) << 1000*t.blocked/t.submits << ' ' << 1000*t.blocked_max << ' '
         << 1000*t.interval_max << ' ' << 1000*t.waited_max << ' ' << 1000*t.submit_max << ' ' << late-late_seen << ' ' << t.resubmits
-        << " | " << s.async_submit << ' ' << s.pair << ' ' << s.pair_wait << ' ' << s.half_xor_render << ' ' << s.half_xor_present
+        << " | " << async_submit(s) << ' ' << s.pair << ' ' << s.pair_wait << ' ' << s.half_xor_render << ' ' << s.half_xor_present
         << ' ' << s.handoff << ' ' << s.release_late << '\n';
     x4vr::write_file_later(capture_root()/"pair_stats.txt", out.str(), true);
     t = {}; start = now; late_seen = late;
@@ -1123,10 +1132,11 @@ void compositor_loop(Device d) {
                     newest_seq[e] = p.slot_seq[e][newest[e]];
                     // Fallback: the newest finished image other than the newest one. When the GPU runs
                     // behind, every newest image is still in flight at submit time; the one that was late
-                    // last tick is shown now instead of repeating the same image forever.
+                    // last tick is shown now instead of repeating the same image forever. Linux: older than
+                    // the chosen one (with the shared pose that may not be the newest).
                     older[e] = UINT32_MAX;
                     for (uint32_t k = 0; k < Presenter::ring_size; ++k)
-                        if (k != newest[e] && p.filled[e][k] && (older[e] == UINT32_MAX || p.slot_seq[e][k] > p.slot_seq[e][older[e]]) &&
+                        if (k != newest[e] && p.filled[e][k] && p.slot_seq[e][k] < p.slot_seq[e][newest[e]] && (older[e] == UINT32_MAX || p.slot_seq[e][k] > p.slot_seq[e][older[e]]) &&
                             d.GetFenceStatus(d.device, p.written[e][k]) == VK_SUCCESS) older[e] = k;
                     if (older[e] != UINT32_MAX) {
                         p.held[e][older[e]] = true;
@@ -1216,17 +1226,21 @@ void compositor_loop(Device d) {
             }
         }
         const auto submitted_at = std::chrono::steady_clock::now();
-        auto& pending = reads[submissions++ % reads.size()];
-        {
-            // The runtime's Submit records its copies on the VR queue: hold it if shared.
+        // The runtime's Submit records its copies on the VR queue: hold it if shared (only for the
+        // submits: X4's own submits and presents wait behind the lock).
+        if (error.empty()) {
             const auto queue_lock = lock_vr_queue(d);
-            if (error.empty()) error = d.runtime->submit_frame(last.textures, last.bounds, last.poses, last.with_pose, s.handoff, &record.marks);
-            // ponytail: reuses a fence 4 submissions (~44 ms) old; waits only if the GPU is that far behind
-            check(d.WaitForFences(d.device, 1, &pending.fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
-            check(d.ResetFences(d.device, 1, &pending.fence), "vkResetFences");
-            check(d.QueueSubmit(d.vr_queue, 0, nullptr, pending.fence), "vkQueueSubmit");
+            error = d.runtime->submit_frame(last.textures, last.bounds, last.poses, last.with_pose, s.handoff, &record.marks);
         }
         const auto submitting = std::chrono::duration<double>(std::chrono::steady_clock::now()-submitted_at).count();
+        auto& pending = reads[submissions++ % reads.size()];
+        // ponytail: reuses a fence 4 submissions (~44 ms) old; waits only if the GPU is that far behind
+        check(d.WaitForFences(d.device, 1, &pending.fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+        check(d.ResetFences(d.device, 1, &pending.fence), "vkResetFences");
+        {
+            const auto queue_lock = lock_vr_queue(d);
+            check(d.QueueSubmit(d.vr_queue, 0, nullptr, pending.fence), "vkQueueSubmit");
+        }
         pending.slots = last.slots; pending.generation = last.generation;
         if (!resubmit) {
             // Keep only the images now on screen or still being read. Busy: they stay held until next tick.
