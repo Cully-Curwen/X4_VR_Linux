@@ -68,7 +68,9 @@ x4vr::Matrix synthetic_pose(const float v[6]) {
 // change). The accessor hook (same frame, after the update) notes which packet X4 took, adds that
 // packet's eye offset for the frame being built, calls the original and restores the centre, and
 // records the packet's headset pose for the layer.
-// The vtable, by RTTI, and its slot 34 code are found by the X4 scan (code_scan.hpp).
+// The vtable, by RTTI, and its slot 34 code are found by the X4 scan (code_scan.hpp). The field
+// offsets below are pinned there too: +0xd0 by the slot 34 signature, the others by slot 2's
+// (x4::opentrack_update), so on an X4 build where they moved the hook isn't installed.
 constexpr size_t position_slot = code::x4::opentrack_position_slot;
 constexpr size_t field_position = 0xd0, field_scale = 0x114, field_roll = 0xa0, field_fresh = 0xa8;
 

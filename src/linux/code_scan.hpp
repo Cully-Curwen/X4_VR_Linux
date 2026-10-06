@@ -101,6 +101,19 @@ inline constexpr std::string_view frame_half = "8b 05 ?? ?? ?? ?? 83 f0 01 c3";
 inline constexpr std::string_view opentrack_type = "N2VR9OpenTrackE";
 inline constexpr size_t opentrack_position_slot = 34;
 inline constexpr std::string_view opentrack_position = "f3 0f 10 87 d0 00 00 00";
+// VR::OpenTrack's update (vtable slot 2, 0x1a1b720; this part at +0x70): pins the tracker fields
+// the eye-at-use hook uses, as Windows' tracker signatures do. A new packet is copied to
+// +0x78..+0xa7 (roll at +0xa0), the fresh flag +0xa8 set, then the roll read and the position
+// scaled by +0x114. movdqu 0x20(%rbx); movb $1,0x50; movb $1,0xa8; movups ..0x78/0x88/0x98;
+// call; test; jne; movss (rip),%xmm4; pxor x3; cvtsd2ss 0x98/0xa0; pxor; cvtsd2ss 0x90; mulss;
+// movss 0x118; cmpb 0x110; mulss x2; movss 0x114(%rbx),%xmm4.
+inline constexpr size_t opentrack_update_slot = 2, opentrack_update_within = 0x100;
+inline constexpr std::string_view opentrack_update =
+    "f3 0f 6f 43 20 c6 43 50 01 c6 83 a8 00 00 00 01 0f 11 43 78 f3 0f 6f 43 30 0f 11 83 88 00 00 00 "
+    "f3 0f 6f 43 40 0f 11 83 98 00 00 00 e8 ?? ?? ?? ?? 84 c0 0f 85 ?? ?? ?? ?? f3 0f 10 25 ?? ?? ?? ?? "
+    "66 0f ef db 66 0f ef c9 66 0f ef c0 f2 0f 5a 9b 98 00 00 00 f2 0f 5a 8b a0 00 00 00 66 0f ef ed "
+    "f2 0f 5a 83 90 00 00 00 f3 0f 59 dc f3 0f 10 93 18 01 00 00 80 bb 10 01 00 00 00 f3 0f 59 cc "
+    "f3 0f 59 c4 f3 0f 10 a3 14 01 00 00";
 }
 
 // Where each site is in one X4 build; 0 where it isn't found, with the reason in `notes`.
@@ -140,19 +153,26 @@ inline X4Sites find_x4_sites(const elf::Image& image) {
         if (global && global != ~uint64_t(0)) { s.frame_half_global = global; s.notes.push_back("frame half global: "+hex(global)); }
         else s.notes.push_back(found.empty() ? "frame half global: not found" : "frame half global: readers name different globals");
     }
+    const auto update_hits = find_all(image, parse(x4::opentrack_update));
+    bool update_checked = false;
     for (const auto& info : elf::find_classes(image, x4::opentrack_type)) {
         if (info.mangled != x4::opentrack_type) continue;
         for (const auto& table : info.vtables) {
             if (table.offset_to_top != 0 || table.slots.size() <= x4::opentrack_position_slot) continue;
             const auto code = table.slots[x4::opentrack_position_slot];
             if (!matches_at(image, code, parse(x4::opentrack_position))) continue;
+            const auto update = table.slots[x4::opentrack_update_slot];
+            update_checked = std::any_of(update_hits.begin(), update_hits.end(),
+                                         [&](uint64_t hit) { return hit >= update && hit < update+x4::opentrack_update_within; });
+            if (!update_checked) continue; // the tracker fields moved: the hook would read the wrong ones
             s.opentrack_vtable = table.address_point();
             s.opentrack_typeinfo = info.typeinfo;
             s.opentrack_position = code;
         }
     }
     s.notes.push_back(s.opentrack_vtable ? "VR::OpenTrack vtable: "+hex(s.opentrack_vtable)+", position accessor "+hex(s.opentrack_position)
-                                         : "VR::OpenTrack vtable: not found");
+                                         : update_hits.empty() || !update_checked ? "VR::OpenTrack vtable: not found, or its update doesn't match (tracker fields moved)"
+                                                                                  : "VR::OpenTrack vtable: not found");
     return s;
 }
 }
