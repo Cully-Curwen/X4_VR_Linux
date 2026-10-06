@@ -1,7 +1,8 @@
 // Linux copy of src/runtime_bootstrap.cpp at commit 5064391 (docs/HOW_IT_WORKS.md, "Code layout").
 // Changed for Linux only: environment and logging calls, file deletion, the background thread's
-// sleep, the trace clock and thread id, no X4 frame-half global yet (stage C), no OpenXR backend
-// yet (openxr_runtime_stub.hpp), and the Linux additions of linux_runtime.hpp at the end.
+// sleep, the trace clock and thread id, the headset wait, SteamVR's recentre and "Exit game"
+// events (wait_frame), the frame-half global from the X4 scan, the shared_pose setting, no OpenXR
+// backend (openxr_runtime_stub.hpp), and the Linux additions of linux_runtime.hpp at the end.
 #include <x4vr/runtime_bootstrap.hpp>
 #include "linux_runtime.hpp"
 #include "code_scan.hpp"
