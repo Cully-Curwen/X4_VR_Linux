@@ -914,7 +914,7 @@ std::vector<TilingRule> tiling_rules() {
     return {
         {"hyprland_lua", "Hyprland 0.55+ (Lua config)", "~/.config/hypr/hyprland.lua",
          "hl.window_rule({ name = \"x4-vr\", match = { class = \"^(X4VR)$\" }, float = true, "
-         "suppress_event = \"fullscreen maximize\", fullscreen_state = \"0 0\" })", true},
+         "suppress_event = \"fullscreen maximize\", fullscreen_state = \"0 0\", confine_pointer = true })", true},
         {"hyprland_conf", "Hyprland (hyprland.conf)", "~/.config/hypr/hyprland.conf",
          "windowrule = float, class:^(X4VR)$\nwindowrule = suppressevent fullscreen maximize, class:^(X4VR)$", false},
         {"sway", "Sway", "~/.config/sway/config", "for_window [class=\"X4VR\"] floating enable, fullscreen disable", false},
@@ -940,7 +940,9 @@ void tiling_screen(x4vr::tui::Terminal& terminal) {
         std::vector<Item> items{
             info("X4 renders at its window's size. A tiling window manager resizes it (or makes it fullscreen at the monitor's "
                  "size), so the headset gets a smaller image. In VR the window's class is X4VR (2D keeps X4), so a rule can float "
-                 "only the VR window at the size the mod sets. Add the rule for yours to its config; it reloads on save."),
+                 "only the VR window at the size the mod sets. Add the rule for yours to its config; it reloads on save. "
+                 "Hyprland's Lua rule also keeps the cursor inside X4's window (confine_pointer), so moving the mouse "
+                 "can't move focus away and stop mouse look on foot; keybinds still switch windows."),
         };
         for (const auto& r : rules) {
             const bool here = r.id.rfind(wm.empty() ? "-" : wm, 0) == 0;
