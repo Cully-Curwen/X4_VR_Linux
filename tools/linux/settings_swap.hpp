@@ -29,8 +29,14 @@ inline std::filesystem::path config_in_vr(const std::filesystem::path& marker) {
     return text;
 }
 struct Switched { bool ok = true, changed = false; std::string message; };
+inline std::string file_text(const std::filesystem::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
 // Puts X4's VR settings (to_vr) or its 2D ones in place. `config`: X4's config.xml when not in VR
 // (in VR the marker names it). X4 must not be running: it rewrites config.xml when it exits.
+// Ordered so that a crash between two steps never loses the 2D settings: the marker is written
+// before the VR copy goes in place, and removed only once the 2D settings are back.
 inline Switched switch_settings(const std::filesystem::path& marker, std::filesystem::path config, bool to_vr) {
     const auto in_vr = config_in_vr(marker);
     if (!in_vr.empty()) config = in_vr;
@@ -40,14 +46,23 @@ inline Switched switch_settings(const std::filesystem::path& marker, std::filesy
     if (to_vr) {
         if (!in_vr.empty()) return {}; // already (a launch that didn't get to restore 2D)
         if (!copy_over(config, two_d)) return {false, false, "can't save X4's 2D settings to "+two_d.string()};
-        if (std::filesystem::exists(vr) && !copy_over(vr, config)) return {false, false, "can't load X4's VR settings"};
         std::filesystem::create_directories(marker.parent_path(), error);
-        std::ofstream(marker) << config.string() << '\n';
+        if (!(std::ofstream(marker) << config.string() << '\n')) {
+            std::filesystem::remove(marker, error);
+            return {false, false, "can't write "+marker.string()};
+        }
+        if (std::filesystem::exists(vr) && !copy_over(vr, config)) {
+            std::filesystem::remove(marker, error); // config.xml still has the 2D settings
+            return {false, false, "can't load X4's VR settings"};
+        }
         return {true, true, "X4's 2D settings saved ("+two_d.filename().string()+"), VR settings in place"};
     }
     if (in_vr.empty()) return {};
-    if (!copy_over(config, vr)) return {false, false, "can't save X4's VR settings to "+vr.string()};
-    if (std::filesystem::exists(two_d) && !copy_over(two_d, config)) return {false, false, "can't restore X4's 2D settings"};
+    // Already back (a run stopped before the marker went): saving config.xml as the VR copy would
+    // overwrite the VR settings with the 2D ones.
+    const bool restored = std::filesystem::exists(two_d) && file_text(two_d) == file_text(config);
+    if (!restored && !copy_over(config, vr)) return {false, false, "can't save X4's VR settings to "+vr.string()};
+    if (!restored && std::filesystem::exists(two_d) && !copy_over(two_d, config)) return {false, false, "can't restore X4's 2D settings"};
     std::filesystem::remove(marker, error);
     return {true, true, "X4's VR settings saved ("+vr.filename().string()+"), 2D settings restored"};
 }

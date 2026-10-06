@@ -224,10 +224,18 @@ std::string source_hash(const std::map<std::string, std::string>& originals) {
     for (const auto& [path, blob] : originals) all += path+x4vr::linux_port::md5_hex(blob);
     return x4vr::linux_port::md5_hex(all);
 }
+// Replaces a file atomically (a temporary, then a rename): a crash mid-write leaves the old one,
+// never half of X4's content.xml.
 bool write_text(const std::filesystem::path& path, const std::string& text) {
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    out << text;
-    return bool(out);
+    const auto temporary = path.string()+".x4vr-tmp";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        out << text;
+        if (!out) return false;
+    }
+    std::error_code error;
+    std::filesystem::rename(temporary, path, error);
+    return !error;
 }
 // x4vr_hud.txt: scale=, source=
 std::map<std::string, std::string> installed_hud(const std::filesystem::path& extension) {

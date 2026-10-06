@@ -62,6 +62,23 @@ int main() {
     done = switch_settings(marker, config, true);
     check(!done.ok && read(config) == "2D newest" && !fs::exists(marker), "2D copy failed: nothing switched");
 
+    // A run stopped after the 2D settings were back but before the marker went: the next switch to
+    // 2D only removes the marker, and doesn't overwrite the VR copy with the 2D settings.
+    fs::remove_all(two_d);
+    write(config, "2D");
+    check(switch_settings(marker, config, true).ok, "VR launch");
+    write(config, "VR 3");
+    write(vr, "VR 3");
+    write(config, "2D"); // as switching back does, then the stop
+    check(switch_settings(marker, config, false).ok && read(config) == "2D" && read(vr) == "VR 3" && !fs::exists(marker),
+          "stopped before the marker went: VR copy kept");
+
+    // VR settings that can't be loaded: the marker goes again, X4 keeps its 2D settings.
+    fs::remove(vr);
+    fs::create_directory(vr);
+    done = switch_settings(marker, config, true);
+    check(!done.ok && read(config) == "2D" && !fs::exists(marker), "VR copy unreadable: back to 2D, no marker");
+
     fs::remove_all(root);
     if (failures) return 1;
     std::printf("settings swap: all checks passed\n");
