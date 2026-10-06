@@ -87,8 +87,10 @@ Linux differences:
 - RADV has one graphics queue, so the layer shares X4's queue behind one lock.
 - Eye images use SteamVR's recommended pixel density; the ideal X4 resolution is saved for the
   menu (`x4_resolution.txt`).
-- The flat screen and the mouse cursor are drawn into the eye images: SteamVR overlays don't show
-  on the Steam Frame.
+- The flat screen and the mouse cursor are drawn into the eye images. A SteamVR overlay shimmers
+  on the Steam Frame: SteamVR shrinks the large image every display frame without mipmaps,
+  while drawn in it is shrunk once per game frame. An overlay cursor over the drawn screen
+  could also swim against it.
 - SteamVR's recenter and *Exit game* events are handled.
 - `async_submit` is read once at the first frame (switching it live froze the headset).
 
@@ -160,7 +162,7 @@ Linux environment variables, set in front of `x4vr-run` in the launch option:
 | `X4VR_HEADSET_WAIT=<s>` | Headset wait at start (default 120, `0`: none) |
 | `X4VR_APP_ID=<name>` | VR window class (default `X4VR`) |
 | `X4VR_HOTKEYS=0`, `X4VR_PATCHES=0`, `X4VR_EYE_AT_USE=0` | Turn those parts off |
-| `X4VR_THEATER_OVERLAY=1` | Flat screen as a SteamVR overlay |
+| `X4VR_THEATER_OVERLAY=1` | Flat screen as a SteamVR overlay (shimmers; for comparison) |
 | `X4VR_DIR`, `X4VR_GAME_DIR`, `X4VR_GAME_ARGS` | State directory, game directory, X4 arguments |
 
 ## Linux addresses (X4 9.00)

@@ -404,6 +404,12 @@ layer in Phase 3.
    Linux layer now draws the virtual screen into the eye images instead, submitted with the head
    pose of when it was placed, so SteamVR's reprojection keeps it fixed in space
    (`X4VR_THEATER_OVERLAY=1` for the overlay). The cursor overlay will need the same treatment.
+   **Later (October 2026):** the overlay does show now, but less clear than the drawn screen,
+   with shimmer, wobble and artifacts. Likely: SteamVR shrinks the ~2800 px image to about
+   1300 headset pixels every display frame without mipmaps (the drawn screen is shrunk once per
+   game frame, then only reprojected); possibly also tearing, as the ring texture handed to the
+   overlay can be overwritten while SteamVR reads it. The drawn screen and cursor stay; an
+   overlay cursor over the drawn screen could swim against it.
 5. **SteamVR asks for 4202x4266 per eye but the Frame link downsamples above 3458x3458**
    (`vrcompositor.txt`): lower X4's per-app resolution in SteamVR, later cap it in the mod.
 6. **A wireless dropout leaves SteamVR in standby:** vrlink logged video stream resets, then
@@ -549,7 +555,8 @@ camera manager `0x3daab80`) found nothing.
 ## Mouse cursor
 
 X4's cursor is the X server's (Xwayland), not part of its swapchain, as on Windows. The Windows
-layer shows it as a SteamVR overlay, which doesn't display on the Frame. The Linux layer reads it
+layer shows it as a SteamVR overlay, which didn't display on the Frame at first (later it did, but
+an overlay shimmers there; see finding 4 above). The Linux layer reads it
 over XCB (loaded at runtime, `src/linux/x11_cursor.cpp`): X4's window by `WM_CLASS` "X4" (or
 `_NET_WM_PID`), the pointer over it (`QueryPointer`), the image through XFixes
 (`GetCursorImage`; X4 hides the cursor with an empty image). The presenter copies the cursor's

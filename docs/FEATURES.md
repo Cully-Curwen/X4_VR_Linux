@@ -31,7 +31,7 @@ Linux status: **Works** (tested with a Steam Frame, SteamVR, X4 9.00), **Missing
 
 | Feature | Windows | Linux | Note |
 |---|---|---|---|
-| Flat screen for menus, Ctrl+F11 | SteamVR overlay | Works | Drawn into the eye images (overlays don't show on the Frame). |
+| Flat screen for menus, Ctrl+F11 | SteamVR overlay | Works | Drawn into the eye images (a SteamVR overlay shimmers on the Frame). |
 | Mouse cursor | Yes | Works | |
 | SteamVR's *Exit game* closes X4 | No | Works | |
 | Own window class in VR (`X4VR`) | No | Works | For tiling window manager rules. |

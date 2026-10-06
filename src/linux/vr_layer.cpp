@@ -7,8 +7,8 @@
 //   RADV has a single graphics queue) the layer shares X4's graphics queue and serialises every use
 //   of it (SharedQueue below);
 // - left out: the Windows diagnostics (shader/pipeline capture, mapped-memory and native camera
-//   sampling, stack walks, the frame probe) and the mouse cursor overlay (X4 on Linux draws an X11
-//   cursor; capturing it is later work). Without camera sampling, turn compensation stays off
+//   sampling, stack walks, the frame probe) and the mouse cursor overlay: the cursor is read from
+//   X4's X11 window (x11_cursor.cpp) and drawn into the game image (draw_cursor). Without camera sampling, turn compensation stays off
 //   (it applies on foot only, which needs the on-foot patches anyway);
 // - Ctrl+F12 for the theater screen: the recenter= counter (x4vr ctl recenter) until hotkeys exist.
 #include "linux_runtime.hpp"
@@ -897,8 +897,10 @@ std::unique_ptr<x4vr::EyeTargets> make_black(const Device& d, VkExtent2D extent,
     d.DestroyCommandPool(d.device, pool, nullptr);
     return black;
 }
-// Linux: SteamVR accepts the theater overlay but never shows it (black), so the virtual screen is
-// drawn into the eye textures instead: the flat image, theater_width wide and theater_distance
+// Linux: the virtual screen is drawn into the eye textures instead of a SteamVR overlay. On the
+// Steam Frame the overlay first showed nothing (black); once it showed, it shimmered: SteamVR
+// shrinks the ~2800 px image to the headset's pixels every display frame without mipmaps, while
+// this shrinks it once per game frame. Drawn: the flat image, theater_width wide and theater_distance
 // ahead, submitted with the head pose of when the screen was placed. SteamVR's reprojection then
 // keeps it fixed in space while the head moves. X4VR_THEATER_OVERLAY=1 uses the overlay again.
 // The part of the screen inside one eye's frustum, as blit rectangles (source in the game image,
