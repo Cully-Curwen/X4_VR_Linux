@@ -399,10 +399,10 @@ at the bottom of the screen.
 3. Choose *Launch X4 in VR*. It starts SteamVR if needed.
 4. Look straight ahead and press Ctrl+F12 to recenter. Ctrl+F11 switches to the flat screen.
 
-On a laptop with two GPUs, X4 must run on the one the headset uses, else it runs flat. Put the
-usual setting in front of the launch option, e.g. `__NV_PRIME_RENDER_OFFLOAD=1
-__GLX_VENDOR_LIBRARY_NAME=nvidia` (NVIDIA) or `DRI_PRIME=1` (AMD). The menu's *GPU* status line
-shows which GPU the last VR session used.
+On a laptop with two GPUs, X4 must run on the same GPU as SteamVR (the dedicated one), else it
+runs flat. Put `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia` (NVIDIA) or
+`DRI_PRIME=1` (AMD or Intel Arc) in front of the launch option. The menu's *GPU* status line shows
+which GPU the last VR session used.
 
 The mod keeps your 2D X4 settings apart from the VR ones and puts them back when X4 closes. If
 something goes wrong, the log is `~/.local/state/x4vr/x4vr.log`, and *Make a bug report* packs it
