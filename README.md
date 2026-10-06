@@ -385,7 +385,7 @@ cmake -S . -B build -DX4VR_LINUX=ON -DCMAKE_BUILD_TYPE=Release \
 cmake --build build -j && cmake --install build
 ```
 
-On NixOS, run `nix-build` in the source directory instead.
+On NixOS, run `nix-build linux/nix` in the source directory instead (from your channel's nixpkgs).
 
 ### Setup and playing
 

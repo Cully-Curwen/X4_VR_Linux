@@ -11,7 +11,7 @@ function. Update this when a copy changes. How the parts work: `HOW_IT_WORKS.md`
 | **Linux copy of a Windows file** | `src/linux/vr_layer.cpp` ← `src/observe_layer.cpp` (commit `62569df`); `src/linux/runtime_bootstrap.cpp` ← `src/runtime_bootstrap.cpp` (`5064391`) |
 | **Linux counterpart** (same job, different mechanism) | `src/linux/opentrack_client.cpp` ↔ `src/freetrack_client.cpp` (OpenTrack UDP instead of FreeTrack); `src/linux/code_scan.hpp` ↔ `include/x4vr/code_scan.hpp` (ELF instead of PE); `tools/linux/x4vr_cli.cpp` ↔ `tools/launcher/launcher.cpp` (terminal menu instead of window) |
 | **Windows only** | `src/` `openxr_runtime.cpp`, `native_camera.cpp`, `native_pose_module.cpp`, `pose_detour.cpp`, `copy_call_hook.cpp`, `head_look.cpp`; their `include/x4vr/` headers; `tools/crash_watch.cpp`, `scripts/*.ps1` |
-| **Linux only** | `src/linux/` (`x11_cursor`, `elf_classes`, `opentrack.hpp`, `md5.hpp`, `settings_control.hpp`, `linux_runtime.hpp`, `openxr_runtime_stub.hpp`), `tools/linux/` (`terminal_ui.hpp`, `steam_config.hpp`), `linux/`, `config/linux/`, `tests/linux/`, `nix/` |
+| **Linux only** | `src/linux/` (`x11_cursor`, `elf_classes`, `opentrack.hpp`, `md5.hpp`, `settings_control.hpp`, `linux_runtime.hpp`, `openxr_runtime_stub.hpp`), `tools/linux/` (`terminal_ui.hpp`, `steam_config.hpp`), `linux/`, `config/linux/`, `tests/linux/` |
 
 The Windows originals haven't changed upstream since the copies were made.
 

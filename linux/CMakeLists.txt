@@ -13,7 +13,7 @@ find_path(VULKAN_HEADERS_DIR vulkan/vk_layer.h REQUIRED)
 # libstdc++ and jsoncpp, which could clash with the older ones in X4's Steam runtime container.
 set(OPENVR_SOURCE_DIR "" CACHE PATH "OpenVR SDK source tree (Valve's openvr repository)")
 if(NOT EXISTS "${OPENVR_SOURCE_DIR}/src/openvr_api_public.cpp")
-  message(FATAL_ERROR "Set OPENVR_SOURCE_DIR to an OpenVR source tree (nix/package.nix passes nixpkgs' openvr.src).")
+  message(FATAL_ERROR "Set OPENVR_SOURCE_DIR to an OpenVR source tree (linux/nix/default.nix passes nixpkgs' openvr.src).")
 endif()
 
 # -Wno-missing-field-initializers: the Windows code initialises Vulkan structs as Info{VK_STRUCTURE_TYPE_...}.
