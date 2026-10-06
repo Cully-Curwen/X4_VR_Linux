@@ -129,4 +129,12 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   target_compile_options(state_files_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME state_files COMMAND state_files_tests)
 
+  foreach(suite IN ITEMS launch_option_tests settings_swap_tests)
+    add_executable(${suite} ${X4VR_ROOT}/tests/linux/${suite}.cpp)
+    target_include_directories(${suite} PRIVATE ${X4VR_ROOT}/tools/linux)
+    target_compile_options(${suite} PRIVATE ${X4VR_WARNINGS})
+  endforeach()
+  add_test(NAME launch_option COMMAND launch_option_tests)
+  add_test(NAME settings_swap COMMAND settings_swap_tests)
+
 endif()
