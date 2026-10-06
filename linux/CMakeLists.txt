@@ -124,4 +124,9 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   target_compile_options(steam_config_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME steam_config COMMAND steam_config_tests)
 
+  add_executable(state_files_tests ${X4VR_ROOT}/tests/linux/state_files_tests.cpp)
+  target_include_directories(state_files_tests PRIVATE ${X4VR_ROOT}/tools/linux)
+  target_compile_options(state_files_tests PRIVATE ${X4VR_WARNINGS})
+  add_test(NAME state_files COMMAND state_files_tests)
+
 endif()

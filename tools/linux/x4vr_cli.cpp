@@ -6,6 +6,7 @@
 #include "../launcher/launcher_settings.hpp"
 #include "md5.hpp"
 #include "settings_control.hpp"
+#include "state_files.hpp"
 #include "steam_config.hpp"
 #include "terminal_ui.hpp"
 #include <openvr.h>
@@ -832,7 +833,14 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
             }
             done.push_back("HUD distance extension removed.");
         }
-        captured([] { settings_mode(std::vector<std::string_view>{"2d"}); }); // a VR session that didn't finish
+        // A VR session that didn't finish: its 2D settings back in place first (only then: the -2d copy
+        // is otherwise an old one, and the live config.xml has the player's 2D settings).
+        int switched = 1;
+        captured([&] { switched = settings_mode(std::vector<std::string_view>{"2d"}); });
+        if (switched != 0) {
+            done.push_back("Can't put X4's 2D settings back (see x4vr settings-mode 2d): its copies and the mod's settings are kept.");
+            return done;
+        }
         if (const auto config = x4_config(); !config.empty()) {
             const auto backup = config.string()+".x4vr-backup";
             if (on("restore_x4") && std::filesystem::exists(backup))
@@ -843,7 +851,10 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
             }
         }
     }
-    if (on("state")) { std::filesystem::remove_all(state_dir(), error); done.push_back("Mod settings and logs deleted."); }
+    if (on("state")) {
+        x4vr::linux_port::remove_state_files(state_dir()); // its own files only: X4VR_DIR may be any directory
+        done.push_back("Mod settings and logs deleted.");
+    }
     if (on("program")) {
         int removed = 0;
         for (const auto& file : installed_files()) removed += int(std::filesystem::remove_all(file, error) > 0);

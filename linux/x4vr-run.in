@@ -77,8 +77,9 @@ export VK_LOADER_DEBUG="${VK_LOADER_DEBUG:-error,warn}"
 # the VR copy in its place, and swaps back when X4 exits (below). Then fixed for VR while X4
 # isn't running yet. X4VR_FIX_SETTINGS=0 leaves config.xml alone.
 if [ "${X4VR_FIX_SETTINGS:-1}" != 0 ]; then
-    "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" settings-mode vr >> "$dir/x4vr.log" 2>&1
-    "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" fix-settings --auto >> "$dir/x4vr.log" 2>&1
+    # Fixed only once the VR copy is in place: else the fixes would land in the 2D settings.
+    "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" settings-mode vr >> "$dir/x4vr.log" 2>&1 &&
+        "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" fix-settings --auto >> "$dir/x4vr.log" 2>&1
 fi
 # The HUD distance mod (x4vr hud) is built from the game's files: apply the factor chosen in the
 # menu (stereo.txt hud_factor) and rebuild it after a game update.
