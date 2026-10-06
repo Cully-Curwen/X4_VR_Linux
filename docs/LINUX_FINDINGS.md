@@ -648,3 +648,10 @@ blocks, in the desktop window too, so in X4's own image. The start menu (no game
 the ship interaction menu (over the live view) were fine. The logs had no Vulkan or driver errors.
 After a restart at the automatic resolution (2880x1620) everything was fine. Not tested whether
 1920x1080 alone brings it back, or 2D at that resolution.
+
+## Review notes (October 2026)
+
+- **`eye_from_half` defaults to 0 in code** (`runtime_bootstrap.hpp`, shared with Windows), while
+  both `stereo.txt` files set it to 1. A `stereo.txt` without the line (old or hand-edited) falls
+  back to counting presents, which can swap the eyes. Windows has the same gap. Kept as Windows for
+  now; a Linux default of 1 in `read_settings` (like `roll_gain`) would close it.
