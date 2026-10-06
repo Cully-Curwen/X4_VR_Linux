@@ -31,7 +31,7 @@ The Windows originals haven't changed upstream since the copies were made.
 |---|---|
 | **Identical** | `RuntimeCall`, `Background`, `acquire_runtime_bootstrap`, `is_runtime_bootstrap_thread`, `stereo_settings`, `write_file_later`, `take_request`, `frame_half`, `render_eye`, `record_render_pose`, `publish_view_origin`, `view_origin`, `next_present`, `frame_tag`; `RuntimeBootstrap::` `start_session`, `end_session`, `eye_setup`, `frame_timing`, `predicted_tracking`, `sample_tracking`, `submit_frame`, `submit_stereo`, `show_theater`, `hide_theater`, `hide_cursor` |
 | **Platform calls only** | `RuntimeBootstrap::` `instance_extensions`, `device_extensions`, `output_device`, `show_cursor`; `capture_dir`, `background_loop`, `start_background`, `trace_event` |
-| **Changed for Linux** | `RuntimeBootstrap::RuntimeBootstrap`: waits for the headset. `RuntimeBootstrap::wait_frame`: SteamVR's recenter and *Exit game* events. `read_settings`: the `shared_pose` key, Linux's `roll_gain` default (2.387, degrees). `frame_half_global`: from the X4 scan. `presented_frame`: a trace event. |
+| **Changed for Linux** | `RuntimeBootstrap::RuntimeBootstrap`: waits for the headset. `RuntimeBootstrap::wait_frame`: SteamVR's recenter and *Exit game* events. `read_settings`: the `shared_pose` key, Linux's `roll_gain` default (2.5, degrees). `frame_half_global`: from the X4 scan. `presented_frame`: a trace event. |
 | **Windows only** | none |
 | **Linux only** | `log`, `is_x4_process`, `in_executable`, `scan_x4`, `x4_sites`, `control`, `shared_pose`, `existing_runtime` |
 
