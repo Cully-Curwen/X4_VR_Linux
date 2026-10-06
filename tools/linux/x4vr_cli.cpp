@@ -468,23 +468,12 @@ bool run_and_wait(const std::vector<std::string>& argv, const std::filesystem::p
 }
 
 // X4's launch option in every Steam account: 0 none set, 1 ours, 2 an x4vr-run elsewhere (an
-// older build), 3 something else; `accounts` = how many accounts know X4. Ours may have
-// environment settings in front (`X4VR_THEATER_OVERLAY=1 .../x4vr-run %command%`): `extra`.
-struct LaunchOption { int state = 0; int accounts = 0; std::string value, extra; };
-// The `NAME=value ` settings in front of `option`'s x4vr-run, or nullopt if it isn't ours.
-std::optional<std::string> settings_before_ours(const std::string& option) {
-    const auto wanted = wanted_launch_option();
-    if (option.size() < wanted.size() || option.compare(option.size()-wanted.size(), wanted.size(), wanted) != 0) return std::nullopt;
-    const auto extra = option.substr(0, option.size()-wanted.size());
-    std::istringstream words(extra);
-    for (std::string word; words >> word;) {
-        const auto equals = word.find('=');
-        if (equals == 0 || equals == std::string::npos) return std::nullopt;
-        for (size_t i = 0; i < equals; ++i) if (!std::isalnum(uint8_t(word[i])) && word[i] != '_') return std::nullopt;
-    }
-    if (!extra.empty() && extra.back() != ' ') return std::nullopt;
-    const auto end = extra.find_last_not_of(' ');
-    return end == std::string::npos ? std::string() : extra.substr(0, end+1);
+// older build), 3 something else; `accounts` = how many accounts know X4. Ours is our x4vr-run
+// followed by %command%, with anything around it (settings in front, X4 arguments after).
+struct LaunchOption { int state = 0; int accounts = 0; std::string value; };
+bool is_ours(const std::string& option) {
+    const auto run = option.find(quoted_path(run_script())+" ");
+    return run != std::string::npos && option.find("%command%", run) != std::string::npos;
 }
 LaunchOption launch_option() {
     LaunchOption result;
@@ -492,9 +481,8 @@ LaunchOption launch_option() {
         const auto value = x4vr::steam::launch_options(x4vr::steam::read_file(file));
         if (!value) continue;
         ++result.accounts;
-        const auto extra = settings_before_ours(*value);
-        const int state = value->empty() ? 0 : extra ? 1 : value->find("x4vr-run") != std::string::npos ? 2 : 3;
-        if (state > result.state) { result.state = state; result.value = *value; result.extra = extra.value_or(""); }
+        const int state = value->empty() ? 0 : is_ours(*value) ? 1 : value->find("x4vr-run") != std::string::npos ? 2 : 3;
+        if (state > result.state) { result.state = state; result.value = *value; }
     }
     return result;
 }
@@ -1132,7 +1120,7 @@ int menu(std::string_view start = {}) {
         items.push_back(status("SteamVR", c.steamvr ? 0 : 3, c.steamvr ? "running" : "not running (Launch starts it)"));
         items.push_back(status("X4 build", scan_state, scan_text));
         items.push_back(status("Steam launch option", c.option.state == 1 ? 0 : 2,
-            c.option.state == 1 ? (c.option.extra.empty() ? "set" : "set, with "+c.option.extra) : c.option.state == 2 ? "points to another x4vr-run: copy it again (Setup)"
+            c.option.state == 1 ? (c.option.value == wanted_launch_option() ? "set" : "set: "+c.option.value) : c.option.state == 2 ? "points to another x4vr-run: copy it again (Setup)"
             : c.option.state == 3 ? "set to something else: "+c.option.value : c.option.accounts ? "not set: copy it (Setup)" : "start X4 once from Steam first"));
         items.push_back(status("X4 settings for VR", c.settings_to_fix < 0 ? 3 : c.to_fix.empty() ? 0 : 1,
             c.settings_to_fix == -1 ? "X4's config.xml not found (start X4 once)" : c.settings_to_fix == -2 ? "made at the first VR launch"
