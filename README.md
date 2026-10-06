@@ -362,14 +362,50 @@ display settings.
 
 ## Linux (native X4, experimental)
 
-A port for the native Linux build of X4 (9.00) through SteamVR. The Windows build is unchanged;
-the Linux one is opt-in (`-DX4VR_LINUX=ON`). Tested with a Steam Frame on an AMD GPU.
+A port for the native Linux version of X4 9.00, through SteamVR. It covers stereo in the cockpit
+and on foot, head tracking, the virtual screen for menus, the mouse cursor and the HUD distance.
+OpenXR isn't supported on Linux yet. It was tested with a Steam Frame on an AMD GPU; the Windows
+build is unchanged.
 
-Works: stereo in the cockpit and on foot, head tracking, the flat screen for menus, the mouse
-cursor, HUD distance, separate 2D and VR settings. Not yet: OpenXR.
+### What you need
 
-Install and play: [docs/LINUX_GUIDE.md](docs/LINUX_GUIDE.md). Feature status:
-[docs/FEATURES.md](docs/FEATURES.md). How it works: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
+- X4: Foundations from Steam (the native Linux version), started once.
+- SteamVR with your headset working. Steam from your distribution or Valve, not the Flatpak.
+- To build: GCC 13+ or Clang 16+, CMake 3.24+, Git and the Vulkan headers.
+
+### Install
+
+```bash
+git clone https://github.com/ToffelsKater/X4_VR.git ~/x4vr-src
+git clone --depth 1 https://github.com/ValveSoftware/openvr ~/x4vr-src/external/openvr
+cd ~/x4vr-src
+cmake -S . -B build -DX4VR_LINUX=ON -DCMAKE_BUILD_TYPE=Release \
+      -DOPENVR_SOURCE_DIR=$PWD/external/openvr -DCMAKE_INSTALL_PREFIX=$HOME/.local
+cmake --build build -j && cmake --install build
+```
+
+On NixOS, run `nix-build` in the source directory instead.
+
+### Setup and playing
+
+Run `~/.local/bin/x4vr`. This terminal menu replaces the Windows launcher, and explains each item
+at the bottom of the screen.
+
+1. Choose *Copy the Steam launch option* and paste it into X4 > Properties > General > Launch
+   options. Steam's Play button still starts the normal game; only the menu starts VR.
+2. On a tiling window manager (Hyprland, Sway, i3), add the rule from *Tiling window manager
+   rules*.
+3. Choose *Launch X4 in VR*. It starts SteamVR if needed.
+4. Look straight ahead and press Ctrl+F12 to recenter. Ctrl+F11 switches to the flat screen.
+
+The mod keeps your 2D X4 settings apart from the VR ones and puts them back when X4 closes. If
+something goes wrong, the log is `~/.local/state/x4vr/x4vr.log`, and *Make a bug report* packs it
+up for a GitHub issue.
+
+### Uninstall
+
+Choose *Uninstall* in the menu, clear X4's launch option in Steam, then delete the `~/x4vr-src`
+directory.
 
 ## License
 

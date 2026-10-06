@@ -1,4 +1,4 @@
-# Native Linux build (docs/HOW_IT_WORKS.md, docs/LINUX_GUIDE.md), selected with -DX4VR_LINUX=ON from the top-level
+# Native Linux build (README.md, docs/HOW_IT_WORKS.md), selected with -DX4VR_LINUX=ON from the top-level
 # CMakeLists.txt. Dependencies come from the system (Nix); nothing is downloaded.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
