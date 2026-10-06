@@ -166,6 +166,8 @@ Linux environment variables, set in front of `x4vr-run` in the launch option:
 | `X4VR_HOTKEYS=0`, `X4VR_PATCHES=0`, `X4VR_EYE_AT_USE=0` | Turn those parts off |
 | `X4VR_THEATER_OVERLAY=1` | Flat screen as a SteamVR overlay (shimmers; for comparison) |
 | `X4VR_DIR`, `X4VR_GAME_DIR`, `X4VR_GAME_ARGS` | State directory, game directory, X4 arguments |
+| `X4VR_OT_YAW`, `_PITCH`, `_ROLL`, `_X`, `_Y`, `_Z` | Sign and unit per OpenTrack axis (Windows: `X4VR_FT_*`); the gains in `stereo.txt` scale on top |
+| `X4VR_OPENTRACK_PORT` | X4's OpenTrack port (default 4242) |
 
 ## Linux addresses (X4 9.00)
 
