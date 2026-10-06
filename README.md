@@ -362,43 +362,14 @@ display settings.
 
 ## Linux (native X4, experimental)
 
-A port for the native Linux build of X4 (9.00), developed alongside the Windows mod: the Windows
-build is unchanged, and the Linux one is opt-in (`-DX4VR_LINUX=ON`). Tested with a Steam Frame
-through SteamVR on an AMD GPU (RADV), Hyprland and NixOS. Install and play:
-[docs/LINUX_GUIDE.md](docs/LINUX_GUIDE.md) (a terminal menu, `x4vr`, sets it up and launches VR;
-Steam's Play button keeps starting the normal game). Measurements behind the port are in
-[docs/LINUX_FINDINGS.md](docs/LINUX_FINDINGS.md). How each part works on Windows and Linux:
-[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md); feature status: [docs/FEATURES.md](docs/FEATURES.md).
+A port for the native Linux build of X4 (9.00) through SteamVR. The Windows build is unchanged;
+the Linux one is opt-in (`-DX4VR_LINUX=ON`). Tested with a Steam Frame on an AMD GPU.
 
-**What works:** stereo in the cockpit and on foot with head tracking (leaning back included),
-the virtual screen for menus, the mouse cursor, Ctrl+F12 / Ctrl+F11 and SteamVR's recentre and
-Exit game, the HUD distance (at its normal size), eye images at SteamVR's recommended size, and
-X4's settings kept apart for 2D and VR. X4's code is found by byte pattern, so small game updates
-keep working (`x4vr patterns` checks a build). **Not yet:** OpenXR.
+Works: stereo in the cockpit and on foot, head tracking, the flat screen for menus, the mouse
+cursor, HUD distance, separate 2D and VR settings. Not yet: OpenXR.
 
-**Install** (any distribution: CMake, a C++20 compiler, the Vulkan headers and OpenVR's source;
-a Nix expression is included too):
-
-```bash
-git clone https://github.com/Cully-Curwen/X4_VR_Linux ~/x4vr-src
-git clone --depth 1 https://github.com/ValveSoftware/openvr ~/x4vr-src/external/openvr
-cd ~/x4vr-src
-cmake -S . -B build -DX4VR_LINUX=ON -DCMAKE_BUILD_TYPE=Release \
-      -DOPENVR_SOURCE_DIR=$PWD/external/openvr -DCMAKE_INSTALL_PREFIX=$HOME/.local
-cmake --build build -j && cmake --install build
-~/.local/bin/x4vr
-```
-
-The menu copies X4's launch option to paste in Steam, adds itself to the app launcher, and
-launches X4 in VR (starting SteamVR if needed). `x4vr-run` turns off Steam's own flat streaming
-of the game into the headset and Steam's overlay for X4 (both take X4's window away). Tiling
-window managers resize X4's window: make it floating (in VR its class is `X4VR`, 2D keeps `X4`).
-
-**Streaming headsets (Steam Frame, and likely Steam Link):** SteamVR's link applies the left eye's
-pose to both eyes, so with alternate-eye rendering the right eye ghosts when you turn your head.
-The Linux port renders both eyes of a pair from one head pose (`shared_pose=1`, default), which
-removes it (docs/LINUX_FINDINGS.md). The Windows note about Quest over Steam Link above is
-probably the same effect.
+Install and play: [docs/LINUX_GUIDE.md](docs/LINUX_GUIDE.md). Feature status:
+[docs/FEATURES.md](docs/FEATURES.md). How it works: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
 ## License
 
