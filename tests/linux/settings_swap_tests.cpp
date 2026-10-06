@@ -79,6 +79,19 @@ int main() {
     done = switch_settings(marker, config, true);
     check(!done.ok && read(config) == "2D" && !fs::exists(marker), "VR copy unreadable: back to 2D, no marker");
 
+    // The HUD extension: aside for 2D, back for VR, an older copy replaced, nothing to move.
+    using x4vr::linux_port::place_hud;
+    const auto extension = root/"game/extensions/x4vr_hud", parked = root/"game/x4vr_hud.off";
+    check(place_hud(extension, parked, false) && place_hud(extension, parked, true), "no extension: nothing to do");
+    fs::create_directories(extension);
+    write(extension/"x4vr_hud.txt", "scale=2.5");
+    check(place_hud(extension, parked, false) && !fs::exists(extension) && read(parked/"x4vr_hud.txt") == "scale=2.5", "2D: moved aside");
+    check(place_hud(extension, parked, false) && !fs::exists(extension), "2D again: stays aside");
+    check(place_hud(extension, parked, true) && !fs::exists(parked) && read(extension/"x4vr_hud.txt") == "scale=2.5", "VR: back in place");
+    fs::create_directories(parked);
+    write(parked/"x4vr_hud.txt", "scale=1.5"); // an older copy aside
+    check(place_hud(extension, parked, false) && read(parked/"x4vr_hud.txt") == "scale=2.5", "2D: the older copy replaced");
+
     fs::remove_all(root);
     if (failures) return 1;
     std::printf("settings swap: all checks passed\n");

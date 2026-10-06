@@ -62,7 +62,8 @@ void usage() {
         "Used by x4vr-run before and after X4 runs:\n"
         "  settings-mode vr | 2d | status   X4's VR settings in place, or its 2D ones back\n"
         "  fix-settings [--auto]            X4's VR settings fixed for VR (backup: config.xml.x4vr-backup)\n"
-        "  hud --refresh                    the HUD extension as chosen in the menu, rebuilt after a game update\n";
+        "  hud --refresh                    the HUD extension as chosen in the menu, rebuilt after a game update\n"
+        "  hud --park                       the HUD extension out of X4's sight, for 2D\n";
 }
 
 // ---- check / fix-settings --------------------------------------------------------------------
@@ -292,10 +293,27 @@ double wanted_hud() {
 // `hud <factor>` / `remove` install at once (X4 closed); the menu sets hud_factor in stereo.txt
 // and x4vr-run's `hud --refresh` applies it at the next VR launch, also rebuilding the extension
 // after a game update.
+// The extension, and where it waits outside VR (settings_swap.hpp, place_hud).
+std::filesystem::path hud_extension(const std::filesystem::path& game) { return game/"extensions/x4vr_hud"; }
+std::filesystem::path hud_parked(const std::filesystem::path& game) { return game/"x4vr_hud.off"; }
+// Its x4vr_hud.txt, wherever it is now.
+std::map<std::string, std::string> hud_installed(const std::filesystem::path& game) {
+    const auto in_place = installed_hud(hud_extension(game));
+    return in_place.empty() ? installed_hud(hud_parked(game)) : in_place;
+}
+// hud --park (x4vr-run, for 2D: before Steam's Play and after a VR session): out of X4's sight.
+int hud_park() {
+    const auto game = game_dir();
+    if (game.empty() || x4_running()) return 0;
+    if (!x4vr::linux_port::place_hud(hud_extension(game), hud_parked(game), false)) { std::cerr << "x4vr: can't move the HUD extension aside for 2D\n"; return 1; }
+    return 0;
+}
 int hud_refresh() {
     const auto game = game_dir();
     if (game.empty()) return 0;
-    const auto extension = game/"extensions/x4vr_hud";
+    if (!x4_running() && !x4vr::linux_port::place_hud(hud_extension(game), hud_parked(game), true))
+        std::cerr << "x4vr: can't put the HUD extension back in place\n";
+    const auto extension = hud_extension(game);
     const auto installed = installed_hud(extension);
     const double installed_scale = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
     if (x4_running()) { std::cerr << "X4 is running: close it first (it loads extensions at startup).\n"; return 0; }
@@ -421,10 +439,9 @@ std::string launch_option_steps() { return "In Steam: X4 > Properties > General 
 // while X4 has its VR settings.
 std::filesystem::path settings_marker() { return state_dir()/"x4-settings.vr"; }
 using x4vr::linux_port::copy_over;
-// The HUD distance extension only in VR: X4's per-user content.xml records it as
-// <extension id="x4vr_hud" enabled="..."/>; switched off for 2D (no farther HUD, no "modified"
-// flag on 2D saves) and on for VR. Without an entry yet (X4 adds it once it has seen the
-// extension) nothing changes.
+// X4's per-user content.xml may have the extension turned off (<extension id="x4vr_hud"
+// enabled="false"/>, from X4's Extensions menu or an older x4vr): turned on for VR. Outside VR
+// the extension is moved aside instead (hud --park), as X4 often has no such file.
 void hud_extension_enabled(const std::filesystem::path& config, bool on) {
     const auto path = config.parent_path()/"content.xml";
     const auto text = read_text(path);
@@ -443,7 +460,7 @@ int settings_mode(const std::vector<std::string_view>& args) {
     const auto done = x4vr::linux_port::switch_settings(settings_marker(), config, args[0] == "vr");
     if (!done.ok) { std::cerr << "x4vr: " << done.message << '\n'; return 1; }
     if (done.changed) {
-        hud_extension_enabled(config, args[0] == "vr");
+        if (args[0] == "vr") hud_extension_enabled(config, true);
         std::cout << "x4vr: " << done.message << '\n';
     }
     return 0;
@@ -478,7 +495,7 @@ Checks current_checks() {
     c.in_vr = std::filesystem::exists(settings_marker());
     c.option = launch_option();
     if (const auto game = game_dir(); !game.empty()) {
-        const auto installed = installed_hud(game/"extensions/x4vr_hud");
+        const auto installed = hud_installed(game);
         c.hud = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
     }
     if (const auto config = x4_config(); !config.empty()) {
@@ -668,7 +685,10 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
     if (on("desktop")) { std::filesystem::remove(desktop_file(), error); done.push_back("Desktop entry removed."); }
     {
         if (on("hud")) {
-            if (const auto game = game_dir(); !game.empty()) std::filesystem::remove_all(game/"extensions/x4vr_hud", error);
+            if (const auto game = game_dir(); !game.empty()) { // in place, and aside for 2D
+                std::filesystem::remove_all(hud_extension(game), error);
+                std::filesystem::remove_all(hud_parked(game), error);
+            }
             if (const auto config = x4_config(); !config.empty()) { // and X4's own record of it
                 const auto content = config.parent_path()/"content.xml";
                 const auto text = read_text(content);
@@ -894,7 +914,7 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
 bool hud_scaled() {
     if (const double wanted = wanted_hud(); wanted >= 0) return wanted > 0;
     const auto game = game_dir();
-    return !game.empty() && installed_hud(game/"extensions/x4vr_hud").count("scale") > 0;
+    return !game.empty() && hud_installed(game).count("scale") > 0;
 }
 void checklist_screen(x4vr::tui::Terminal& terminal) {
     using namespace x4vr::tui;
@@ -1237,6 +1257,7 @@ int main(int argc, char** argv) {
         }
         if (command == "ctl") return ctl(args);
         if (command == "hud" && args.size() == 1 && args[0] == "--refresh") return hud_refresh();
+        if (command == "hud" && args.size() == 1 && args[0] == "--park") return hud_park();
         if (command == "patterns") return patterns(args);
         if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))
             return check_settings(!args.empty());

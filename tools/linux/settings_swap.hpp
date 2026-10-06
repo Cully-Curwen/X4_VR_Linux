@@ -66,4 +66,18 @@ inline Switched switch_settings(const std::filesystem::path& marker, std::filesy
     std::filesystem::remove(marker, error);
     return {true, true, "X4's VR settings saved ("+vr.filename().string()+"), 2D settings restored"};
 }
+
+// The HUD distance extension only in VR: X4 loads every directory in extensions/, so in 2D it is
+// moved next to that directory (`parked`, which X4 doesn't read) and back for VR. A rename on the
+// same disk: all or nothing. X4's own per-user content.xml can't do it: X4 writes that file only
+// once its Extensions menu was used. True once it is where it should be (or there is none).
+inline bool place_hud(const std::filesystem::path& extension, const std::filesystem::path& parked, bool in_vr) {
+    const auto& from = in_vr ? parked : extension;
+    const auto& to = in_vr ? extension : parked;
+    std::error_code error;
+    if (!std::filesystem::exists(from, error)) return true;
+    std::filesystem::remove_all(to, error); // an older copy left at the destination
+    std::filesystem::rename(from, to, error);
+    return !error;
+}
 }

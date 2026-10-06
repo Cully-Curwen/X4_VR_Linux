@@ -133,7 +133,9 @@ Windows also compensates mouse turns (`turn_comp`); Linux doesn't need it with t
   mode at the VR resolution: Linux X4 ignores its resolution in fullscreen.
 - **2D and VR apart (Linux):** a VR launch saves `config.xml` as `config.xml.x4vr-2d` and puts
   `config.xml.x4vr-vr` in its place; X4's exit swaps them back, and so does the next start after a
-  crash. The HUD extension is only enabled during VR sessions.
+  crash. The HUD extension is only in `extensions/` during VR sessions; for 2D it is moved next
+  to it (`x4vr_hud.off`), so 2D isn't "modified" (X4 often has no per-user `content.xml` to turn
+  it off in). Saves made in VR stay flagged.
 
 ## The `x4vr` menu (Linux)
 
