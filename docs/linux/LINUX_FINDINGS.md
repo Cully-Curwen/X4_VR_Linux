@@ -3,7 +3,7 @@
 The measurements behind the Linux port, in the order they were made: the first sections (0.1 to
 0.7) explored X4, SteamVR and the machine before any mod code existed; later sections record each
 stage in the headset. Each records the raw facts first, then what they meant for the port. How the
-mod works now: `HOW_IT_WORKS.md`; feature status: `FEATURES.md`.
+mod works now: `HOW_IT_WORKS.md`; feature status: `FEATURE_COMPARISON.md`.
 
 Machine: NixOS, AMD Ryzen 9 7900X3D (with integrated RDNA2 GPU), AMD Radeon RX 7900 XT,
 Mesa 26.2.3 (RADV), Steam Frame through SteamVR. X4 9.00 native Linux build from Steam.
@@ -625,14 +625,14 @@ of each eye can't be filled at any resolution). Automatic picks 2880x1620 (2% ov
 needed). Custom 2640x1588 (about 5:3, as wide as the eye sees) works in the headset: ~10% fewer
 pixels, no visible loss reported. Confirmed at 5:3: the world stays fixed when turning the head
 (X4 keeps its vertical view at any shape) and no strip shows at the outer edge of each eye.
-Planned: automatic computes this shape itself (FEATURES.md).
+Planned: automatic computes this shape itself (FEATURE_COMPARISON.md).
 
 **X4's own UI scale (2026-10-05, idea).** X4's settings have a UI scaling option; its maximum is
 lower than the HUD factors used (2.5-3.5), and it scales menus and fonts too (useful on the flat
 screen). Idea: let the HUD extension only move the HUD back (`uianchor_*` positions) and get the
 size back from X4's UI scale instead of patching the scale factors in X4's UI scripts (Lua and the
 `.xpl` copies). That drops the part that needs Protected UI Mode off. X4 still reports "modified":
-any extension does. Not built; see FEATURES.md (Planned).
+any extension does. Not built; see FEATURE_COMPARISON.md (Planned).
 
 **X4's UI scale and "modified" (2026-10-05, observation, to test).** In play, X4 reported the game
 as modified only because of the HUD scaling (the UI script edits), not the HUD's move. X4's UI scale
