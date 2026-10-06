@@ -21,7 +21,7 @@ This is an unofficial fan project. It is not affiliated with or endorsed by Egos
 > [Limitations](#limitations).
 
 > [!NOTE]
-> Linux: a native port for the Linux version of X4 is in progress, see
+> Linux: a native port for the Linux version of X4 is available (experimental), see
 > [Linux (native X4, experimental)](#linux-native-x4-experimental).
 
 ## What works
