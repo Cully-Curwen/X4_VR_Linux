@@ -172,7 +172,8 @@ bool apply_patch(const char* what, uint64_t site, size_t at, unsigned char from,
     log(std::string("X4VR patch: ")+what+" patched");
     return true;
 }
-// Both on-foot patches in place: walking counts as stereo (Windows: on_foot_tracking).
+// Both on-foot patches in place: walking counts as stereo (Windows: on_foot_tracking). The camera
+// offsets camera_on_foot reads (+0x3e8, +0x880, +0x18) are pinned by the scan's signatures.
 std::atomic<bool> on_foot_tracking{false};
 // X4's player global (9.00: 0x3db6948), from the camera-offset site; 0 if not found.
 std::atomic<uintptr_t> player_global{0};

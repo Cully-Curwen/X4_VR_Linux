@@ -1,7 +1,8 @@
 // X4 scan (src/linux/code_scan.hpp) against this test's own executable: its .text holds the
 // patterns at X4 9.00's layout (the camera offset's target block 0x281 past its jump), a frame
 // half reader names a global, and a VR::OpenTrack class has `movss 0xd0(%rdi),%xmm0` in slot 34
-// and X4's update code in slot 2.
+// and X4's update code in slot 2. The walking check names the player global and jumps to the
+// on-foot zeroing site.
 // Built non-PIE like X4.
 #include "code_scan.hpp"
 #include <cstdio>
@@ -9,10 +10,10 @@
 
 extern "C" int x4vr_test_half;
 int x4vr_test_half = 0;
-extern "C" const unsigned char x4vr_test_clamp[], x4vr_test_zeroing[], x4vr_test_offset[], x4vr_test_half_reader[];
+extern "C" const unsigned char x4vr_test_clamp[], x4vr_test_zeroing[], x4vr_test_offset[], x4vr_test_half_reader[], x4vr_test_walking[];
 asm(R"(
     .pushsection .text
-    .globl x4vr_test_clamp, x4vr_test_zeroing, x4vr_test_offset, x4vr_test_half_reader
+    .globl x4vr_test_clamp, x4vr_test_zeroing, x4vr_test_offset, x4vr_test_half_reader, x4vr_test_walking
 x4vr_test_clamp:
     cmp $7,%eax
     .byte 0x74, 0x19
@@ -53,6 +54,21 @@ x4vr_test_offset:
     movaps 0x0(%rbp),%xmm8
     .byte 0xe9
     .long 0
+    ud2
+x4vr_test_walking:
+    mov x4vr_test_half(%rip),%r15
+    mov x4vr_test_half(%rip),%r13
+    test %r15,%r15
+    .byte 0x0f, 0x84
+    .long 0
+    mov 0x3e8(%r15),%rax
+    test %rax,%rax
+    .byte 0x0f, 0x84
+    .long 0
+    mov 0x880(%rax),%r11d
+    test %r11d,%r11d
+    .byte 0x0f, 0x84
+    .long x4vr_test_zeroing - (. + 4)
     ud2
 x4vr_test_half_reader:
     mov x4vr_test_half(%rip),%eax
@@ -95,6 +111,7 @@ int main() {
     check(sites.player_global == uint64_t(reinterpret_cast<uintptr_t>(&x4vr_test_half)), "player global from the camera offset site");
     check(sites.frame_half_global == uint64_t(reinterpret_cast<uintptr_t>(&x4vr_test_half)), "frame half global");
     check(sites.opentrack_vtable != 0, "VR::OpenTrack vtable");
+    (void)x4vr_test_walking; // found by the scan; without it the on-foot sites above read 0
     check(image.at(sites.backward_clamp+x4::backward_clamp_at, 1) && *image.at(sites.backward_clamp+x4::backward_clamp_at, 1) == 0x76, "clamp's jbe");
     check(image.at(sites.onfoot_zeroing+x4::onfoot_zeroing_at, 1) && *image.at(sites.onfoot_zeroing+x4::onfoot_zeroing_at, 1) == 0x84, "zeroing's je");
     check(image.at(sites.camera_offset+x4::camera_offset_at, 1) && *image.at(sites.camera_offset+x4::camera_offset_at, 1) == 0x13, "offset's je displacement");

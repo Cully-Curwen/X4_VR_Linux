@@ -92,6 +92,16 @@ inline constexpr std::string_view camera_offset =
     "4c 8b 63 18 4d 85 e4 0f 84 13 02 00 00 48 8b 05 ?? ?? ?? ?? 48 8b 93 80 07 00 00 48 85 c0 "
     "0f 84 b6 02 00 00 48 39 90 38 02 00 00";
 inline constexpr size_t camera_offset_at = 9, camera_offset_end = 13, camera_offset_jump = 0x281;
+// Camera input (0xfeb6c5): player global, head-tracking manager, then the rendered camera
+// [player+0x3e8] and its mode +0x880; mode 0 jumps (+49) to the on-foot zeroing site. Pins the
+// offsets walking detection reads, as Windows' on-foot signature pins +0x3d0 and the mode; it must
+// name the camera offset's player global and reach the zeroing site, else on foot stays off.
+// mov (rip),%r15; mov (rip),%r13; test; je; mov 0x3e8(%r15),%rax; test; je; mov 0x880(%rax),%r11d;
+// test; je.
+inline constexpr std::string_view walking_check =
+    "4c 8b 3d ?? ?? ?? ?? 4c 8b 2d ?? ?? ?? ?? 4d 85 ff 0f 84 ?? ?? ?? ?? 49 8b 87 e8 03 00 00 48 85 c0 "
+    "0f 84 ?? ?? ?? ?? 44 8b 98 80 08 00 00 45 85 db 0f 84 ?? ?? ?? ??";
+inline constexpr size_t walking_check_jump = 49;
 // 0x192a284: movaps 0x10/0x20/0x30/0x0(%rbp) into %xmm6/7/5/8; jmp to the composition.
 inline constexpr std::string_view offset_block = "0f 28 75 10 0f 28 7d 20 0f 28 6d 30 44 0f 28 45 00 e9";
 // The frame half's reader (0x218e220): mov half(%rip),%eax; xor $1,%eax; ret. All matches must
@@ -119,7 +129,7 @@ inline constexpr std::string_view opentrack_update =
 // Where each site is in one X4 build; 0 where it isn't found, with the reason in `notes`.
 struct X4Sites {
     uint64_t backward_clamp{}, onfoot_zeroing{}, camera_offset{}; // patch sites (pattern start)
-    uint64_t player_global{};      // X4 9.00: 0x3db6948 (camera controller at +0x3e8)
+    uint64_t player_global{};      // X4 9.00: 0x3db6948 (rendered camera at +0x3e8, mode +0x880)
     uint64_t frame_half_global{};  // X4 9.00: 0x72a0fa0
     uint64_t opentrack_vtable{}, opentrack_typeinfo{}, opentrack_position{}; // address point, type_info, slot 34 code
     std::vector<std::string> notes;
@@ -142,6 +152,13 @@ inline X4Sites find_x4_sites(const elf::Image& image) {
             s.player_global = rip_target(image, site+x4::camera_offset_end, 3, 7);
             s.notes.push_back("player global: "+hex(s.player_global));
         } else s.notes.push_back("on-foot camera offset: the offset block isn't at "+hex(block));
+    }
+    if (s.onfoot_zeroing && s.player_global) { // walking detection's offsets; on foot needs all three
+        const auto site = unique("walking check", x4::walking_check);
+        const bool same = site && rip_target(image, site, 3, 7) == s.player_global &&
+                          rip_target(image, site+x4::walking_check_jump, 2, 6) == s.onfoot_zeroing;
+        if (site && !same) s.notes.push_back("walking check: doesn't read the player global or reach the zeroing site");
+        if (!same) { s.onfoot_zeroing = s.camera_offset = s.player_global = 0; s.notes.push_back("on foot: off in this X4"); }
     }
     {
         const auto found = find_all(image, parse(x4::frame_half));
