@@ -7,7 +7,7 @@
 // vtable is found through its RTTI name. Same sites in the running game (opentrack_client.cpp,
 // runtime_bootstrap.cpp) and in a file (`x4vr patterns`, which reports what it finds).
 // Adding an X4 build: run `x4vr patterns`; for a site it doesn't find, look up the same code in
-// that build (docs/linux/HOW_IT_WORKS.md, "Linux addresses") and adjust the pattern, then check it in the headset.
+// that build (docs/linux/ARCHITECTURE.md, "Linux addresses") and adjust the pattern, then check it in the headset.
 #include "elf_classes.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -73,7 +73,7 @@ inline uint64_t rip_target(const elf::Image& image, uint64_t address, size_t dis
     return address+length+uint64_t(int64_t(disp));
 }
 
-// X4 code the Linux mod relies on (X4 9.00 addresses in the comments; docs/linux/HOW_IT_WORKS.md).
+// X4 code the Linux mod relies on (X4 9.00 addresses in the comments; docs/linux/ARCHITECTURE.md).
 namespace x4 {
 // Camera input (0xfeb72b): `if (tracker type != 7 && z > 0) z = 0`; its `jbe` (+20) past the
 // zeroing becomes `jmp`. cmp $7,%eax; je; movss -0xb0(%rbp),%xmm1; pxor; comiss; jbe; movss.

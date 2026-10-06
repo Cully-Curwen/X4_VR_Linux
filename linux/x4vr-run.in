@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# X4 VR launcher for Linux (docs/linux/HOW_IT_WORKS.md, "Starting X4"). X4's Steam launch option:
+# X4 VR launcher for Linux (docs/linux/ARCHITECTURE.md, "Starting X4"). X4's Steam launch option:
 #
 #   /full/path/to/x4vr-run %command%
 #

@@ -1,4 +1,4 @@
-# Native Linux build (README.md, docs/linux/HOW_IT_WORKS.md), selected with -DX4VR_LINUX=ON from the top-level
+# Native Linux build (README.md, docs/linux/ARCHITECTURE.md), selected with -DX4VR_LINUX=ON from the top-level
 # CMakeLists.txt. Dependencies come from the system, except OpenVR's sources: fetched at configure
 # time unless OPENVR_SOURCE_DIR names a copy (Nix passes nixpkgs' openvr.src).
 set(CMAKE_CXX_STANDARD 20)

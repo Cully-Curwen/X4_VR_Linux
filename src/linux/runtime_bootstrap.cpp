@@ -1,4 +1,4 @@
-// Linux copy of src/runtime_bootstrap.cpp at commit 5064391 (docs/linux/HOW_IT_WORKS.md, "Code layout").
+// Linux copy of src/runtime_bootstrap.cpp at commit 5064391 (docs/linux/ARCHITECTURE.md, "Code layout").
 // Changed for Linux only: environment and logging calls, file deletion, the background thread's
 // sleep, the trace clock and thread id, the headset wait, SteamVR's recentre and "Exit game"
 // events (wait_frame), the frame-half global from the X4 scan, the shared_pose setting, no OpenXR

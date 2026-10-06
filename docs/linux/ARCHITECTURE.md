@@ -1,4 +1,4 @@
-# How X4 VR works: Windows and Linux
+# X4 VR architecture: Windows and Linux
 
 For maintainers: how each part works on Windows, and how the Linux port (`-DX4VR_LINUX=ON`) does
 it differently. Addresses are X4 9.00's. Feature by feature: `FEATURE_COMPARISON.md`. Windows
@@ -29,9 +29,9 @@ views without ship controls go to a flat screen.
 - `src/linux/vr_layer.cpp` and `src/linux/runtime_bootstrap.cpp` are copies of `observe_layer.cpp`
   and `runtime_bootstrap.cpp` with the Win32 calls replaced. Each names its original and commit in
   its first comment; carry Windows fixes over by diffing the original against that commit.
-- Which files are shared, copied or Linux-only, function by function: `WINDOWS_LINUX_CODE.md`.
+- Which files are shared, copied or Linux-only, function by function: `CODE_COMPARISON.md`.
 - Linux-only code: `src/linux/` (OpenTrack client, code scan, cursor), `tools/linux/` (`x4vr`),
-  `linux/` (CMake, `x4vr-run`, layer manifest, Nix package), `config/linux/`, `tests/linux/`.
+  `linux/` (CMake, `x4vr-run`, layer manifest, Nix package), `config/linux/`, `tests/linux/`, `docs/linux/`.
 - `libx4vr.so` links libstdc++ and OpenVR statically and exports only the Vulkan entry points:
   X4 runs in Steam's runtime container, whose libraries may differ.
 
@@ -44,12 +44,16 @@ through `crash_watch.exe` with the Vulkan layer enabled by environment variables
 *Launch X4 in VR* starts SteamVR if needed, writes a request file and runs `steam -applaunch`.
 `x4vr-run` then:
 
-1. runs Steam's command untouched without a fresh request (Steam's Play stays 2D);
-2. turns off Steam's VR streaming of the window and Steam's overlay (both made X4 quit);
-3. enables the layer (`VK_ADD_LAYER_PATH`, `VK_INSTANCE_LAYERS`) and sets `SDL_APP_ID=X4VR`, so the
+1. finds the game directory in Steam's command (`X4VR_GAME_DIR`);
+2. without a fresh request runs Steam's command untouched (Steam's Play stays 2D), after putting
+   2D settings back if a VR session crashed and moving the HUD extension aside (`hud --park`);
+3. turns off Steam's VR streaming of the window and Steam's overlay (both made X4 quit);
+4. enables the layer (`VK_ADD_LAYER_PATH`, `VK_INSTANCE_LAYERS`) and sets `SDL_APP_ID=X4VR`, so the
    VR window has its own class for window manager rules;
-4. swaps in X4's VR settings, fixes them and refreshes the HUD extension;
-5. runs X4 with `-skipintro -nocputhrottle`, then swaps the 2D settings back.
+5. swaps in X4's VR settings and, only if that worked, fixes them; puts the HUD extension back,
+   applies the menu's factor and rebuilds it after a game update (`hud --refresh`);
+6. runs X4 with `-skipintro -nocputhrottle`, then swaps the 2D settings back and moves the HUD
+   extension aside again.
 
 The mod waits up to 2 minutes for the headset when SteamVR is up before it (Steam Frame).
 
@@ -63,7 +67,13 @@ the eye, and converts to FreeTrack units (angle gains 180/85, position × `pos_s
 yaw, pitch, roll in degrees) on port 4242. A thread sends one packet per present with the same
 pose maths, its own axis signs, and a packet sequence number in the low bits of the roll. X4's
 game state (menu open, controlling a ship, walking) is read on X4's main thread through its
-exported functions.
+exported functions. SteamVR's IPD is re-read every second (Windows: once).
+
+The gains undo X4's scaling of tracker angles. Windows sends FreeTrack radians (yaw and pitch
+180/85, roll π); Linux sends degrees, so each gain is a plain factor: yaw and pitch 2.1177, roll
+2.5. Roll was measured on the Steam Frame (stars still with the head tilted 30°): X4's tracker
+scales all three angles alike, so its camera likely gives roll about 72° of range where yaw and
+pitch get 85°. `pos_scale` 3.6 is Windows' and was checked by leaning (the cockpit stays put).
 
 ## Which eye: frame half, eye at use, shared pose
 
@@ -85,20 +95,27 @@ X4's render thread is paced to the compositor (`async_submit=1`, the default; `0
 and skips the flat screen and, on Linux, the shared pose).
 
 Linux differences:
-- RADV has one graphics queue, so the layer shares X4's queue behind one lock.
+- **The VR queue:** like Windows, the layer asks the driver for a spare graphics queue of its own
+  (NVIDIA's has several). AMD's RADV has one, and Intel's likely too, so there the layer shares
+  X4's queue behind one recursive lock, around every `vkQueue*` call and the runtime's submits;
+  waits for the GPU and X4's game-state queries stay outside it. Only the shared path is tested
+  (AMD); the log and the menu's GPU line show which one ran.
 - Eye images use SteamVR's recommended pixel density; the ideal X4 resolution is saved for the
   menu (`x4_resolution.txt`).
-- The flat screen and the mouse cursor are drawn into the eye images. A SteamVR overlay shimmers
-  on the Steam Frame: SteamVR shrinks the large image every display frame without mipmaps,
-  while drawn in it is shrunk once per game frame. An overlay cursor over the drawn screen
-  could also swim against it.
+- The flat screen and the mouse cursor are drawn into the eye images, not shown as SteamVR
+  overlays (see "Flat screen, cursor, hotkeys").
 - SteamVR's recenter and *Exit game* events are handled.
 - `async_submit` is read once at the first frame (switching it live froze the headset).
 
 ## X4 code patches
 
 Each is one byte, checked against a pattern that must match exactly once. Linux scans X4's loaded
-code at start (`scan_x4`); `x4vr patterns` runs the same scan on a file.
+code at start (`scan_x4`); `x4vr patterns` runs the same scan on a file. The patterns also pin the
+struct offsets the mod reads, as Windows' per-version signatures do: the tracker fields (`+0xd0`
+position, `+0xa0` roll, `+0xa8` new-packet flag, `+0x114` position scale) through the slot 34 and
+slot 2 (update) patterns, and the camera fields (`+0x18`, player `+0x3e8`, mode `+0x880`) through
+the camera-offset and walking-check patterns. A moved field turns its feature off instead of
+reading the wrong memory. The on-foot patches go in together or not at all.
 
 | Patch | Purpose | Windows 9.00 | Linux 9.00 |
 |---|---|---|---|
@@ -118,8 +135,20 @@ Windows also compensates mouse turns (`turn_comp`); Linux doesn't need it with t
 
 - Flat when `theater=2`, or `theater=1` and a fullscreen menu is open or the player is neither
   walking nor flying. The screen is 2.2 m wide, 2 m ahead of the recentred origin.
-- Windows shows it and the cursor as SteamVR overlays. Linux draws both into the eye images; the
-  cursor comes from X4's X11 window (XFixes).
+- Windows shows the screen and the cursor as SteamVR overlays. Linux draws both into the eye
+  images:
+  - **Screen:** the flat image is blitted into black eye textures at the screen's place, with the
+    head pose of when it was placed, so SteamVR's reprojection keeps it fixed in space.
+  - **Cursor:** X4's cursor is the X server's (Xwayland), not in its swapchain. A thread reads it
+    over XCB (`x11_cursor.cpp`): X4's window by `WM_CLASS` (`X4`, or `X4VR` in VR) or
+    `_NET_WM_PID`, the pointer position, the image through XFixes. Its opaque pixels (alpha ≥ 128;
+    a copy can't blend) are copied into the game image, clipped to the image's area.
+- **Why not overlays:** on the Steam Frame the overlay first showed nothing (black). Later it
+  showed, but shimmered and wobbled: SteamVR shrinks the overlay's large image (about 2800 px
+  wide, whatever X4's resolution) to the headset's pixels every display frame without mipmaps,
+  while drawn in it is shrunk once per game frame and then only reprojected. An overlay cursor
+  over a drawn screen would also be placed by a different method and could swim against it.
+  `X4VR_THEATER_OVERLAY=1` still shows the screen as an overlay, for comparison.
 - Ctrl+F12 recenters, Ctrl+F11 toggles the flat screen (Windows: `GetAsyncKeyState`; Linux: XCB
   key state while X4 has focus). `x4vr ctl recenter|flat` does the same.
 
@@ -145,12 +174,18 @@ status (SteamVR, X4 build support, launch option, live frame rate), notices
 (`config/linux/notices.txt`), settings with profiles (`config/linux/profiles/`), the in-game
 settings checklist, tiling window manager rules, bug report and uninstall. Settings tagged *live*
 go to `stereo.txt`, which the mod re-reads every 0.5 s; *next launch* ones are applied by
-`x4vr-run`. A few subcommands remain for `x4vr-run` and for when the menu can't help (`x4vr help`).
+`x4vr-run`. The GPU line shows the last VR session's GPU and queue, or why VR was off. Uninstall
+removes only the mod's own files by name (`tools/linux/state_files.hpp`), whatever directory
+`X4VR_DIR` names. A few subcommands remain for `x4vr-run` and for when the menu can't help
+(`x4vr help`).
 
 ## Settings and diagnostics
 
 - `stereo.txt` (Linux: `~/.local/state/x4vr/`) holds the settings; defaults in
   `runtime_bootstrap.hpp`, shipped values in `config/linux/stereo.txt`.
+- Linux defaults that differ from Windows, each measured in the headset: `half_xor_present=0`
+  (1 doubled the HUD), `shared_pose=1` (the Frame's ghosting), `roll_gain=2.5` (degrees). The
+  last is set in Linux's `read_settings`, so an older `stereo.txt` without the line gets it too.
 - Request files in that directory produce `trace.txt` (`trace.request`), `submit_trace.txt`
   (`submit.request`) and an eye-image dump (`dump.txt`). `pair_stats.txt` is written every 2 s.
 - Linux logs to `x4vr.log` and `stderr.log` in the same directory.
@@ -169,6 +204,19 @@ Linux environment variables, set in front of `x4vr-run` in the launch option:
 | `X4VR_DIR`, `X4VR_GAME_DIR`, `X4VR_GAME_ARGS` | State directory, game directory, X4 arguments |
 | `X4VR_OT_YAW`, `_PITCH`, `_ROLL`, `_X`, `_Y`, `_Z` | Sign and unit per OpenTrack axis (Windows: `X4VR_FT_*`); the gains in `stereo.txt` scale on top |
 | `X4VR_OPENTRACK_PORT` | X4's OpenTrack port (default 4242) |
+
+## Building and tests (Linux)
+
+- **CMake:** `-DX4VR_LINUX=ON`; OpenVR's sources are fetched at configure time (v2.15.6, the
+  version nixpkgs has) unless `OPENVR_SOURCE_DIR` names a copy. Warnings are errors.
+- **Nix:** `nix-build linux/nix` (`linux/nix/default.nix`), from the channel's nixpkgs, which
+  passes its OpenVR sources and runs the tests.
+- **Tests** (`tests/linux/`, `ctest`): the code scan on a stand-in for X4's code, ELF and RTTI
+  reading, MD5, the OpenTrack packet, Steam's config files, the launch option check, the 2D/VR
+  settings swap (crash and stop cases) and the HUD extension's placement, uninstall's file list,
+  plus the shared Windows suites that build on Linux.
+- **CI** (`.github/workflows/linux.yml`): both routes on Ubuntu 24.04 when files the Linux build
+  reads change.
 
 ## Linux addresses (X4 9.00)
 
