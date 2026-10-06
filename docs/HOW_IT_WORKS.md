@@ -29,7 +29,7 @@ views without ship controls go to a flat screen.
   and `runtime_bootstrap.cpp` with the Win32 calls replaced. Each names its original and commit in
   its first comment; carry Windows fixes over by diffing the original against that commit.
 - Which files are shared, copied or Linux-only, function by function: `WINDOWS_LINUX_CODE.md`.
-- Linux-only code: `src/linux/` (pose sender, code scan, cursor), `tools/linux/` (`x4vr`),
+- Linux-only code: `src/linux/` (OpenTrack client, code scan, cursor), `tools/linux/` (`x4vr`),
   `linux/` (CMake, `x4vr-run`, layer manifest), `config/linux/`, `tests/linux/`, `nix/`.
 - `libx4vr.so` links libstdc++ and OpenVR statically and exports only the Vulkan entry points:
   X4 runs in Steam's runtime container, whose libraries may differ.
@@ -58,7 +58,7 @@ The mod waits up to 2 minutes for the headset when SteamVR is up before it (Stea
 applies the patches and sets X4's head smoothing to 1. Each call predicts the headset pose, picks
 the eye, and converts to FreeTrack units (angle gains 180/85, position × `pos_scale`).
 
-**Linux (`src/linux/pose_sender.cpp`):** Linux X4 reads OpenTrack UDP (6 doubles: x, y, z in cm,
+**Linux (`src/linux/opentrack_client.cpp`):** Linux X4 reads OpenTrack UDP (6 doubles: x, y, z in cm,
 yaw, pitch, roll in degrees) on port 4242. A thread sends one packet per present with the same
 pose maths, its own axis signs, and a packet sequence number in the low bits of the roll. X4's
 game state (menu open, controlling a ship, walking) is read on X4's main thread through its

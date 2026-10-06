@@ -1,4 +1,4 @@
-// OpenTrack pose sender: the Linux counterpart of src/freetrack_client.cpp at commit be68c82
+// OpenTrack client: the Linux counterpart of src/freetrack_client.cpp at commit be68c82
 // (docs/HOW_IT_WORKS.md, "Head-tracking feed"). Windows answers X4's FTGetData calls; Linux X4 reads
 // OpenTrack UDP packets on its own thread, so this sends one packet after every present: the frame
 // X4 builds next uses it. The pose logic is the Windows one (theater decision, recentring,
@@ -405,7 +405,7 @@ GameState game_state() {
     std::lock_guard lock(state_mutex);
     return state;
 }
-void start_pose_sender() {
+void start_opentrack_client() {
     static std::once_flag once;
     std::call_once(once, [] {
         std::thread([] {

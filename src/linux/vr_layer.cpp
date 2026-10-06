@@ -2,7 +2,7 @@
 // "Vulkan layer"). The alternate-eye presenter, the submission thread, theater mode, pacing and the stats
 // files are the Windows code. Changed for Linux:
 // - the layer is the whole mod (libx4vr.so): VR starts only in X4 (linux_port::is_x4_process), the
-//   library pins itself, and it starts the OpenTrack pose sender (pose_sender.cpp);
+//   library pins itself, and it starts the OpenTrack client (opentrack_client.cpp);
 // - private queue: a spare queue in the game's graphics family as on Windows; without one (AMD's
 //   RADV has a single graphics queue) the layer shares X4's graphics queue and serialises every use
 //   of it (SharedQueue below);
@@ -177,7 +177,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* ci, 
             names = extensions->names();
             augmented.enabledExtensionCount = static_cast<uint32_t>(names.size());
             augmented.ppEnabledExtensionNames = names.data();
-            x4vr::linux_port::start_pose_sender();
+            x4vr::linux_port::start_opentrack_client();
         }
     } catch (const std::exception& error) {
         // No headset or no SteamVR: X4 runs flat, as without the mod.

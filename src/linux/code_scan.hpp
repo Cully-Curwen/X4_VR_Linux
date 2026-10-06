@@ -4,7 +4,7 @@
 // wherever the linker placed it. "??" is a wildcard byte, used for RIP-relative and call
 // displacements, which change with every relink. Struct offsets and short jumps stay literal: if
 // they differ, the code around them changed and the mod leaves it alone. The OpenTrack tracker's
-// vtable is found through its RTTI name. Same sites in the running game (pose_sender.cpp,
+// vtable is found through its RTTI name. Same sites in the running game (opentrack_client.cpp,
 // runtime_bootstrap.cpp) and in a file (`x4vr patterns`, which reports what it finds).
 // Adding an X4 build: run `x4vr patterns`; for a site it doesn't find, look up the same code in
 // that build (docs/HOW_IT_WORKS.md, "Linux addresses") and adjust the pattern, then check it in the headset.
