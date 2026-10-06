@@ -155,12 +155,15 @@ inline X4Sites find_x4_sites(const elf::Image& image) {
             s.notes.push_back("player global: "+hex(s.player_global));
         } else s.notes.push_back("on-foot camera offset: the offset block isn't at "+hex(block));
     }
-    if (s.onfoot_zeroing && s.player_global) { // walking detection's offsets; on foot needs all three
-        const auto site = unique("walking check", x4::walking_check);
+    { // walking detection's offsets; on foot needs all three sites, or none is patched
+        const auto site = s.onfoot_zeroing && s.player_global ? unique("walking check", x4::walking_check) : 0;
         const bool same = site && rip_target(image, site, 3, 7) == s.player_global &&
                           rip_target(image, site+x4::walking_check_jump, 2, 6) == s.onfoot_zeroing;
         if (site && !same) s.notes.push_back("walking check: doesn't read the player global or reach the zeroing site");
-        if (!same) { s.onfoot_zeroing = s.camera_offset = s.player_global = 0; s.notes.push_back("on foot: off in this X4"); }
+        if (!same) {
+            if (s.onfoot_zeroing || s.camera_offset) s.notes.push_back("on foot: off in this X4");
+            s.onfoot_zeroing = s.camera_offset = s.player_global = 0;
+        }
     }
     {
         const auto found = find_all(image, parse(x4::frame_half));

@@ -19,6 +19,7 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -205,10 +206,7 @@ std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
     }
     return checks;
 }
-std::string read_text(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-}
+std::string read_text(const std::filesystem::path& path) { return x4vr::steam::read_file(path); }
 int check_settings(bool fix, bool automatic) {
     const auto path = x4_config();
     if (path.empty()) { std::cerr << "X4's config.xml not found under ~/.config/EgoSoft/X4 (start X4 once).\n"; return automatic ? 0 : 1; }
@@ -412,16 +410,7 @@ std::filesystem::path desktop_file() {
     const char* home = std::getenv("HOME");
     return (data && *data ? std::filesystem::path(data) : std::filesystem::path(home ? home : ".")/".local/share")/"applications/x4vr.desktop";
 }
-bool process_named(std::string_view name) {
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {
-        std::ifstream comm(entry.path()/"comm");
-        std::string text;
-        if (comm && std::getline(comm, text) && text == name) return true;
-    }
-    return false;
-}
-bool steamvr_running() { return process_named("vrserver"); }
+bool steamvr_running() { return x4vr::steam::process_named("vrserver"); }
 std::string quoted_path(const std::filesystem::path& path) {
     const auto text = path.string();
     return text.find(' ') == std::string::npos ? text : "\""+text+"\"";
@@ -468,12 +457,19 @@ bool run_and_wait(const std::vector<std::string>& argv, const std::filesystem::p
 }
 
 // X4's launch option in every Steam account: 0 none set, 1 ours, 2 an x4vr-run elsewhere (an
-// older build), 3 something else; `accounts` = how many accounts know X4. Ours is our x4vr-run
+// older build), 3 something else; `accounts` = how many accounts know X4. Ours in any account
+// wins (another account on the machine may have its own), then 2, 3, 0. Ours is our x4vr-run
 // followed by %command%, with anything around it (settings in front, X4 arguments after).
 struct LaunchOption { int state = 0; int accounts = 0; std::string value; };
 bool is_ours(const std::string& option) {
-    const auto run = option.find(quoted_path(run_script())+" ");
-    return run != std::string::npos && option.find("%command%", run) != std::string::npos;
+    const auto path = run_script().string();
+    for (auto run = option.find(path); run != std::string::npos; run = option.find(path, run+1)) {
+        const auto end = run+path.size();
+        const bool starts = run == 0 || option[run-1] == ' ' || option[run-1] == '"' || option[run-1] == '\'';
+        const bool ends = end < option.size() && (option[end] == ' ' || option[end] == '"' || option[end] == '\'');
+        if (starts && ends && option.find("%command%", end) != std::string::npos) return true;
+    }
+    return false;
 }
 LaunchOption launch_option() {
     LaunchOption result;
@@ -482,7 +478,8 @@ LaunchOption launch_option() {
         if (!value) continue;
         ++result.accounts;
         const int state = value->empty() ? 0 : is_ours(*value) ? 1 : value->find("x4vr-run") != std::string::npos ? 2 : 3;
-        if (state > result.state) { result.state = state; result.value = *value; }
+        static constexpr int rank[] = {0, 3, 2, 1}; // by state
+        if (result.accounts == 1 || rank[state] > rank[result.state]) { result.state = state; result.value = *value; }
     }
     return result;
 }
@@ -505,7 +502,13 @@ std::string copy_to_clipboard(const std::string& text) {
             _exit(127);
         }
         close(fds[0]);
-        if (child > 0) { (void)!::write(fds[1], text.data(), text.size()); }
+        if (child > 0) { // the tool may have exited already (not installed): no SIGPIPE
+            struct sigaction ignore{}, previous{};
+            ignore.sa_handler = SIG_IGN;
+            sigaction(SIGPIPE, &ignore, &previous);
+            (void)!::write(fds[1], text.data(), text.size());
+            sigaction(SIGPIPE, &previous, nullptr);
+        }
         close(fds[1]);
         int status = 0;
         if (child > 0) waitpid(child, &status, 0);
@@ -787,9 +790,10 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
     std::vector<std::string> done;
     const auto on = [&](std::string_view id) { return std::any_of(chosen.begin(), chosen.end(), [&](const auto& r) { return r.id == id && r.on; }); };
     std::error_code error;
+    // X4 rewrites config.xml when it exits, and a VR session's 2D settings are only in the -2d copy.
+    if (x4_running()) return {"X4 is running: close it first, then uninstall."};
     if (on("desktop")) { std::filesystem::remove(desktop_file(), error); done.push_back("Desktop entry removed."); }
-    if ((on("hud") || on("restore_x4")) && x4_running()) done.push_back("X4 is running: close it to remove the HUD extension or restore its settings.");
-    else {
+    {
         if (on("hud")) {
             if (const auto game = game_dir(); !game.empty()) std::filesystem::remove_all(game/"extensions/x4vr_hud", error);
             if (const auto config = x4_config(); !config.empty()) { // and X4's own record of it

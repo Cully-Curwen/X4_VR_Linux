@@ -100,7 +100,8 @@ std::atomic<uintptr_t> player_global{0};
 // displacement 0x213 -> 0x281), then walking detection through the player global.
 bool enable_on_foot_tracking(const code::X4Sites& sites) {
     namespace x4 = code::x4;
-    if (!patch_code("on-foot head-pose zeroing", sites.onfoot_zeroing, x4::onfoot_zeroing_at, 0x84, 0x81) ||
+    if (!sites.onfoot_zeroing || !sites.camera_offset || // both or neither
+        !patch_code("on-foot head-pose zeroing", sites.onfoot_zeroing, x4::onfoot_zeroing_at, 0x84, 0x81) ||
         !patch_code("on-foot camera offset", sites.camera_offset, x4::camera_offset_at, 0x13, uint8_t(x4::camera_offset_jump)) ||
         !sites.player_global || !in_executable(uintptr_t(sites.player_global), 8)) {
         log_mismatch("on-foot head-pose zeroing or camera offset");
