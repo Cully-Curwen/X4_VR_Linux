@@ -28,6 +28,7 @@ views without ship controls go to a flat screen.
 - `src/linux/vr_layer.cpp` and `src/linux/runtime_bootstrap.cpp` are copies of `observe_layer.cpp`
   and `runtime_bootstrap.cpp` with the Win32 calls replaced. Each names its original and commit in
   its first comment; carry Windows fixes over by diffing the original against that commit.
+- Which files are shared, copied or Linux-only, function by function: `WINDOWS_LINUX_CODE.md`.
 - Linux-only code: `src/linux/` (pose sender, code scan, cursor), `tools/linux/` (`x4vr`),
   `linux/` (CMake, `x4vr-run`, layer manifest), `config/linux/`, `tests/linux/`, `nix/`.
 - `libx4vr.so` links libstdc++ and OpenVR statically and exports only the Vulkan entry points:
