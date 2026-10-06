@@ -1,21 +1,22 @@
 # X4 VR
 
-[Join the X4 VR Discord](https://discord.gg/yDmj5bnG7n) for setup help, bug reports and
-development updates.
+> [!IMPORTANT]
+> [Join the X4 VR Discord](https://discord.gg/yDmj5bnG7n) for setup help, bug reports and
+> development updates.
 
 Native stereoscopic VR with 6DOF head tracking for X4: Foundations, on any SteamVR (OpenVR) headset,
 and experimentally through a headset's own OpenXR runtime.
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Egosoft.
 
-> [!NOTE]
+> [!WARNING]
 > Some antivirus programs, including Windows Defender, have flagged the download as
 > "Trojan:Win32/Sabsik.FL.A!ml". That is a false positive. The "!ml" means Defender's cloud
 > machine learning judged the file by its behavior, which happens a lot with new programs that
 > aren't signed. All of the code is in this repository, and you can
 > [build it yourself](#building-from-source) instead.
 
-> [!NOTE]
+> [!TIP]
 > Quest players: stream with Virtual Desktop, not Steam Link. Over Steam Link the right eye
 > jitters when you turn your head, with both the OpenVR and the OpenXR option. See
 > [Limitations](#limitations).
