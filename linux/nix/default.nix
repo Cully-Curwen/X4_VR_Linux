@@ -13,7 +13,10 @@ pkgs.stdenv.mkDerivation {
   pname = "x4vr";
   version = "0.2.0";
 
-  # The repository, minus local build trees, results, reports and a manual OpenVR clone.
+  # The source nix-build copies into the store: the whole repository (Windows parts too; the
+  # Linux CMake build only compiles its own and the shared files), minus .git, editor and build
+  # leftovers (cleanSourceFilter), local build trees (build*), nix-build links (result*),
+  # reports/ and a manual OpenVR clone (external/). Any change to what is copied rebuilds.
   src = lib.cleanSourceWith {
     src = root;
     filter = path: type:
