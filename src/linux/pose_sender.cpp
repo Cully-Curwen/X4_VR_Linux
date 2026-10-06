@@ -318,7 +318,8 @@ void sender_loop() {
         }
         // Eye at use: the packet carries the centre; the accessor hook adds the eye's offset (in
         // packet units here, times X4's position scale there) and records the pose.
-        const bool at_use = eye_hook && !settings.synth;
+        // As on Windows, stereo.txt's eye_at_use=0 (and walk_at_use=0 on foot) turn it off.
+        const bool at_use = eye_hook && !settings.synth && settings.eye_at_use && (!walking || settings.walk_at_use);
         // Shared pose: no new packet before a right-eye frame, so X4 builds it from the left eye's packet.
         if (at_use && settings.stereo && !flat && shared_pose() && eye == 1) continue;
         seq = seq % 255+1;
@@ -346,10 +347,13 @@ void sender_loop() {
         const double yaw = std::atan2(m[0][2], m[2][2])*degrees;
         const double pitch = std::asin(std::fmax(-1.f, std::fmin(1.f, -m[1][2])))*degrees;
         const double roll = std::atan2(m[1][0], m[1][1])*degrees;
-        // As on Windows, X4 scales angles down (85 of 180 degrees); the gains undo it.
-        // ponytail: position scale reuses the Windows pos_scale; not calibrated on Linux.
+        // As on Windows, X4 scales angles down (85 of 180 degrees); the gains undo it. Roll: the
+        // default roll_gain (pi, Windows' FreeTrack value) gives 2.387 here, measured in the headset
+        // on the Steam Frame (2026-10: stars still with the head tilted 30 degrees; 1.0 turned the
+        // view too little). pos_scale 3.6 as on Windows: leaning, the cockpit stays in place.
+        constexpr float roll_per_gain = 2.387f/3.14159265f;
         const opentrack::Pose pose{settings.pos_scale*sx*m[0][3], settings.pos_scale*sh*m[1][3], settings.pos_scale*sz*m[2][3],
-                                   settings.yaw_gain*sy*yaw, settings.pitch_gain*sp*pitch, settings.roll_gain/3.14159265f*sr*roll};
+                                   settings.yaw_gain*sy*yaw, settings.pitch_gain*sp*pitch, settings.roll_gain*roll_per_gain*sr*roll};
         auto sent = pose;
         sent.roll = with_seq(sent.roll, seq);
         const auto packet = opentrack::encode(sent);
