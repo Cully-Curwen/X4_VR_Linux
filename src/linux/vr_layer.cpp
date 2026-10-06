@@ -594,15 +594,18 @@ void draw_cursor(const Device& d, const Presenter& p, VkCommandBuffer command, V
                  const x4vr::linux_port::CursorState& c) {
     const int x0 = p.offset.x+int(std::lround(double(c.x)*p.placed.width/c.window_w))-int(c.xhot);
     const int y0 = p.offset.y+int(std::lround(double(c.y)*p.placed.height/c.window_h))-int(c.yhot);
+    // Only inside the game image: the border around it is never redrawn, so a cursor drawn there
+    // stayed (a trail at the image's edges).
+    const int left = p.offset.x, top = p.offset.y, right = left+int(p.placed.width), bottom = top+int(p.placed.height);
     std::vector<VkBufferImageCopy> regions;
     for (uint32_t row = 0; row < c.height; ++row) {
         const int y = y0+int(row);
-        if (y < 0 || y >= int(p.eye_extent.height)) continue;
+        if (y < top || y >= bottom) continue;
         for (uint32_t col = 0; col < c.width;) {
             if ((c.bgra[size_t(row)*c.width+col] >> 24) < 128) { ++col; continue; }
             uint32_t end = col;
             while (end < c.width && (c.bgra[size_t(row)*c.width+end] >> 24) >= 128) ++end;
-            const int from = std::max(x0+int(col), 0), to = std::min(x0+int(end), int(p.eye_extent.width));
+            const int from = std::max(x0+int(col), left), to = std::min(x0+int(end), right);
             if (from < to) {
                 VkBufferImageCopy r{};
                 r.bufferOffset = (VkDeviceSize(row)*c.width+uint32_t(from-x0))*4;
