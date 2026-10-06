@@ -8,14 +8,14 @@ function. Update this when a copy changes. How the parts work: `ARCHITECTURE.md`
 | Kind | Files |
 |---|---|
 | **Shared, unchanged** (both builds compile them) | `src/math.cpp`, `src/session.cpp`, `src/eye_targets.cpp`, `src/x4_camera.cpp` (tests only), `include/x4vr/` `runtime_bootstrap.hpp`, `eye_targets.hpp`, `vulkan_extensions.hpp`, `math.hpp`, `session.hpp`, `x4_camera.hpp`, `tools/launcher/hud_mod.hpp`, `tools/launcher/launcher_settings.hpp`, the shared test suites in `tests/` |
-| **Linux copy of a Windows file** | `src/linux/vr_layer.cpp` ← `src/observe_layer.cpp` (commit `62569df`); `src/linux/runtime_bootstrap.cpp` ← `src/runtime_bootstrap.cpp` (`5064391`) |
+| **Linux copy of a Windows file** | `src/linux/observe_layer.cpp` ← `src/observe_layer.cpp` (commit `62569df`); `src/linux/runtime_bootstrap.cpp` ← `src/runtime_bootstrap.cpp` (`5064391`) |
 | **Linux counterpart** (same job, different mechanism) | `src/linux/opentrack_client.cpp` ↔ `src/freetrack_client.cpp` (OpenTrack UDP instead of FreeTrack); `src/linux/code_scan.hpp` ↔ `include/x4vr/code_scan.hpp` (ELF instead of PE); `tools/linux/x4vr_cli.cpp` ↔ `tools/launcher/launcher.cpp` (terminal menu instead of window) |
 | **Windows only** | `src/` `openxr_runtime.cpp`, `native_camera.cpp`, `native_pose_module.cpp`, `pose_detour.cpp`, `copy_call_hook.cpp`, `head_look.cpp`; their `include/x4vr/` headers; `tools/crash_watch.cpp`, `scripts/*.ps1` |
 | **Linux only** | `src/linux/` (`x11_cursor`, `elf_classes`, `opentrack.hpp`, `md5.hpp`, `settings_control.hpp`, `linux_runtime.hpp`, `openxr_runtime_stub.hpp`), `tools/linux/` (`terminal_ui.hpp`, `steam_config.hpp`, and the menu's tested parts: `launch_option.hpp`, `settings_swap.hpp`, `state_files.hpp`, `gpu_status.hpp`), `linux/` (with `nix/`), `config/linux/`, `tests/linux/`, `docs/linux/`, `.github/workflows/linux.yml` |
 
 The Windows originals haven't changed upstream since the copies were made (upstream `main`: `be68c82`).
 
-## `vr_layer.cpp` ← `observe_layer.cpp`
+## `src/linux/observe_layer.cpp` ← `src/observe_layer.cpp`
 
 | Status | Functions |
 |---|---|

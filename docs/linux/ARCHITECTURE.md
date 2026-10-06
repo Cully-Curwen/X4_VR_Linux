@@ -26,8 +26,8 @@ views without ship controls go to a flat screen.
   any Windows line. Without it the Windows build is unchanged.
 - Windows files are never edited for Linux. Portable files are shared (`math.cpp`, `session.cpp`,
   `eye_targets.cpp`, `tools/launcher/launcher_settings.hpp`, `hud_mod.hpp`).
-- `src/linux/vr_layer.cpp` and `src/linux/runtime_bootstrap.cpp` are copies of `observe_layer.cpp`
-  and `runtime_bootstrap.cpp` with the Win32 calls replaced. Each names its original and commit in
+- `src/linux/observe_layer.cpp` and `src/linux/runtime_bootstrap.cpp` are copies of the files with the
+  same names in `src/` with the Win32 calls replaced. Each names its original and commit in
   its first comment; carry Windows fixes over by diffing the original against that commit.
 - Which files are shared, copied or Linux-only, function by function: `CODE_COMPARISON.md`.
 - Linux-only code: `src/linux/` (OpenTrack client, code scan, cursor), `tools/linux/` (`x4vr`),

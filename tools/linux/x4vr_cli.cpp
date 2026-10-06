@@ -104,7 +104,7 @@ bool x4_running() {
 // X4VR_RESOLUTION=WxH sets it, =0 leaves it alone.
 std::filesystem::path settings_file();
 std::filesystem::path settings_marker();
-// What the mod computes at startup (vr_layer.cpp, presenter_initialize): X4's image spans
+// What the mod computes at startup (src/linux/observe_layer.cpp, presenter_initialize): X4's image spans
 // 2*tan_x by 2*tan_y (tan_y = game_tan_y, X4's FOV), at the pixels per tangent SteamVR recommends.
 // Asked as a background app: it doesn't start SteamVR or show up as a running game.
 bool steamvr_resolution(const std::string& xml, int& w, int& h) {

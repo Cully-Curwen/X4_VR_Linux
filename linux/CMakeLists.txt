@@ -60,7 +60,7 @@ target_compile_definitions(x4vr PRIVATE X4VR_INSTALL_LIBDIR="${CMAKE_INSTALL_LIB
 # The mod: Vulkan layer, VR runtime and OpenTrack client in one library, loaded into X4 by
 # the Vulkan loader (x4vr-run). Its own copy of the C++ runtime, nothing exported but the layer's
 # entry points, no unresolved symbols.
-add_library(x4vr_mod SHARED ${X4VR_ROOT}/src/linux/vr_layer.cpp ${X4VR_ROOT}/src/linux/runtime_bootstrap.cpp
+add_library(x4vr_mod SHARED ${X4VR_ROOT}/src/linux/observe_layer.cpp ${X4VR_ROOT}/src/linux/runtime_bootstrap.cpp
   ${X4VR_ROOT}/src/linux/opentrack_client.cpp ${X4VR_ROOT}/src/linux/x11_cursor.cpp
   ${X4VR_ROOT}/src/eye_targets.cpp)
 set_target_properties(x4vr_mod PROPERTIES OUTPUT_NAME x4vr CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
