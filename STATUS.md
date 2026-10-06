@@ -141,6 +141,38 @@ Eye dump: create `reports/captures/dump.txt`, which writes `eye-0.raw`, `eye-1.r
   overlay per cursor image (`RuntimeBootstrap::show_cursor`), uploaded once, then only shown
   or hidden; each upload is logged ("cursor image N uploaded"). Verified: 5 minutes of menus,
   5 uploads in the whole session, 0 failures, cursor visible throughout.
+- **To fix — UI scale capped at 1.8 (player report, 2026-10-04):** a player found that X4's
+  in-game UI scale at 1.8 makes the UI big enough to read in the headset, and wants to go
+  higher, but 1.8 is the slider maximum. The cap is X4's, not ours (no UI scale setting in
+  the layer). Look at raising the limit, for example a UI mod that lifts the slider maximum,
+  or our own scale on the HUD/menus.
+- **To add — opt-in stereo for external views (F2/F3) (player request, 2026-10-04, Quest 3,
+  OpenXR):** early builds stayed in VR in the F2/F3 external camera ("floating in space", good
+  for watching fights). Since theater mode (6a9611f) any view without ship controls goes to the
+  theater screen: `theater=1` tests `!(walking || at_ship_controls())` in
+  `src/freetrack_client.cpp` (FTGetData). Wanted: a setting (launcher checkbox + stereo.txt)
+  that keeps theater for fullscreen menus and cutscenes but leaves external views in stereo.
+  Today's only workaround is `theater=0`, which also puts the menus in stereo. Check first how
+  to tell an external view from a cutscene (`IsFullscreenCutsceneActive` is already read for
+  the debug line), and that head tracking still moves the external camera.
+  Same player: OpenVR on Quest 3 showed "scuba masking" (early builds: left eye lagging on
+  head turns); OpenXR works well. Likely the Steam Link issue, see the README note to use
+  Virtual Desktop.
+- **To add — Steam Link right-eye jitter fix, `shared_pose` (issue #4, 2026-10-05):**
+  Cully-Curwen (Linux port, github.com/Cully-Curwen/X4_VR_Linux) confirmed the cause: SteamVR's
+  streaming link reprojects both eyes with the left eye's pose. Submitting both eyes with the
+  right pose moved the ghosting to the left eye. Their fix needs no reprojection shader: one head
+  pose per eye pair. (1) FTGetData keeps returning the previous head pose while X4 builds a
+  right-eye frame (the eye is already known at `src/freetrack_client.cpp:148`); the eye offset is
+  still added at use. (2) The submit thread (`src/observe_layer.cpp`, near the `submit_pose`
+  code) only submits pairs with identical poses; if one eye is a frame ahead, it submits that
+  eye's previous image instead (needs a one-image history per eye). On Steam Frame: ghosting
+  gone, ~50% of submits stepped back, ~1% still mismatched. Their reference:
+  `src/linux/pose_sender.cpp` and `compositor_loop` in `src/linux/vr_layer.cpp`. Make it an
+  opt-in setting (`shared_pose`, default off): it costs one frame of latency on the eye that
+  steps back and halves head sampling, and the Aero and Virtual Desktop do not need it. Test
+  with a Steam Link user (dshaughnessy5, the reporter, uses Quest + Steam Link). Cheaper than
+  the planned right-eye warp (1-2 days).
 
 ---
 
