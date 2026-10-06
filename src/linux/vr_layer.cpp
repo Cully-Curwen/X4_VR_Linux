@@ -1,4 +1,4 @@
-// VK_LAYER_X4VR: the Linux copy of src/observe_layer.cpp at commit 62569df (docs/HOW_IT_WORKS.md,
+// VK_LAYER_X4VR: the Linux copy of src/observe_layer.cpp at commit 62569df (docs/linux/HOW_IT_WORKS.md,
 // "Vulkan layer"). The alternate-eye presenter, the submission thread, theater mode, pacing and the stats
 // files are the Windows code. Changed for Linux:
 // - the layer is the whole mod (libx4vr.so): VR starts only in X4 (linux_port::is_x4_process), the

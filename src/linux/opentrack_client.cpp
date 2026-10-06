@@ -1,5 +1,5 @@
 // OpenTrack client: the Linux counterpart of src/freetrack_client.cpp at commit be68c82
-// (docs/HOW_IT_WORKS.md, "Head-tracking feed"). Windows answers X4's FTGetData calls; Linux X4 reads
+// (docs/linux/HOW_IT_WORKS.md, "Head-tracking feed"). Windows answers X4's FTGetData calls; Linux X4 reads
 // OpenTrack UDP packets on its own thread, so this sends one packet after every present: the frame
 // X4 builds next uses it. The pose logic is the Windows one (theater decision, recentring,
 // synthetic calibration poses, eye offsets, reprojection poses).
@@ -264,7 +264,7 @@ void sender_loop() {
         const auto game = game_state();
         auto head = x4vr::Matrix::identity();
         // On foot X4 takes the head pose one game frame later than in the cockpit (Windows,
-        // STUTTER_RESEARCH.md "On foot"): predict one frame further.
+        // docs/STUTTER_RESEARCH.md "On foot"): predict one frame further.
         // ponytail: one frame = 1/90 s, as on Windows; read the headset refresh if other rates matter.
         const bool walking = game.walking && !settings.synth;
         const bool tracked = runtime->predicted_tracking(head, settings.predict+(walking ? 1.f/90 : 0.f)) == x4vr::FrameStatus::ready;

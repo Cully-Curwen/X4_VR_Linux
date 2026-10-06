@@ -366,7 +366,7 @@ A port for the native Linux version of X4 9.00, through SteamVR. It covers stere
 and on foot, head tracking, the virtual screen for menus, the mouse cursor and the HUD distance.
 OpenXR isn't supported on Linux yet. It was tested with a Steam Frame on an AMD GPU. NVIDIA and
 Intel GPUs should work but are untested: please send a bug report either way. The Windows build
-is unchanged.
+is unchanged. How it works and what differs from Windows: [docs/linux](docs/linux/HOW_IT_WORKS.md).
 
 ### What you need
 

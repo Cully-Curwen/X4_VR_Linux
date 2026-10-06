@@ -1,7 +1,7 @@
 # How X4 VR works: Windows and Linux
 
 For maintainers: how each part works on Windows, and how the Linux port (`-DX4VR_LINUX=ON`) does
-it differently. Addresses are X4 9.00's. Feature status: `FEATURES.md`. Windows measurements: `STUTTER_RESEARCH.md`.
+it differently. Addresses are X4 9.00's. Feature status: `FEATURES.md`. Windows measurements: `../STUTTER_RESEARCH.md`.
 
 ## Overview
 
