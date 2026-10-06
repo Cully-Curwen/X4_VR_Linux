@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# X4 VR launcher for Linux (docs/linux/ARCHITECTURE.md, "Starting X4"). X4's Steam launch option:
+#
+#   /full/path/to/x4vr-run %command%
+#
+# It only starts X4 in VR when `x4vr` (the menu: Launch in VR) asked for it just before, through
+# a request file; Steam's own Play button then starts the normal game, untouched, as without the
+# launch option. X4VR_ALWAYS=1 starts every launch in VR. The environment that loads the mod has
+# to be set here: `steam -applaunch` only asks the running Steam client to start the game, which
+# inherits Steam's environment.
+#
+# Settings: $X4VR_DIR/stereo.txt (default ~/.local/state/x4vr), created from the defaults on first
+# use and re-read every half second while X4 runs. Log: $X4VR_DIR/x4vr.log (previous run:
+# x4vr.previous.log). Recentre / flat screen: `x4vr ctl recenter`, `x4vr ctl flat`.
+set -u
+if [ $# -eq 0 ]; then
+    echo "usage: x4vr-run <game command>   (Steam launch option: x4vr-run %command%)" >&2
+    exit 2
+fi
+dir="${X4VR_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/x4vr}"
+# The game folder is the one of testandlaunch (or X4) in Steam's command.
+if [ -z "${X4VR_GAME_DIR-}" ]; then
+    for arg in "$@"; do
+        case "$arg" in */testandlaunch|*/X4) export X4VR_GAME_DIR="${arg%/*}"; break ;; esac
+    done
+fi
+# A request from `x4vr` counts for 2 minutes and is used up here.
+request="$dir/launch.request"
+if [ "${X4VR_ALWAYS:-0}" != 1 ]; then
+    if [ -f "$request" ] && [ $(( $(date +%s) - $(stat -c %Y "$request" 2>/dev/null || echo 0) )) -le 120 ]; then
+        rm -f "$request"
+    else
+        rm -f "$request"
+        # Steam's Play: the normal game, with X4's 2D settings (back from a VR session that
+        # didn't get to restore them, e.g. a crash).
+        [ -f "$dir/x4-settings.vr" ] && "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" settings-mode 2d >/dev/null 2>&1
+        # The HUD extension only in VR: out of X4's sight (an older x4vr, or X4VR_FIX_SETTINGS=0).
+        "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" hud --park >/dev/null 2>&1
+        exec "$@"
+    fi
+fi
+mkdir -p "$dir"
+[ -f "$dir/stereo.txt" ] || cp "@CMAKE_INSTALL_FULL_DATADIR@/x4vr/stereo.txt" "$dir/stereo.txt"
+chmod u+w "$dir/stereo.txt" 2>/dev/null
+for log in x4vr stderr; do [ -f "$dir/$log.log" ] && mv -f "$dir/$log.log" "$dir/$log.previous.log"; done
+
+# With SteamVR running, Steam launches non-VR games "streamed" onto a virtual screen in the headset
+# and takes over their window; X4 then loses it ("Invalid window") and quits. The mod renders to
+# SteamVR itself, so X4 must start as a normal desktop game.
+unset StreamForOpenVR SteamStreamingVRPairedInvite
+# Steam's overlay (preloaded gameoverlayrenderer.so and its Vulkan layer) also captures the game
+# for that stream; with it loaded X4 quits as soon as the mod submits its first frame.
+# X4VR_STEAM_OVERLAY=1 keeps it.
+if [ "${X4VR_STEAM_OVERLAY:-0}" != 1 ]; then
+    preload=
+    IFS=': ' read -r -a libs <<< "${LD_PRELOAD-}" # entries separated by colons or spaces
+    for lib in "${libs[@]}"; do
+        case "$lib" in *gameoverlayrenderer.so) ;; *) preload="${preload:+$preload:}$lib" ;; esac
+    done
+    if [ -n "$preload" ]; then export LD_PRELOAD="$preload"; else unset LD_PRELOAD; fi
+    export DISABLE_VK_LAYER_VALVE_steam_overlay_1=1
+fi
+export X4VR_CAPTURE_DIR="$dir"
+# Its own window class in VR (SDL3 reads SDL_APP_ID: the X11 class / Wayland app id), so window
+# manager rules can tell the VR window ("X4VR") from the 2D one ("X4"), e.g. Hyprland:
+#   windowrule = float, class:^(X4VR)$
+# X4VR_APP_ID sets another name; empty keeps X4's own.
+if [ -n "${X4VR_APP_ID-X4VR}" ]; then export SDL_APP_ID="${X4VR_APP_ID-X4VR}"; fi
+export X4VR_RUNTIME="${X4VR_RUNTIME:-openvr}"
+export VK_ADD_LAYER_PATH="@CMAKE_INSTALL_FULL_DATADIR@/vulkan/explicit_layer.d${VK_ADD_LAYER_PATH:+:$VK_ADD_LAYER_PATH}"
+export VK_INSTANCE_LAYERS="VK_LAYER_X4VR${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS}"
+export VK_LOADER_LAYERS_ENABLE="VK_LAYER_X4VR${VK_LOADER_LAYERS_ENABLE:+,$VK_LOADER_LAYERS_ENABLE}"
+export VK_LOADER_DEBUG="${VK_LOADER_DEBUG:-error,warn}"
+{
+    echo "== $(date '+%F %T') x4vr-run"
+    if pgrep -x vrserver >/dev/null 2>&1 || pgrep -f 'bin/linux64/vrserver' >/dev/null 2>&1; then
+        echo "SteamVR is running"
+    else
+        echo "WARNING: SteamVR doesn't seem to be running; X4 will run without VR. Start SteamVR first."
+    fi
+    echo "command: $*"
+} >> "$dir/x4vr.log"
+# X4's settings for VR (FOV, anti-aliasing, upscaling, VSync, frame limit, OpenTrack, windowed
+# resolution) are kept apart from its 2D ones: x4vr saves config.xml as config.xml.x4vr-2d, puts
+# the VR copy in its place, and swaps back when X4 exits (below). Then fixed for VR while X4
+# isn't running yet. X4VR_FIX_SETTINGS=0 leaves config.xml alone.
+if [ "${X4VR_FIX_SETTINGS:-1}" != 0 ]; then
+    # Fixed only once the VR copy is in place: else the fixes would land in the 2D settings.
+    "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" settings-mode vr >> "$dir/x4vr.log" 2>&1 &&
+        "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" fix-settings --auto >> "$dir/x4vr.log" 2>&1
+fi
+# The HUD distance mod (x4vr hud --refresh) is built from the game's files: back in place for VR,
+# the factor chosen in the menu (stereo.txt hud_factor) applied, rebuilt after a game update.
+"@CMAKE_INSTALL_FULL_BINDIR@/x4vr" hud --refresh >> "$dir/x4vr.log" 2>&1
+# X4's own arguments go after Steam's command; testandlaunch passes them on to X4. Without
+# -nocputhrottle X4 drops to ~12 fps whenever its window isn't focused (while wearing the headset).
+if [ "${X4VR_GAME_ARGS-unset}" = unset ]; then
+    set -- "$@" -skipintro -nocputhrottle
+else
+    # shellcheck disable=SC2086 # word splitting intended
+    set -- "$@" $X4VR_GAME_ARGS
+fi
+# Not exec: the exit status tells a clean quit (0) from a crash (134 abort, 139 segfault) or a kill
+# (143 SIGTERM, 137 SIGKILL).
+"$@" 2>> "$dir/stderr.log"
+status=$?
+echo "== $(date '+%F %T') X4 exited with status $status" >> "$dir/x4vr.log"
+# X4 writes config.xml when it exits: keep that as its VR settings and restore the 2D ones.
+[ "${X4VR_FIX_SETTINGS:-1}" != 0 ] && "@CMAKE_INSTALL_FULL_BINDIR@/x4vr" settings-mode 2d >> "$dir/x4vr.log" 2>&1
+"@CMAKE_INSTALL_FULL_BINDIR@/x4vr" hud --park >> "$dir/x4vr.log" 2>&1 # the HUD extension only in VR
+exit "$status"
