@@ -1,16 +1,14 @@
 // OpenTrack pose sender: the Linux counterpart of src/freetrack_client.cpp at commit be68c82
 // (docs/HOW_IT_WORKS.md, "Head-tracking feed"). Windows answers X4's FTGetData calls; Linux X4 reads
-// OpenTrack UDP packets on its own thread (docs/LINUX_FINDINGS.md, 0.6), so this sends one packet
-// after every present: the frame X4 builds next uses it. The pose logic is the Windows one (theater
-// decision, recentring, synthetic calibration poses, eye offsets, reprojection poses).
+// OpenTrack UDP packets on its own thread, so this sends one packet after every present: the frame
+// X4 builds next uses it. The pose logic is the Windows one (theater decision, recentring,
+// synthetic calibration poses, eye offsets, reprojection poses).
 //
-// Stage B of plan section 7 (eye at use), as on Windows: packets carry the head centre, and a hook on
-// VR::OpenTrack's position accessor adds the eye offset of the frame X4 builds when its camera
-// reads the tracker (docs/LINUX_FINDINGS.md, stage B). Without the hook (other X4 version,
-// X4VR_EYE_AT_USE=0) it falls back to stage A: the eye is chosen when the packet is sent.
-// The frame half (C) and the backward clamp (D) need further X4 code patches, later.
+// Eye at use, as on Windows: packets carry the head centre, and a hook on VR::OpenTrack's position
+// accessor adds the eye offset of the frame X4 builds when its camera reads the tracker. Without
+// the hook (pattern not found, X4VR_EYE_AT_USE=0) the eye is chosen when the packet is sent.
 //
-// Signs and units measured with x4vr udp-send (docs/LINUX_FINDINGS.md, 0.5): OpenTrack +yaw turns
+// Signs and units, measured in X4 9.00: OpenTrack +yaw turns
 // right, +pitch looks up, +roll tilts left, +x moves left, +y up, -z forward. Positions are sent
 // in OpenTrack centimetres. Overrides without rebuilding: X4VR_OT_YAW, _PITCH, _ROLL, _X, _Y, _Z.
 #include "linux_runtime.hpp"
@@ -60,8 +58,8 @@ x4vr::Matrix synthetic_pose(const float v[6]) {
     return pose;
 }
 
-// ---- Stage B: eye at use ------------------------------------------------------------------
-// Linux X4 9.00 (non-PIE), VR::OpenTrack, from its disassembly (docs/LINUX_FINDINGS.md, stage B):
+// ---- Eye at use ---------------------------------------------------------------------------
+// Linux X4 9.00 (non-PIE), VR::OpenTrack, from its disassembly:
 // - slot 2 (0x1a1b720, the update), once per frame on the game thread: copies the newest packet's six doubles
 //   to +0x78..+0xa0 and sets +0xa8 (none new: zeroes them, clears +0xa8), position = xyz * scale
 //   (+0x114) smoothed into +0xd0 (strength 1: the newest), angles into +0x100.
@@ -142,9 +140,8 @@ void install_eye_hook(const code::X4Sites& sites) {
     log("X4VR pose: eye-at-use hook installed (VR::OpenTrack slot 34)");
 }
 
-// ---- Stage D and on foot: code patches ------------------------------------------------------
-// X4 9.00's per-frame camera input function (0xfeb..., docs/LINUX_FINDINGS.md, found with a
-// hardware-watchpoint diagnostic, since removed) reads the tracker's angles (slot 33) and position (slot 34, called from
+// ---- Code patches: backward clamp and on foot ------------------------------------------------
+// X4 9.00's per-frame camera input function (0xfeb...) reads the tracker's angles (slot 33) and position (slot 34, called from
 // 0xfec248) and hands them to the camera controller (0x1933d00). The Windows mod's patches have
 // counterparts there; each is one byte, so it is atomic while X4 runs:
 // - Backward clamp: `if (tracker type != 7 && z > 0) z = 0` (0xfeb72b..0xfeb749) pinned leaning
@@ -316,7 +313,7 @@ void sender_loop() {
         const double pitch = std::asin(std::fmax(-1.f, std::fmin(1.f, -m[1][2])))*degrees;
         const double roll = std::atan2(m[1][0], m[1][1])*degrees;
         // As on Windows, X4 scales angles down (85 of 180 degrees); the gains undo it.
-        // ponytail: position scale reuses the Windows pos_scale; calibrate on Linux (docs/LINUX_FINDINGS.md, 0.5).
+        // ponytail: position scale reuses the Windows pos_scale; not calibrated on Linux.
         const opentrack::Pose pose{settings.pos_scale*sx*m[0][3], settings.pos_scale*sh*m[1][3], settings.pos_scale*sz*m[2][3],
                                    settings.yaw_gain*sy*yaw, settings.pitch_gain*sp*pitch, settings.roll_gain/3.14159265f*sr*roll};
         auto sent = pose;

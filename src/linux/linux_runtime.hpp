@@ -46,7 +46,7 @@ void scan_x4();
 const code::X4Sites* x4_sites();
 
 // SteamVR's link to the Steam Frame applies the left eye's submitted pose to both eyes (measured
-// with pose_from_eye, docs/LINUX_FINDINGS.md). With shared_pose (stereo.txt, default 1) X4 builds
+// in the headset). With shared_pose (stereo.txt, default 1) X4 builds
 // both eyes of a pair from one head pose (the pose sender skips the packet before a right-eye
 // frame) and the layer submits matching pairs, so one pose is right for both images.
 bool shared_pose();

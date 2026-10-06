@@ -628,7 +628,7 @@ VkSemaphore presenter_copy(const Device& d, VkQueue queue, const VkPresentInfoKH
     const auto settings = x4vr::stereo_settings();
     const auto number = x4vr::next_present();
     {
-        // Stage C check: X4's frame half should flip on every present (logged after 1000, then every 20000).
+        // Frame-half check: X4's frame half should flip on every present (logged after 1000, then every 20000).
         static int last_half = -1;
         static uint64_t seen{}, flips{};
         const int half = x4vr::frame_half();

@@ -2,7 +2,7 @@
 #   nix-build                          (from the repository root, via default.nix)
 #   pkgs.callPackage ./nix/package.nix {}   (from configuration.nix)
 # Build it from the same nixpkgs as the system's Steam, so the libraries it loads into X4 match
-# the glibc X4 runs with (docs/LINUX_FINDINGS.md, 0.4).
+# the glibc X4 runs with (on NixOS, X4's Steam runtime container uses the host's glibc).
 { lib, stdenv, cmake, vulkan-headers, openvr }:
 
 stdenv.mkDerivation {
