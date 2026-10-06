@@ -639,3 +639,12 @@ as modified only because of the HUD scaling (the UI script edits), not the HUD's
 setting says it doesn't apply to the HUD above 1. To do: confirm a move-only extension leaves X4
 unmodified, then find the check that keeps the HUD out of the UI scale and patch it in the binary,
 so X4's own scale sizes the HUD.
+
+## Corrupted menu backgrounds at 1920x1080 (October 2026)
+
+One VR session at X4 resolution 1920x1080 (left over from the overlay test): the fullscreen menus
+in a save (pause, map), the ones with the blurred game view behind them, showed random coloured
+blocks, in the desktop window too, so in X4's own image. The start menu (no game behind it) and
+the ship interaction menu (over the live view) were fine. The logs had no Vulkan or driver errors.
+After a restart at the automatic resolution (2880x1620) everything was fine. Not tested whether
+1920x1080 alone brings it back, or 2D at that resolution.
