@@ -1,7 +1,8 @@
 # Features: Windows and Linux
 
+What the Windows mod has and whether Linux has it, plus Linux's own extras ("No" under Windows).
 Linux status: **Works** (tested with a Steam Frame, SteamVR, X4 9.00), **Missing**, **Not needed**
-or **Planned**. A "No" under Windows means Linux only.
+or **Planned**.
 
 ## VR and rendering
 
@@ -25,13 +26,7 @@ or **Planned**. A "No" under Windows means Linux only.
 | X4 code found by byte pattern | Yes | Works | `x4vr patterns` checks a new X4 build. |
 | TrackIR / Tobii patch | Yes | Not needed | Linux X4 only has OpenTrack. |
 | Recenter (hotkey, SteamVR's recenter) | Hotkey | Works | |
-
-## On foot
-
-| Feature | Windows | Linux | Note |
-|---|---|---|---|
 | Stereo and head tracking on foot | Yes | Works | Same patches as Windows. |
-| Snap turning | No | Not needed | |
 
 ## Menus, screen and input
 
