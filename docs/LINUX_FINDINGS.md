@@ -409,7 +409,9 @@ layer in Phase 3.
    1300 headset pixels every display frame without mipmaps (the drawn screen is shrunk once per
    game frame, then only reprojected); possibly also tearing, as the ring texture handed to the
    overlay can be overwritten while SteamVR reads it. The drawn screen and cursor stay; an
-   overlay cursor over the drawn screen could swim against it.
+   overlay cursor over the drawn screen could swim against it. X4 at 1920x1080 still shimmered,
+   but that test can't tell: the layer scales X4's image to SteamVR's pixel density (`placed`,
+   about 2827 px wide on the Frame) whatever X4's resolution, so the overlay got the same size.
 5. **SteamVR asks for 4202x4266 per eye but the Frame link downsamples above 3458x3458**
    (`vrcompositor.txt`): lower X4's per-app resolution in SteamVR, later cap it in the mod.
 6. **A wireless dropout leaves SteamVR in standby:** vrlink logged video stream resets, then
