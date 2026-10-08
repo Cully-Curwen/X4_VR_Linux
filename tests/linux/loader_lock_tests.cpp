@@ -5,8 +5,9 @@
 //
 // This program stands in for X4 and the Vulkan loader: it loads the mod (libx4vr.so) as a layer and
 // calls its vkCreateInstance and vkCreateDevice holding a lock as the loader does, with a fake driver
-// below. fake_vrclient.so stands in for SteamVR: each Vulkan question first "calls the loader"
-// (x4vr_test_loader_call). The lock checks for errors, so a call made while it's held is counted
+// below. fake_vrclient.so stands in for SteamVR: connecting to it and each Vulkan question first
+// "call the loader" (x4vr_test_loader_call). The mod connects to SteamVR at X4's first frame, not
+// in vkCreateInstance: SteamVR may make Vulkan calls while connecting too. The lock checks for errors, so a call made while it's held is counted
 // instead of hanging. No Vulkan loader or driver is needed.
 // usage: loader_lock_tests <libx4vr.so> <fake SteamVR runtime folder>
 #include "vr_query.hpp"
@@ -29,6 +30,7 @@ void check(bool ok, const std::string& what) { if (!ok) { std::printf("FAIL: %s\
 // The loader's lock, held through vkCreateInstance and vkCreateDevice while the layers run.
 pthread_mutex_t loader_lock;
 int calls_under_lock = 0; // Vulkan calls SteamVR made while it was held: in X4, a hang
+int connections = 0;      // VR_Init calls that reached the fake SteamVR
 
 // Dispatchable handles start with the loader's dispatch pointer (the mod looks them up by it); an
 // instance's GPUs share the instance's.
@@ -43,6 +45,7 @@ extern "C" __attribute__((visibility("default"))) void x4vr_test_loader_call() {
     if (pthread_mutex_lock(&loader_lock) == EDEADLK) { ++calls_under_lock; return; } // held by this thread
     pthread_mutex_unlock(&loader_lock);
 }
+extern "C" __attribute__((visibility("default"))) void x4vr_test_connected() { ++connections; }
 extern "C" __attribute__((visibility("default"))) uint64_t x4vr_test_gpu() { return reinterpret_cast<uint64_t>(&gpu_handle); }
 
 namespace {
@@ -202,6 +205,9 @@ int main(int argc, char** argv) {
     check(calls_under_lock == 0, "SteamVR made Vulkan calls inside vkCreateDevice (X4 would hang)");
     check(contains(log, "VR disabled for this device: X4 selected a GPU different from the headset's"), "VR off on another GPU");
     check(!has(device_extensions, "VK_KHR_maintenance1") && queues == 1, "that device as X4 asked for it");
+
+    // SteamVR not connected to yet: that waits for X4's first frame, outside the loader's lock.
+    check(connections == 0, "the mod connected to SteamVR inside vkCreateInstance or vkCreateDevice");
 
     if (failures) { std::printf("--- the mod's log\n%s", log.c_str()); return 1; }
     std::printf("loader_lock: all passed\n");

@@ -597,7 +597,8 @@ bool launch_vr(const std::function<void(const std::string&)>& progress, const st
 // `x4vr vr-vulkan`, run by x4vr-run just before X4 starts: SteamVR's Vulkan requirements for the mod
 // (src/linux/vr_query.hpp), one per line on stdout, progress on stderr (x4vr.log). SteamVR may create
 // a Vulkan instance of its own to answer, which inside X4's vkCreateInstance or vkCreateDevice hangs
-// X4 (issue #7); in this process it's harmless. Waits for the headset like the mod did
+// X4 (issue #7); in this process it's harmless. Starts SteamVR if it isn't running (X4VR_ALWAYS=1
+// and Steam's Play), as the mod's own VR_Init did. Waits for SteamVR and the headset
 // (X4VR_HEADSET_WAIT seconds, default 120): a Steam Frame connects some seconds after SteamVR.
 int vr_vulkan() {
     using namespace std::chrono;
@@ -605,14 +606,21 @@ int vr_vulkan() {
     const char* wait_text = std::getenv("X4VR_HEADSET_WAIT");
     const int wait = wait_text && *wait_text ? std::atoi(wait_text) : 120;
     const auto deadline = steady_clock::now()+seconds(std::max(wait, 0));
-    // Asked as a background app: it doesn't start SteamVR or show up as a running game.
+    // Asked as a background app, which doesn't show up as a running game, but doesn't start SteamVR
+    // either: started here, as the menu does.
+    if (!steamvr_running()) {
+        std::cerr << "x4vr: SteamVR isn't running: starting it\n";
+        run({"steam", "steam://rungameid/250820"}, {.detach = true});
+    }
     for (bool waiting = false;;) {
         auto error = vr::VRInitError_None;
         if (vr::VR_Init(&error, vr::VRApplication_Background) && error == vr::VRInitError_None) break;
-        const bool no_headset_yet = error == vr::VRInitError_Init_HmdNotFound || error == vr::VRInitError_Init_HmdNotFoundPresenceFailed ||
-                                    error == vr::VRInitError_Driver_WirelessHmdNotConnected;
-        if (!no_headset_yet || steady_clock::now() >= deadline) return fail(vr::VR_GetVRInitErrorAsEnglishDescription(error));
-        if (!waiting) std::cerr << "x4vr: waiting up to " << wait << " s for the headset\n";
+        // Not ready yet: SteamVR still starting (its vrserver process can exist before it takes
+        // apps: the menu's Launch only waits for the process), or no headset yet.
+        const bool not_ready = error == vr::VRInitError_Init_NoServerForBackgroundApp || error == vr::VRInitError_Init_HmdNotFound ||
+                               error == vr::VRInitError_Init_HmdNotFoundPresenceFailed || error == vr::VRInitError_Driver_WirelessHmdNotConnected;
+        if (!not_ready || steady_clock::now() >= deadline) return fail(vr::VR_GetVRInitErrorAsEnglishDescription(error));
+        if (!waiting) std::cerr << "x4vr: waiting up to " << wait << " s for SteamVR and the headset: " << vr::VR_GetVRInitErrorAsEnglishDescription(error) << "\n";
         waiting = true;
         std::this_thread::sleep_for(seconds(1));
     }

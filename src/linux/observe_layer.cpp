@@ -187,6 +187,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* ci, 
             if (const char* answers = std::getenv(x4vr::vr_query::instance_extensions_variable); !answers || !*answers)
                 throw std::runtime_error("SteamVR's Vulkan needs not passed by x4vr-run (see the x4vr-run lines in x4vr.log)");
             pin_library();
+            // Not connected to SteamVR yet: that waits for X4's first frame, outside the loader's
+            // lock (runtime_bootstrap.cpp, connect).
             runtime = x4vr::acquire_runtime_bootstrap();
             extensions.emplace(ci->enabledExtensionCount, ci->ppEnabledExtensionNames, runtime->instance_extensions());
             names = extensions->names();
@@ -195,7 +197,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* ci, 
             x4vr::linux_port::start_opentrack_client();
         }
     } catch (const std::exception& error) {
-        // No headset or no SteamVR: X4 runs flat, as without the mod.
+        // No answers from x4vr-run (no SteamVR or headset): X4 runs flat, as without the mod.
         log(std::string("X4VR layer: VR runtime unavailable, X4 runs without VR: ")+error.what());
         runtime.reset();
         augmented = *ci;
