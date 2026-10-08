@@ -2,8 +2,8 @@
 // SteamVR answered the mod's Vulkan questions by first making Vulkan calls of its own; inside X4's
 // vkCreateInstance / vkCreateDevice those wait for the Vulkan loader's lock, held by the same thread:
 // X4 hung. Here each Vulkan question first "calls the loader" (loader_lock_tests' loader_call),
-// which reports instead of hanging when its lock is already held. VR_Init succeeds; any other
-// call returns 0.
+// which reports instead of hanging when its lock is already held. So does connecting (VR_Init),
+// which then succeeds and is counted (x4vr_test_connected). Any other call returns 0.
 #include <openvr.h>
 #include "ivrclientcore.h"
 #include <dlfcn.h>
@@ -22,6 +22,9 @@ template<class Member> size_t slot(Member member) {
 // The test program's stand-ins for the Vulkan loader (exported by loader_lock_tests).
 void loader_call() {
     if (auto* call = reinterpret_cast<void (*)()>(dlsym(RTLD_DEFAULT, "x4vr_test_loader_call"))) call();
+}
+void connected() {
+    if (auto* count = reinterpret_cast<void (*)()>(dlsym(RTLD_DEFAULT, "x4vr_test_connected"))) count();
 }
 uint64_t gpu() {
     auto* gpu = reinterpret_cast<uint64_t (*)()>(dlsym(RTLD_DEFAULT, "x4vr_test_gpu"));
@@ -51,7 +54,11 @@ void* compositor_table[256];
 void* system_table[256];
 Fake compositor{compositor_table}, system_object{system_table};
 struct Core : vr::IVRClientCore {
-    vr::EVRInitError Init(vr::EVRApplicationType, const char*) override { return vr::VRInitError_None; }
+    vr::EVRInitError Init(vr::EVRApplicationType, const char*) override {
+        loader_call();
+        connected();
+        return vr::VRInitError_None;
+    }
     void Cleanup() override {}
     vr::EVRInitError IsInterfaceVersionValid(const char*) override { return vr::VRInitError_None; }
     void* GetGenericInterface(const char* name, vr::EVRInitError* error) override {

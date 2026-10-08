@@ -76,7 +76,7 @@ export VK_LOADER_DEBUG="${VK_LOADER_DEBUG:-error,warn}"
     if pgrep -x vrserver >/dev/null 2>&1 || pgrep -f 'bin/linux64/vrserver' >/dev/null 2>&1; then
         echo "SteamVR is running"
     else
-        echo "WARNING: SteamVR doesn't seem to be running; X4 will run without VR. Start SteamVR first."
+        echo "SteamVR isn't running yet: x4vr starts it"
     fi
     echo "command: $*"
 } >> "$dir/x4vr.log"
