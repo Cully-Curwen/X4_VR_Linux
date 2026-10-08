@@ -8,6 +8,7 @@
 #include "code_scan.hpp"
 #include "openxr_runtime_stub.hpp"
 #include "settings_control.hpp"
+#include "vr_query.hpp"
 #include "x11_cursor.hpp"
 #include <link.h>
 #include <strings.h>
@@ -18,6 +19,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -25,6 +27,7 @@
 #include <functional>
 #include <iomanip>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -44,13 +47,76 @@ struct RuntimeCall {
 };
 std::mutex bootstrap_mutex;
 std::weak_ptr<RuntimeBootstrap> bootstrap;
+// Linux only: a SteamVR call during X4's start that never returns leaves X4 without a window and
+// the log at "... begin" (issue #7). Each step below logs its thread and the time; one that has to
+// wait for another thread's step says which; one still running after 10 s says so, again at 30 s,
+// 60 s and then every minute. The bug report reads these lines (x4vr_cli.cpp, make_report).
+pid_t thread_id() { return static_cast<pid_t>(syscall(SYS_gettid)); }
+std::string clock_text() {
+    timespec now{};
+    clock_gettime(CLOCK_REALTIME, &now);
+    tm local{};
+    localtime_r(&now.tv_sec, &local);
+    char text[32];
+    std::snprintf(text, sizeof text, "%02d:%02d:%02d.%03ld", local.tm_hour, local.tm_min, local.tm_sec, now.tv_nsec/1000000);
+    return text;
+}
+std::atomic<pid_t> step_thread{0};
+std::atomic<const char*> step_name{""};
+class Step {
+public:
+    // `mutex`: the bootstrap's, held until the step ends.
+    explicit Step(const char* name, std::mutex* mutex = nullptr) : name_(name) {
+        if (mutex) {
+            lock_ = std::unique_lock(*mutex, std::try_to_lock);
+            if (!lock_.owns_lock()) {
+                const auto holder = step_thread.load();
+                linux_port::log(prefix()+" waits (thread "+std::to_string(thread_)+", "+clock_text()+") for "+
+                                (holder ? "thread "+std::to_string(holder)+" ("+step_name.load()+")" : std::string("another thread")));
+                lock_.lock();
+            }
+        }
+        step_thread = thread_; step_name = name_;
+        linux_port::log(prefix()+" begin (thread "+std::to_string(thread_)+", "+clock_text()+")");
+        watchdog_ = std::thread([this] {
+            std::unique_lock lock(watch_mutex_);
+            for (int seconds = 10; !stopped_.wait_until(lock, start_+std::chrono::seconds(seconds), [this] { return done_; });
+                 seconds = seconds < 30 ? 30 : seconds < 60 ? 60 : seconds+60)
+                linux_port::log(prefix()+" still running after "+std::to_string(seconds)+" s (thread "+std::to_string(thread_)+
+                                "): the SteamVR call hasn't returned");
+        });
+    }
+    void complete() { completed_ = true; linux_port::log(prefix()+" complete ("+elapsed()+")"); }
+    ~Step() {
+        { std::lock_guard lock(watch_mutex_); done_ = true; }
+        stopped_.notify_all();
+        watchdog_.join();
+        if (!completed_) linux_port::log(prefix()+" failed ("+elapsed()+")"); // the caller logs the error
+        step_thread = 0;
+    }
+    Step(const Step&) = delete;
+    Step& operator=(const Step&) = delete;
+private:
+    std::string prefix() const { return std::string("X4VR bootstrap: ")+name_; }
+    std::string elapsed() const {
+        return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start_).count())+" ms";
+    }
+    std::unique_lock<std::mutex> lock_; // released last
+    const char* name_;
+    pid_t thread_ = thread_id();
+    std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
+    std::mutex watch_mutex_;
+    std::condition_variable stopped_;
+    bool done_ = false, completed_ = false;
+    std::thread watchdog_;
+};
 }
 bool is_runtime_bootstrap_thread() { return runtime_thread; }
 RuntimeBootstrap::RuntimeBootstrap() {
     RuntimeCall call;
     if (const char* backend = std::getenv("X4VR_RUNTIME"); backend && !strcasecmp(backend, "openxr"))
         linux_port::log("X4VR bootstrap: OpenXR is not built on Linux yet; using OpenVR");
-    linux_port::log("X4VR bootstrap: initialize begin");
+    Step step("initialize");
     // SteamVR can be running before the headset is: a wireless one (Steam Frame) connects some
     // seconds after SteamVR starts, a wired one may still be off. VR_Init then fails and X4 would
     // run without VR, so wait for the headset, up to X4VR_HEADSET_WAIT seconds (default 120,
@@ -79,7 +145,7 @@ RuntimeBootstrap::RuntimeBootstrap() {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
-    linux_port::log("X4VR bootstrap: initialize complete");
+    step.complete();
 }
 RuntimeBootstrap::~RuntimeBootstrap() {
     std::lock_guard lock(mutex_);
@@ -87,34 +153,33 @@ RuntimeBootstrap::~RuntimeBootstrap() {
     session_.adopt_bootstrap_thread();
     session_.shutdown();
 }
-std::vector<std::string> RuntimeBootstrap::instance_extensions() {
-    if (xr_) { RuntimeCall call; return xr_->instance_extensions(); }
-    std::lock_guard lock(mutex_);
-    RuntimeCall call;
-    session_.adopt_bootstrap_thread();
-    linux_port::log("X4VR bootstrap: instance extensions begin");
-    auto result = session_.instance_extensions();
-    linux_port::log("X4VR bootstrap: instance extensions complete");
+// Linux: not asked here. These run inside X4's vkCreateInstance / vkCreateDevice, where the Vulkan
+// loader holds its lock; SteamVR may answer by creating a Vulkan instance, which then waits for that
+// lock forever (issue #7). x4vr-run asks SteamVR before X4 starts (vr_query.hpp).
+namespace {
+std::vector<std::string> launcher_extensions(const char* variable, const char* what) {
+    const char* text = std::getenv(variable);
+    if (!text || !*text) throw std::runtime_error(std::string("SteamVR's Vulkan ")+what+" not passed by x4vr-run (see x4vr.log)");
+    auto result = vr_query::words(text);
+    linux_port::log(std::string("X4VR bootstrap: ")+what+" from x4vr-run: "+text);
     return result;
 }
-std::vector<std::string> RuntimeBootstrap::device_extensions(VkPhysicalDevice_T* physical) {
+}
+std::vector<std::string> RuntimeBootstrap::instance_extensions() {
+    if (xr_) { RuntimeCall call; return xr_->instance_extensions(); }
+    return launcher_extensions(vr_query::instance_extensions_variable, "instance extensions");
+}
+std::vector<std::string> RuntimeBootstrap::device_extensions(VkPhysicalDevice_T*) {
     if (xr_) { RuntimeCall call; return xr_->device_extensions(); }
-    std::lock_guard lock(mutex_);
-    RuntimeCall call;
-    session_.adopt_bootstrap_thread();
-    linux_port::log("X4VR bootstrap: device extensions begin");
-    auto result = session_.device_extensions(physical);
-    linux_port::log("X4VR bootstrap: device extensions complete");
-    return result;
+    return launcher_extensions(vr_query::device_extensions_variable, "device extensions"); // the headset GPU's (vkCreateDevice checks)
 }
 VkPhysicalDevice_T* RuntimeBootstrap::output_device(VkInstance_T* instance) {
     if (xr_) { RuntimeCall call; return xr_->output_device(instance); }
-    std::lock_guard lock(mutex_);
+    Step step("output GPU", &mutex_);
     RuntimeCall call;
     session_.adopt_bootstrap_thread();
-    linux_port::log("X4VR bootstrap: output GPU begin");
     auto result = session_.output_device(instance);
-    linux_port::log("X4VR bootstrap: output GPU complete");
+    step.complete();
     return result;
 }
 std::shared_ptr<RuntimeBootstrap> acquire_runtime_bootstrap() {

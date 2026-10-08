@@ -50,12 +50,18 @@ through `crash_watch.exe` with the Vulkan layer enabled by environment variables
 3. turns off Steam's VR streaming of the window and Steam's overlay (both made X4 quit);
 4. enables the layer (`VK_ADD_LAYER_PATH`, `VK_INSTANCE_LAYERS`) and sets `SDL_APP_ID=X4VR`, so the
    VR window has its own class for window manager rules;
-5. swaps in X4's VR settings and, only if that worked, fixes them; puts the HUD extension back,
+5. asks SteamVR for its Vulkan needs with `x4vr vr-vulkan` (instance extensions, the headset's GPU,
+   device extensions; waiting for the headset) and passes them to the mod (`X4VR_VR_*`,
+   `src/linux/vr_query.hpp`). The mod never asks SteamVR inside X4's `vkCreateInstance` or
+   `vkCreateDevice`: the Vulkan loader holds its lock there, and SteamVR may answer by creating a
+   Vulkan instance of its own, which then waits for that lock forever (issue #7, seen with NVIDIA).
+   Without the answers the mod leaves X4 flat;
+6. swaps in X4's VR settings and, only if that worked, fixes them; puts the HUD extension back,
    applies the menu's factor and rebuilds it after a game update (`hud --refresh`);
-6. runs X4 with `-skipintro -nocputhrottle`, then swaps the 2D settings back and moves the HUD
+7. runs X4 with `-skipintro -nocputhrottle`, then swaps the 2D settings back and moves the HUD
    extension aside again.
 
-The mod waits up to 2 minutes for the headset when SteamVR is up before it (Steam Frame).
+`x4vr vr-vulkan` waits up to 2 minutes for the headset when SteamVR is up before it (Steam Frame).
 
 ## Head-tracking feed
 
@@ -214,7 +220,12 @@ Linux environment variables, set in front of `x4vr-run` in the launch option:
 - **Tests** (`tests/linux/`, `ctest`): the code scan on a stand-in for X4's code, ELF and RTTI
   reading, MD5, the OpenTrack packet, Steam's config files, the launch option check, the 2D/VR
   settings swap (crash and stop cases) and the HUD extension's placement, uninstall's file list,
-  plus the shared Windows suites that build on Linux.
+  the bug report's readings, plus the shared Windows suites that build on Linux.
+  `loader_lock` (issue #7) loads the mod as the Vulkan loader would and calls its
+  `vkCreateInstance` and `vkCreateDevice` holding the loader's lock, against a fake SteamVR client
+  that makes a Vulkan call before answering: it fails if that call comes while the lock is held
+  (in X4, a hang), or if the mod doesn't set up VR with `x4vr vr-vulkan`'s answers. No Vulkan
+  loader or driver needed.
 - **CI** (`.github/workflows/linux.yml`): both routes on Ubuntu 24.04 when files the Linux build
   reads change.
 

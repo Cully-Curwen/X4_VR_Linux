@@ -6,15 +6,21 @@
 #include "../launcher/hud_mod.hpp"
 #include "../launcher/launcher_settings.hpp"
 #include "md5.hpp"
+#include "build_info.h"
 #include "gpu_status.hpp"
 #include "launch_option.hpp"
+#include "report_info.hpp"
 #include "settings_control.hpp"
 #include "settings_swap.hpp"
 #include "state_files.hpp"
 #include "steam_config.hpp"
 #include "terminal_ui.hpp"
+#include "vr_query.hpp"
+#include <vulkan/vulkan.h>
 #include <openvr.h>
+#include <dlfcn.h>
 #include <fcntl.h>
+#include <gnu/libc-version.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -52,8 +58,16 @@ void usage() {
         "      The menu: checks, VR settings, Launch X4 in VR, HUD distance, bug report, uninstall.\n"
         "  uninstall\n"
         "      The menu's uninstall screen.\n"
+        "  version\n"
+        "      The version and commit this x4vr was built from (its date, local changes) and the ones before it.\n"
+
+        "  vr-vulkan\n"
+        "      For x4vr-run: asks SteamVR for its Vulkan needs before X4 starts (instance extensions,\n"
+        "      headset GPU, device extensions), one per line.\n"
         "  report\n"
-        "      Packs logs, settings and a summary into ~/x4vr-report-<time>.tar.gz for a bug report.\n"
+        "      Packs logs (the mod's and SteamVR's), settings, versions and a summary into\n"
+        "      ~/x4vr-report-<time>.tar.gz for a bug report. Made while X4 hangs at its start, it also\n"
+        "      records what X4's threads wait on (a backtrace with gdb or eu-stack).\n"
         "  patterns [path to the X4 executable]\n"
         "      Finds the X4 code the mod patches and hooks, as the mod does at startup, and prints where.\n"
         "  ctl recenter | flat\n"
@@ -87,14 +101,16 @@ std::filesystem::path x4_config() {
     }
     return best;
 }
-bool x4_running() {
+// X4's process id, 0 when it isn't running.
+int x4_pid() {
     std::error_code error;
     for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {
         std::error_code link_error;
-        if (std::filesystem::read_symlink(entry.path()/"exe", link_error).filename() == "X4") return true;
+        if (std::filesystem::read_symlink(entry.path()/"exe", link_error).filename() == "X4") return std::atoi(entry.path().filename().c_str());
     }
-    return false;
+    return 0;
 }
+bool x4_running() { return x4_pid() != 0; }
 // The Windows launcher's checks (tools/launcher/launcher_settings.hpp, tested in launcher_tests),
 // minus "fullscreen, not borderless": on Windows that is for NVIDIA DSR; on Linux X4's borderless
 // window at the desktop resolution is fine.
@@ -585,7 +601,224 @@ bool launch_vr(const std::function<void(const std::string&)>& progress, const st
     return x4_running();
 }
 
-// Bug report: logs, settings, X4's config.xml and a summary in ~/x4vr-report-<time>.tar.gz.
+// `x4vr vr-vulkan`, run by x4vr-run just before X4 starts: SteamVR's Vulkan requirements for the mod
+// (src/linux/vr_query.hpp), one per line on stdout, progress on stderr (x4vr.log). SteamVR may create
+// a Vulkan instance of its own to answer, which inside X4's vkCreateInstance or vkCreateDevice hangs
+// X4 (issue #7); in this process it's harmless. Waits for the headset like the mod did
+// (X4VR_HEADSET_WAIT seconds, default 120): a Steam Frame connects some seconds after SteamVR.
+int vr_vulkan() {
+    using namespace std::chrono;
+    const auto fail = [](const std::string& why) { std::cerr << "x4vr: SteamVR's Vulkan needs not read: " << why << "\n"; return 1; };
+    const char* wait_text = std::getenv("X4VR_HEADSET_WAIT");
+    const int wait = wait_text && *wait_text ? std::atoi(wait_text) : 120;
+    const auto deadline = steady_clock::now()+seconds(std::max(wait, 0));
+    // Asked as a background app: it doesn't start SteamVR or show up as a running game.
+    for (bool waiting = false;;) {
+        auto error = vr::VRInitError_None;
+        if (vr::VR_Init(&error, vr::VRApplication_Background) && error == vr::VRInitError_None) break;
+        const bool no_headset_yet = error == vr::VRInitError_Init_HmdNotFound || error == vr::VRInitError_Init_HmdNotFoundPresenceFailed ||
+                                    error == vr::VRInitError_Driver_WirelessHmdNotConnected;
+        if (!no_headset_yet || steady_clock::now() >= deadline) return fail(vr::VR_GetVRInitErrorAsEnglishDescription(error));
+        if (!waiting) std::cerr << "x4vr: waiting up to " << wait << " s for the headset\n";
+        waiting = true;
+        std::this_thread::sleep_for(seconds(1));
+    }
+    struct Shutdown { ~Shutdown() { vr::VR_Shutdown(); } } shutdown;
+    auto* system = vr::VRSystem();
+    auto* compositor = vr::VRCompositor();
+    if (!system || !compositor) return fail("no SteamVR compositor");
+    const auto query = [](auto ask) {
+        const uint32_t size = ask(nullptr, 0);
+        std::string text(size, '\0');
+        if (size) ask(text.data(), size);
+        return x4vr::vr_query::words(text.c_str());
+    };
+    const auto instance_extensions = query([&](char* text, uint32_t size) { return compositor->GetVulkanInstanceExtensionsRequired(text, size); });
+    if (instance_extensions.empty()) return fail("SteamVR named no Vulkan instance extensions");
+
+    // The headset's GPU: SteamVR names it among a Vulkan instance's devices, so make one.
+    void* vulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!vulkan) return fail("no Vulkan loader (libvulkan.so.1)");
+    struct Close { void* lib; ~Close() { dlclose(lib); } } close_vulkan{vulkan};
+    const auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(vulkan, "vkGetInstanceProcAddr"));
+    const auto create = gipa ? reinterpret_cast<PFN_vkCreateInstance>(gipa(nullptr, "vkCreateInstance")) : nullptr;
+    const auto available = gipa ? reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(gipa(nullptr, "vkEnumerateInstanceExtensionProperties")) : nullptr;
+    if (!create || !available) return fail("Vulkan loader incomplete");
+    uint32_t count = 0;
+    available(nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> properties(count);
+    available(nullptr, &count, properties.data());
+    std::vector<const char*> enabled; // SteamVR's that this loader has
+    for (const auto& name : instance_extensions)
+        for (const auto& p : properties) if (name == p.extensionName) { enabled.push_back(name.c_str()); break; }
+    VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+    app.pApplicationName = "x4vr"; app.apiVersion = VK_API_VERSION_1_1;
+    VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    info.pApplicationInfo = &app;
+    info.enabledExtensionCount = static_cast<uint32_t>(enabled.size()); info.ppEnabledExtensionNames = enabled.data();
+    VkInstance instance = VK_NULL_HANDLE;
+    if (create(&info, nullptr, &instance) != VK_SUCCESS) return fail("can't create a Vulkan instance");
+    const auto destroy = reinterpret_cast<PFN_vkDestroyInstance>(gipa(instance, "vkDestroyInstance"));
+    struct Destroy { VkInstance instance; PFN_vkDestroyInstance destroy; ~Destroy() { if (destroy) destroy(instance, nullptr); } } destroy_instance{instance, destroy};
+    uint64_t device = 0;
+    system->GetOutputDevice(&device, vr::TextureType_Vulkan, instance);
+    if (!device) return fail("SteamVR named no headset GPU");
+    const auto physical = reinterpret_cast<VkPhysicalDevice>(device);
+    const auto properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(gipa(instance, "vkGetPhysicalDeviceProperties2"));
+    if (!properties2) return fail("Vulkan 1.1 not available");
+    VkPhysicalDeviceIDProperties id{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+    VkPhysicalDeviceProperties2 gpu{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    gpu.pNext = &id;
+    properties2(physical, &gpu);
+    const auto device_extensions = query([&](char* text, uint32_t size) { return compositor->GetVulkanDeviceExtensionsRequired(physical, text, size); });
+    std::cerr << "x4vr: SteamVR's Vulkan needs read: headset GPU " << gpu.properties.deviceName << ", "
+              << instance_extensions.size() << " instance and " << device_extensions.size() << " device extensions\n";
+    std::cout << x4vr::vr_query::join(instance_extensions) << "\n" << x4vr::vr_query::uuid_text(id.deviceUUID) << "\n"
+              << x4vr::vr_query::join(device_extensions) << "\n";
+    return 0;
+}
+
+// The kernel's GPUs, for the report: vendor, PCI device id, driver (and NVIDIA's driver version).
+std::string first_line(const std::filesystem::path& path);
+std::vector<std::string> sysfs_gpus() {
+    std::vector<std::string> gpus;
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator("/sys/class/drm", error)) {
+        const auto name = entry.path().filename().string();
+        if (name.rfind("card", 0) != 0 || name.find('-') != std::string::npos) continue; // cardN-HDMI-A-1: an output
+        std::error_code link_error;
+        const auto driver = std::filesystem::read_symlink(entry.path()/"device/driver", link_error).filename().string();
+        gpus.push_back(name+": "+x4vr::report::gpu_vendor(first_line(entry.path()/"device/vendor"))+" "+first_line(entry.path()/"device/device")+
+                       ", driver "+(driver.empty() ? "?" : driver));
+    }
+    std::sort(gpus.begin(), gpus.end());
+    if (const auto nvidia = first_line("/proc/driver/nvidia/version"); !nvidia.empty()) gpus.push_back("nvidia: "+nvidia);
+    return gpus;
+}
+// Vulkan's GPUs, for the report: name, driver and its version (e.g. "NVIDIA GeForce RTX 4090,
+// NVIDIA 595.99.02", "AMD Radeon RX 7900 XTX (RADV NAVI31), radv Mesa 25.2.3"); not CPU renderers.
+// The Vulkan loader's version ("1.4.321"), or why there's none.
+std::string vulkan_loader_version() {
+    void* vulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!vulkan) return "none (libvulkan.so.1 not found)";
+    std::string text = "1.0 (no vkEnumerateInstanceVersion)";
+    const auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(vulkan, "vkGetInstanceProcAddr"));
+    const auto version = gipa ? reinterpret_cast<PFN_vkEnumerateInstanceVersion>(gipa(nullptr, "vkEnumerateInstanceVersion")) : nullptr;
+    uint32_t v = 0;
+    if (version && version(&v) == VK_SUCCESS)
+        text = std::to_string(VK_API_VERSION_MAJOR(v))+"."+std::to_string(VK_API_VERSION_MINOR(v))+"."+std::to_string(VK_API_VERSION_PATCH(v));
+    dlclose(vulkan);
+    return text;
+}
+// X4's compatibility tool in Steam (report_info.hpp): "none (native)", or e.g. "proton_9: the
+// Windows X4 runs, without the Linux mod".
+std::string x4_compat_tool() {
+    for (const auto& steam : x4vr::steam::steam_roots())
+        if (const auto tool = x4vr::report::x4_compat_tool(read_text(steam/"config/config.vdf")); !tool.empty())
+            return tool+": the Windows X4 runs, without the Linux mod";
+    return "none (native)";
+}
+std::vector<std::string> vulkan_gpus() {
+    std::vector<std::string> gpus;
+    void* vulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!vulkan) return gpus;
+    const auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(vulkan, "vkGetInstanceProcAddr"));
+    const auto create = gipa ? reinterpret_cast<PFN_vkCreateInstance>(gipa(nullptr, "vkCreateInstance")) : nullptr;
+    VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+    app.pApplicationName = "x4vr"; app.apiVersion = VK_API_VERSION_1_2;
+    VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    info.pApplicationInfo = &app;
+    VkInstance instance = VK_NULL_HANDLE;
+    if (create && create(&info, nullptr, &instance) == VK_SUCCESS) {
+        const auto enumerate = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(gipa(instance, "vkEnumeratePhysicalDevices"));
+        const auto properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(gipa(instance, "vkGetPhysicalDeviceProperties2"));
+        uint32_t count = 0;
+        if (enumerate && properties2 && enumerate(instance, &count, nullptr) == VK_SUCCESS) {
+            std::vector<VkPhysicalDevice> devices(count);
+            enumerate(instance, &count, devices.data());
+            for (const auto device : devices) {
+                VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+                VkPhysicalDeviceProperties2 gpu{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+                gpu.pNext = &driver;
+                properties2(device, &gpu);
+                if (gpu.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) continue; // llvmpipe: not a GPU
+                std::string text = gpu.properties.deviceName;
+                if (*driver.driverName) text += std::string(", ")+driver.driverName+(*driver.driverInfo ? std::string(" ")+driver.driverInfo : "");
+                gpus.push_back(text);
+            }
+        }
+        reinterpret_cast<PFN_vkDestroyInstance>(gipa(instance, "vkDestroyInstance"))(instance, nullptr);
+    }
+    dlclose(vulkan);
+    return gpus;
+}
+// Bug report: logs, settings, X4's config.xml and a summary in ~/x4vr-report-<time>.tar.gz. Also
+// what tells a hang at X4's start apart (issue #7: X4 running, no window, the log stopped at a
+// SteamVR call): Steam's, SteamVR's and the GPU driver's versions, SteamVR's own logs, and while
+// X4 runs stuck, what each of its threads waits on.
+bool on_path(const std::string& program) {
+    const char* path = std::getenv("PATH");
+    std::istringstream dirs(path ? path : "");
+    for (std::string dir; std::getline(dirs, dir, ':');)
+        if (!dir.empty() && access((std::filesystem::path(dir)/program).c_str(), X_OK) == 0) return true;
+    return false;
+}
+std::string first_line(const std::filesystem::path& path) {
+    std::ifstream in(path);
+    std::string line;
+    std::getline(in, line);
+    return line;
+}
+// The end of a log, at most `limit` bytes, from a line start.
+void copy_tail(const std::filesystem::path& from, const std::filesystem::path& to, std::uintmax_t limit = 1 << 20) {
+    std::ifstream in(from, std::ios::binary);
+    std::error_code error;
+    const auto size = std::filesystem::file_size(from, error);
+    if (!in || error) return;
+    if (size > limit) {
+        in.seekg(static_cast<std::streamoff>(size-limit));
+        std::string skipped;
+        std::getline(in, skipped);
+    }
+    std::ofstream(to, std::ios::binary) << in.rdbuf();
+}
+// Each X4 thread: id, name, state and the kernel function it sleeps in (wchan: futex_* is a
+// lock, e.g. a deadlock; unix_stream_*, *poll*, sock_* is a wait on another process, e.g. SteamVR).
+std::string x4_threads(int pid) {
+    std::ostringstream out;
+    out << "tid name state wchan\n";
+    std::error_code error;
+    std::vector<std::filesystem::path> tasks;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc/"+std::to_string(pid)+"/task", error)) tasks.push_back(entry.path());
+    std::sort(tasks.begin(), tasks.end(), [](const auto& a, const auto& b) { return std::atoi(a.filename().c_str()) < std::atoi(b.filename().c_str()); });
+    for (const auto& task : tasks) {
+        const auto stat = first_line(task/"stat"); // pid (comm) state ...: comm may hold spaces
+        const auto close = stat.rfind(')');
+        const char state = close != std::string::npos && close+2 < stat.size() ? stat[close+2] : '?';
+        auto wchan = first_line(task/"wchan");
+        out << task.filename().string() << ' ' << first_line(task/"comm") << ' ' << state << ' ' << (wchan.empty() || wchan == "0" ? "-" : wchan) << "\n";
+    }
+    return out.str();
+}
+// The commit this x4vr was built from and the ones before it (build_info.h, made at build time).
+std::string build_text() {
+    std::string text = std::string("x4vr ")+X4VR_BUILD+"\ncommit "+X4VR_COMMIT;
+    if (*X4VR_COMMIT_DATE) text += std::string(" (")+X4VR_COMMIT_DATE+")";
+    if (*X4VR_COMMIT_SUBJECT) text += std::string("\n")+X4VR_COMMIT_SUBJECT;
+    if (*X4VR_CHANGED_FILES) text += std::string("\nlocal changes: ")+X4VR_CHANGED_FILES;
+    if (*X4VR_RECENT_COMMITS) text += std::string("\n\nrecent commits:\n")+X4VR_RECENT_COMMITS;
+    return text+"\n";
+}
+// The launch option's state (launch_option.hpp) in words, on its own line: the value above it is
+// the player's launch option exactly, to compare or copy.
+std::string launch_option_check(int state) {
+    switch (state) {
+    case 0: return "not set";
+    case 1: return "OK: runs this install's x4vr-run";
+    case 2: return "points to another x4vr-run (an older install?)";
+    default: return "doesn't run x4vr-run";
+    }
+}
 std::string make_report() {
     setenv("X4VR_NO_STEAMVR_QUERY", "1", 1); // the settings check: no SteamVR client from here
     char stamp[32];
@@ -604,15 +837,102 @@ std::string make_report() {
         std::filesystem::copy_file(state_dir()/name, staging/name, error), error.clear();
     if (const auto config = x4_config(); !config.empty()) std::filesystem::copy_file(config, staging/"x4-config.xml", error), error.clear();
     std::ostringstream summary;
-    summary << "x4vr report " << stamp << "\n";
+    summary << "x4vr report " << stamp << "\nx4vr build: " << X4VR_BUILD << "\nx4vr commit: " << X4VR_COMMIT << ' ' << X4VR_COMMIT_SUBJECT << "\n";
+    write_text(staging/"build.txt", build_text());
     struct utsname u{};
     if (uname(&u) == 0) summary << "system: " << u.sysname << ' ' << u.release << ' ' << u.machine << "\n";
+    const auto env = [](const char* name) { const char* value = std::getenv(name); return std::string(value && *value ? value : "-"); };
+    summary << "distribution: " << x4vr::report::os_name(read_text("/etc/os-release")) << "\n";
+    summary << "session: " << env("XDG_SESSION_TYPE") << ", desktop " << env("XDG_CURRENT_DESKTOP") << "\n";
+    {
+        std::vector<std::string> processes;
+        std::error_code error;
+        for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) processes.push_back(first_line(entry.path()/"comm"));
+        const auto compositor = x4vr::report::compositor(processes);
+        summary << "compositor: " << (compositor.empty() ? std::string("unknown") : compositor) << "\n";
+    }
+    summary << "cpu: " << x4vr::report::cpu(read_text("/proc/cpuinfo")) << "\nmemory: " << x4vr::report::memory(read_text("/proc/meminfo"))
+            << "\nglibc: " << gnu_get_libc_version() << "\nvulkan loader: " << vulkan_loader_version() << "\n";
     const auto c = current_checks();
     summary << "steam running: " << c.steam << "\nsteamvr running: " << c.steamvr << "\nx4 running: " << c.x4
-            << "\nlaunch option: " << c.option.value << " (state " << c.option.state << ")\nhud factor: " << c.hud
+            << "\nlaunch option: " << (c.option.value.empty() ? std::string("-") : c.option.value)
+            << "\nlaunch option check: " << launch_option_check(c.option.state) << "\nx4 compatibility tool: " << x4_compat_tool()
+            << "\nhud factor: " << c.hud
             << (c.hud_off_in_x4 ? " (off in X4)" : "") << "\nx4 settings to fix: " << c.settings_to_fix << "\n";
+
+    // Steam and SteamVR: versions, beta branches, SteamVR's logs (logs/vr*.txt of the last two days).
+    std::string steamvr_manifest;
+    for (const auto& library : x4vr::steam::libraries())
+        if (steamvr_manifest.empty()) steamvr_manifest = read_text(library/"steamapps"/("appmanifest_"+std::string(x4vr::report::steamvr_app)+".acf"));
+    // The headset and SteamVR's version from SteamVR's own log: asking SteamVR here could hang the
+    // report along with it, and reports are made when something is stuck.
+    x4vr::report::SteamVrLog steamvr_log;
+    for (const auto& steam : x4vr::steam::steam_roots())
+        if (steamvr_log.headset.empty()) steamvr_log = x4vr::report::steamvr_log(read_text(steam/"logs/vrserver.txt"));
+    summary << "headset: " << (steamvr_log.headset.empty() ? std::string("unknown (no headset in SteamVR's vrserver.txt)") : steamvr_log.headset) << "\n";
+    summary << "steamvr: " << (steamvr_log.version.empty() ? std::string() : steamvr_log.version+", ") << x4vr::report::steamvr_version(steamvr_manifest) << "\n";
+    std::filesystem::create_directory(staging/"steamvr", error);
+    for (const auto& steam : x4vr::steam::steam_roots()) {
+        std::string client;
+        for (const auto& entry : std::filesystem::directory_iterator(steam/"package", error)) {
+            const auto name = entry.path().filename().string();
+            if (name.rfind("steam_client_", 0) == 0 && entry.path().extension() == ".manifest") client = read_text(entry.path());
+        }
+        if (!client.empty()) summary << "steam client (" << steam.string() << "): " << x4vr::report::steam_client_version(client, read_text(steam/"package/beta")) << "\n";
+        for (const auto& entry : std::filesystem::directory_iterator(steam/"logs", error)) {
+            const auto name = entry.path().filename().string();
+            std::error_code time_error;
+            const auto age = std::filesystem::file_time_type::clock::now()-std::filesystem::last_write_time(entry.path(), time_error);
+            if (name.rfind("vr", 0) != 0 || entry.path().extension() != ".txt" || time_error || age >= std::chrono::hours(48)) continue;
+            copy_tail(entry.path(), staging/"steamvr"/name);
+            // Signs of a Steam Frame link problem (Error 17 and the like) rather than one in the mod.
+            for (const auto& line : x4vr::report::link_problems(read_text(staging/"steamvr"/name)))
+                summary << "steamvr link (" << name << "): " << line << "\n";
+        }
+        error.clear();
+    }
+
+    // GPUs and drivers.
+    for (const auto& gpu : sysfs_gpus()) summary << (gpu.rfind("nvidia: ", 0) == 0 ? "" : "gpu ") << gpu << "\n";
+    for (const auto& gpu : vulkan_gpus()) summary << "vulkan gpu: " << gpu << "\n"; // name, driver and its version
+    if (on_path("vulkaninfo")) run({"timeout", "20", "vulkaninfo", "--summary"}, {.log = staging/"vulkaninfo.txt"});
+    // The mod's layer manifests: more than one gives the loader's "duplicate" warnings.
+    for (const auto* dir : {"/etc/vulkan", "/usr/share/vulkan", "/usr/local/share/vulkan"}) {
+        if (std::filesystem::exists(std::filesystem::path(dir)/"explicit_layer.d/VkLayer_x4vr.json"))
+            summary << "layer manifest: " << dir << "/explicit_layer.d/VkLayer_x4vr.json\n";
+    }
+    if (const auto local = std::filesystem::path(home ? home : ".")/".local/share/vulkan/explicit_layer.d/VkLayer_x4vr.json"; std::filesystem::exists(local))
+        summary << "layer manifest: " << local.string() << "\n";
+
     int gpu_state = 3;
-    summary << "gpu: " << gpu_summary(gpu_state) << "\n";
+    summary << "gpu (last VR session): " << gpu_summary(gpu_state) << "\n";
+
+    // Where the last runs stopped, and while X4 runs stuck, what its threads wait on.
+    bool stuck = false;
+    for (const auto* name : {"x4vr.log", "x4vr.previous.log"}) {
+        const auto run = x4vr::report::last_run(read_text(state_dir()/name));
+        if (!run.unfinished) continue;
+        const bool current = std::string_view(name) == "x4vr.log";
+        stuck = stuck || (current && c.x4 && !run.exit);
+        summary << name << ": stopped in a SteamVR call: " << *run.unfinished << " ("
+                << (run.exit ? *run.exit : current && c.x4 ? std::string("X4 still running") : std::string("no exit logged")) << ")\n";
+    }
+    if (const int pid = x4_pid()) {
+        write_text(staging/"x4-threads.txt", x4_threads(pid));
+        if (stuck) { // a backtrace of every thread: gdb or eu-stack, as the kernel allows (ptrace)
+            const auto scope = first_line("/proc/sys/kernel/yama/ptrace_scope");
+            summary << "ptrace_scope: " << (scope.empty() ? "-" : scope) << "\n";
+            const auto p = std::to_string(pid);
+            const auto trace = staging/"x4-backtrace.txt";
+            bool traced = false;
+            if (on_path("gdb"))
+                traced = run({"timeout", "90", "gdb", "-p", p, "-batch", "-nx", "-ex", "set sysroot /proc/"+p+"/root", "-ex", "thread apply all bt"}, {.log = trace});
+            if (!traced && on_path("eu-stack")) traced = run({"timeout", "60", "eu-stack", "-p", p}, {.log = trace});
+            // Only what's installed: x4-threads.txt alone tells a lock from a wait on SteamVR.
+            summary << "backtrace: " << (traced ? "x4-backtrace.txt" : on_path("gdb") || on_path("eu-stack") ? "failed, see x4-backtrace.txt"
+                                                 : "none (no gdb or eu-stack); see x4-threads.txt") << "\n";
+        }
+    }
     if (const auto game = game_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
         summary << "x4 scan (" << (game/"X4").string() << "):\n";
         try {
@@ -624,7 +944,7 @@ std::string make_report() {
     std::filesystem::remove_all(root, error);
     return ok ? out.string() : std::string();
 }
-constexpr const char* issues_url = "https://github.com/ToffelsKater/X4_VR/issues/new";
+constexpr const char* issues_url = "https://github.com/ToffelsKater/X4_VR/issues"; // to find one to add to, or open a new one
 
 // Uninstall: what the mod left, each as a choice.
 // The installed program (cmake --install): the mod's files under the prefix this x4vr runs from
@@ -1034,6 +1354,7 @@ int menu(std::string_view start = {}) {
         const double hud_factor = wanted_hud_factor >= 0 ? wanted_hud_factor : c.hud;
         std::vector<Item> items;
 
+        items.push_back(info("Version "+std::string(X4VR_BUILD))); // build_info.h: git describe
         items.push_back(section("Status"));
         items.push_back(status("SteamVR", c.steamvr ? 0 : 3, c.steamvr ? "running" : "not running (Launch starts it)"));
         items.push_back(status("X4 build", scan_state, scan_text));
@@ -1149,7 +1470,7 @@ int menu(std::string_view start = {}) {
         items.push_back(action("tiling", "Tiling window manager rules",
             "Hyprland, Sway, i3: a rule that floats the VR window (class X4VR) so X4 keeps the VR resolution. 2D isn't affected."));
         if (!c.desktop) items.push_back(action("desktop", "Add to the app launcher", "\"X4 VR\" in your desktop's app menu, rofi or wofi: "+desktop_file().string()));
-        items.push_back(action("report", "Make a bug report", "Packs logs, settings and a summary into ~/x4vr-report-<time>.tar.gz, to attach to a GitHub issue."));
+        items.push_back(action("report", "Make a bug report", "Packs logs (the mod's and SteamVR's), settings, your setup and a summary into ~/x4vr-report-<time>.tar.gz, to attach to a GitHub issue. Make it while X4 is stuck, if it is: then it also records where."));
         items.push_back(action("uninstall", "Uninstall", "Removes the desktop entry, HUD extension, the mod's copies of X4's settings, and its settings."));
         items.push_back(action("quit", "Quit"));
 
@@ -1220,7 +1541,7 @@ int menu(std::string_view start = {}) {
         else if (e.id == "report") {
             const auto file = make_report();
             menu.messages = file.empty() ? std::vector<std::string>{"Couldn't write the report (tar missing?)."}
-                                         : std::vector<std::string>{"Report: "+file, "Attach it to a new issue: "+std::string(issues_url)};
+                                         : std::vector<std::string>{"Report: "+file, "Attach it to a GitHub issue: "+std::string(issues_url)};
         } else if (e.id == "uninstall") uninstall_screen(terminal);
         else if (e.id == "checklist") checklist_screen(terminal);
         else if (e.id == "tiling") tiling_screen(terminal);
@@ -1263,16 +1584,18 @@ int main(int argc, char** argv) {
         if (command == "report" && args.empty()) {
             const auto file = make_report();
             if (file.empty()) { std::cerr << "Couldn't write the report (tar missing?)\n"; return 1; }
-            std::cout << "Report: " << file << "\nAttach it to a new issue: " << issues_url << '\n';
+            std::cout << "Report: " << file << "\nAttach it to a GitHub issue: " << issues_url << '\n';
             return 0;
         }
         if (command == "ctl") return ctl(args);
         if (command == "hud" && args.size() == 1 && args[0] == "--refresh") return hud_refresh();
         if (command == "hud" && args.size() == 1 && args[0] == "--park") return hud_park();
         if (command == "patterns") return patterns(args);
+        if (command == "vr-vulkan" && args.empty()) return vr_vulkan();
         if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))
             return check_settings(!args.empty());
         if (command == "help" || command == "--help" || command == "-h") { usage(); return 0; }
+        if (command == "version" || command == "--version") { std::cout << build_text(); return 0; }
         usage();
         return 2;
     } catch (const std::exception& error) {
