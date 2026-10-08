@@ -15,6 +15,7 @@
 #include "state_files.hpp"
 #include "steam_config.hpp"
 #include "terminal_ui.hpp"
+#include "x4_settings.hpp"
 #include "vr_query.hpp"
 #include <vulkan/vulkan.h>
 #include <openvr.h>
@@ -169,20 +170,10 @@ std::pair<int, int> wanted_resolution(const std::string& xml) {
     for (const auto& mode : modes) if (mode.first >= w && mode.second >= h) return mode;
     return modes[std::size(modes)-1];
 }
+bool hud_scaled();
 std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
     const auto [width, height] = wanted_resolution(xml);
-    auto checks = x4vr::launcher::check_x4(xml, width, height);
-    std::erase_if(checks, [](const auto& c) { return c.label.rfind("Display mode", 0) == 0; }); // Windows' fullscreen rule
-    // Linux X4 renders fullscreen and borderless windows at the desktop size whatever its
-    // resolution setting says; only a window keeps it (tiling window managers may resize it).
-    if (width > 0 && height > 0) {
-        std::string fullscreen = "(missing)", borderless = "(missing)";
-        x4vr::launcher::xml_value(xml, "fullscreen", fullscreen);
-        x4vr::launcher::xml_value(xml, "borderless", borderless);
-        checks.push_back({"Display mode: windowed", true, fullscreen == "false" && borderless == "false",
-                          "fullscreen "+fullscreen+", borderless "+borderless, {{"fullscreen", "false"}, {"borderless", "false"}}});
-    }
-    return checks;
+    return x4vr::linux_port::linux_checks(xml, width, height, hud_scaled()); // x4_settings.hpp
 }
 std::string read_text(const std::filesystem::path& path) { return x4vr::steam::read_file(path); }
 // Fixes X4's VR settings for VR; `automatic` (x4vr-run): quiet unless something changed.
@@ -191,15 +182,17 @@ int check_settings(bool automatic) {
     if (path.empty()) { std::cerr << "X4's config.xml not found under ~/.config/EgoSoft/X4 (start X4 once).\n"; return automatic ? 0 : 1; }
     const auto xml = read_text(path);
     const auto checks = linux_checks(xml);
-    // Only settings that exist in this config.xml are changed: Linux X4 may name some differently,
-    // and a key X4 doesn't know would only clutter the file.
+    // Required settings written with their VR value, optional ones only shown (x4_settings.hpp).
     std::vector<x4vr::launcher::Check> fixable;
     for (const auto& c : checks) {
-        std::string value;
-        const bool present = std::all_of(c.fix.begin(), c.fix.end(), [&](const auto& kv) { return x4vr::launcher::xml_value(xml, kv.first, value); });
-        if (!c.ok && present) fixable.push_back(c);
-        if (!automatic) std::printf("%-4s %-36s %s%s\n", c.ok ? "ok" : c.required ? "FIX" : "tip", c.label.c_str(), c.current.c_str(),
-                                    c.ok || present ? "" : "  (not in this config.xml: change it in the game)");
+        const bool write = x4vr::linux_port::to_write(c, xml);
+        if (write) fixable.push_back(c);
+        using x4vr::linux_port::Kind;
+        const auto kind = x4vr::linux_port::kind(c);
+        const std::string note = c.ok || write ? "" : kind == Kind::optional ? "  (optional: change it in X4 if you like)"
+                                 : kind == Kind::warning ? "  ("+std::string(x4vr::linux_port::frame_limit_reason)+")" : "  (change it in X4)";
+        if (!automatic) std::printf("%-4s %-36s %s%s\n", c.ok ? "ok" : kind == Kind::required ? "FIX" : kind == Kind::optional ? "opt" : "warn",
+                                    c.label.c_str(), c.current.c_str(), note.c_str());
     }
     if (fixable.empty()) { if (!automatic) std::cout << "Nothing to fix.\n"; return 0; }
     if (x4_running()) { std::cerr << "X4 is running: close it first (it rewrites config.xml when it exits).\n"; return 1; }
@@ -209,11 +202,12 @@ int check_settings(bool automatic) {
     const auto temporary = path.string()+".x4vr-tmp";
     {
         std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-        out << x4vr::launcher::fix_x4(xml, fixable);
+        out << x4vr::linux_port::write_settings(xml, fixable);
         if (!out) { std::cerr << "Can't write " << temporary << '\n'; return 1; }
     }
     std::filesystem::rename(temporary, path);
-    for (const auto& c : fixable) std::cout << "x4vr: X4 setting fixed for VR: " << c.label << " (was " << c.current << ")\n";
+    for (const auto& c : fixable)
+        std::cout << "x4vr: X4 setting set for VR: " << c.label << " (was " << c.current << ")\n";
     std::cout << "x4vr: " << path.string() << " updated; original kept as " << backup << '\n';
     return 0;
 }
@@ -504,7 +498,7 @@ struct Checks {
     double hud{};            // installed HUD factor, 0: none
     bool hud_off_in_x4{};    // installed but switched off in X4's Extensions menu
     int settings_to_fix = -1; // -1: X4's config.xml not found, -2: VR settings made at the first VR launch
-    struct Fix { bool required; std::string label, current; };
+    struct Fix { x4vr::linux_port::Kind kind; std::string label, current; };
     std::vector<Fix> to_fix;
     bool desktop{};
 };
@@ -528,11 +522,10 @@ Checks current_checks() {
         const auto xml = read_text(c.in_vr ? config : vr);
         c.settings_to_fix = c.in_vr || std::filesystem::exists(vr) ? 0 : -2;
         if (c.settings_to_fix == 0) for (const auto& check : linux_checks(xml)) {
-            std::string value;
-            const bool present = std::all_of(check.fix.begin(), check.fix.end(), [&](const auto& kv) { return x4vr::launcher::xml_value(xml, kv.first, value); });
-            if (check.ok || !present) continue;
+            // Wrong ones: required ones x4vr sets (counted), optional ones and warnings listed for the player.
+            if (check.ok || (check.required && !x4vr::linux_port::to_write(check, xml))) continue;
             if (check.required) ++c.settings_to_fix;
-            c.to_fix.push_back({check.required, check.label, check.current});
+            c.to_fix.push_back({x4vr::linux_port::kind(check), check.label, check.current});
         }
     }
     c.desktop = std::filesystem::exists(desktop_file());
@@ -1239,8 +1232,7 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
 }
 
 // README "Set X4's options" as a screen, by where each setting is in X4, with the value X4 has
-// in its VR settings (config.xml during a VR session, else the VR copy; the head-tracking factors
-// and Protected UI Mode aren't in that file: checked by eye). Linux: windowed, not fullscreen + DSR.
+// in its VR settings (config.xml during a VR session, else the VR copy). Linux: windowed, not fullscreen + DSR.
 // HUD Scaled: chosen in the menu (stereo.txt hud_factor), else whether the extension is installed.
 bool hud_scaled() {
     if (const double wanted = wanted_hud(); wanted >= 0) return wanted > 0;
@@ -1263,27 +1255,30 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
         const auto checks = have ? linux_checks(xml) : std::vector<x4vr::launcher::Check>{};
         // One row: from X4's settings file when it has the key, else to check in the game.
         std::vector<Item> items;
-        const auto row = [&](const char* label, const char* want, std::initializer_list<const char*> keys, bool required = true) {
+        const auto row = [&](const char* label, const char* want, std::initializer_list<const char*> keys) {
+            using x4vr::linux_port::Kind;
             for (const auto& check : checks)
                 for (const auto* key : keys)
                     if (!check.fix.empty() && check.fix[0].first == key) {
                         const auto wanted = *want ? std::string(want) : check.label.substr(check.label.rfind(' ')+1);
-                        items.push_back(status(label, check.ok ? 0 : required ? 2 : 1,
-                            wanted+(check.ok ? "" : "   now: "+check.current+(required ? "" : " (recommended)"))));
-                        if (!check.ok && !required) items.back().mark = "·";
+                        const auto kind = x4vr::linux_port::kind(check);
+                        items.push_back(status(label, check.ok ? 0 : kind == Kind::required ? 2 : 1,
+                            wanted+(check.ok ? "" : "   now: "+check.current+(kind == Kind::required ? "" : kind == Kind::optional ? " (optional)"
+                                                                             : ": "+std::string(x4vr::linux_port::frame_limit_reason)))));
+                        if (!check.ok && kind != Kind::required) items.back().mark = kind == Kind::optional ? "·" : "!";
                         return;
                     }
             items.push_back(status(label, 3, std::string(*want ? want : "the VR resolution")+(have || keys.size() == 0 ? "" : "   (not known yet)")));
             items.back().mark = "-";
         };
-        items.push_back(info(have ? "Key:  ✓ right   ✗ wrong (fixed at the next VR launch)   · recommended   "
+        items.push_back(info(have ? "Key:  ✓ right   ✗ wrong: set at the next VR launch   · optional   ! worth a look   "
                                     "- check by hand in X4 (the mod can't read it)"
                                   : "X4's VR settings are made at the first VR launch; until then check everything by hand in X4."));
         items.push_back(section("Settings > Controls > Head Tracking Support"));
         row("OpenTrack Support", "On", {"enableopentrack"});
         items.push_back(section("Settings > Controls > OpenTrack"));
-        row("Head Rotation Factor", "100 %", {});
-        row("Head Position Factor", "100 %", {});
+        row("Head Rotation Factor", "100 %", {"opentrackanglefactor"});
+        row("Head Position Factor", "100 %", {"opentrackpositionfactor"});
         items.push_back(section("Settings > Display"));
         row("Display Mode", "Windowed", {"fullscreen", "borderless"});
         row("Resolution", "", {"res_width"}); // the size checked (menu choice or automatic)
@@ -1295,11 +1290,11 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
         row("VSync", "Off", {"presentmode"});
         row("Frame Rate Limit", "Off", {"frameratelimit"});
         items.push_back(section("Settings > Graphics (recommended, not required)"));
-        row("Chromatic Aberration", "Off", {"chromaticaberration"}, false);
-        row("Distortion", "Off", {"distortion"}, false);
+        row("Chromatic Aberration", "Off", {"chromaticaberration"});
+        row("Distortion", "Off", {"distortion"});
         if (hud_scaled()) { // only matters with the HUD extension
             items.push_back(section("Settings > Extensions (HUD Scaled is on)"));
-            row("Protected UI Mode", "Off", {});
+            row("Protected UI Mode", "Off", {"uisafemode"});
         }
         items.push_back(action("back", "Back"));
         Event e;
@@ -1366,7 +1361,10 @@ int menu(std::string_view start = {}) {
             : c.option.state == 3 ? "set to something else: "+c.option.value : c.option.accounts ? "not set: copy it (Setup)" : "start X4 once from Steam first"));
         items.push_back(status("X4 settings for VR", c.settings_to_fix < 0 ? 3 : c.to_fix.empty() ? 0 : 1,
             c.settings_to_fix == -1 ? "X4's config.xml not found (start X4 once)" : c.settings_to_fix == -2 ? "made at the first VR launch"
-            : c.to_fix.empty() ? "ready (your 2D settings are kept apart)" : std::to_string(c.to_fix.size())+" fixed at the next VR launch (list below)"));
+            : c.to_fix.empty() ? "ready (your 2D settings are kept apart)"
+            : c.settings_to_fix == 0 ? std::to_string(c.to_fix.size())+" to look at (list below)"
+            : std::to_string(c.settings_to_fix)+" set at the next VR launch"+
+              (int(c.to_fix.size()) > c.settings_to_fix ? ", "+std::to_string(int(c.to_fix.size())-c.settings_to_fix)+" to look at" : std::string())+" (list below)"));
         if (c.hud_off_in_x4) items.push_back(status("HUD extension", 1, "turned off in X4's Extensions menu: turn on \"X4 VR HUD distance\""));
         if (!c.x4) items.push_back(status("X4", 3, std::string("not running")+(c.in_vr ? " (VR settings still in place: restored at the next start)" : "")));
         else if (!c.in_vr) items.push_back(status("X4", 3, "running in 2D"));
@@ -1459,9 +1457,15 @@ int menu(std::string_view start = {}) {
         items.push_back(action("checklist", "In-game settings checklist",
             "Every X4 setting VR needs, by where it is in X4's settings, with what X4 has now. For troubleshooting."));
         if (!c.to_fix.empty()) {
-            items.push_back(info("VR uses its own copy of X4's settings; these are fixed in it at the next VR launch. Your 2D settings aren't touched."));
-            for (const auto& fix : c.to_fix)
-                items.push_back(status(fix.label, fix.required ? 2 : 1, std::string(fix.required ? "required" : "recommended")+(fix.current.empty() ? "" : ", now: "+fix.current)));
+            items.push_back(info("X4 VR uses its own copy of X4's settings: use the checklist to check your settings, required settings will automatically be set for you at launch."));
+            for (const auto& fix : c.to_fix) {
+                using x4vr::linux_port::Kind;
+                const auto now = fix.current.empty() ? std::string() : ", now: "+fix.current;
+                items.push_back(status(fix.label, fix.kind == Kind::required ? 2 : 1,
+                    fix.kind == Kind::required ? "required"+now : fix.kind == Kind::optional ? "optional"+now
+                    : "warning"+now+": "+std::string(x4vr::linux_port::frame_limit_reason)));
+                if (fix.kind != Kind::required) items.back().mark = fix.kind == Kind::optional ? "·" : "!";
+            }
         }
 
         items.push_back(section("Setup"));

@@ -220,7 +220,8 @@ Linux environment variables, set in front of `x4vr-run` in the launch option:
 - **Tests** (`tests/linux/`, `ctest`): the code scan on a stand-in for X4's code, ELF and RTTI
   reading, MD5, the OpenTrack packet, Steam's config files, the launch option check, the 2D/VR
   settings swap (crash and stop cases) and the HUD extension's placement, uninstall's file list,
-  the bug report's readings, plus the shared Windows suites that build on Linux.
+  the bug report's readings, which X4 settings x4vr adds when missing (OpenTrack Support), plus
+  the shared Windows suites that build on Linux.
   `loader_lock` (issue #7) loads the mod as the Vulkan loader would and calls its
   `vkCreateInstance` and `vkCreateDevice` holding the loader's lock, against a fake SteamVR client
   that makes a Vulkan call before answering: it fails if that call comes while the lock is held
