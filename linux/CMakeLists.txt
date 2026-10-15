@@ -84,7 +84,10 @@ target_link_options(x4vr_mod PRIVATE -static-libstdc++ -static-libgcc -Wl,--excl
 set_target_properties(x4vr_mod PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/x4vr.map)
 
 # Layer manifests: for the installed package, and for tests in the build tree.
-set(X4VR_LAYER_PATH ${CMAKE_INSTALL_FULL_LIBDIR}/libx4vr.so)
+# Relative to the manifest's own folder, where the Vulkan loader reads it from, so the install can
+# be moved: ../../../lib/libx4vr.so from share/vulkan/explicit_layer.d.
+file(RELATIVE_PATH X4VR_LAYER_PATH ${CMAKE_INSTALL_FULL_DATADIR}/vulkan/explicit_layer.d
+     ${CMAKE_INSTALL_FULL_LIBDIR}/libx4vr.so)
 configure_file(VkLayer_x4vr.json.in ${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_x4vr.json @ONLY)
 set(X4VR_LAYER_PATH ${CMAKE_CURRENT_BINARY_DIR}/libx4vr.so)
 configure_file(VkLayer_x4vr.json.in ${CMAKE_CURRENT_BINARY_DIR}/layer/VkLayer_x4vr.json @ONLY)
