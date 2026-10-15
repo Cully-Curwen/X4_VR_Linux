@@ -88,6 +88,9 @@ set(X4VR_LAYER_PATH ${CMAKE_INSTALL_FULL_LIBDIR}/libx4vr.so)
 configure_file(VkLayer_x4vr.json.in ${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_x4vr.json @ONLY)
 set(X4VR_LAYER_PATH ${CMAKE_CURRENT_BINARY_DIR}/libx4vr.so)
 configure_file(VkLayer_x4vr.json.in ${CMAKE_CURRENT_BINARY_DIR}/layer/VkLayer_x4vr.json @ONLY)
+# x4vr-run finds the data relative to its own folder, so the install can be moved: the path from
+# the bin folder to the data folder (../share), whether they're set relative or in full (Nix).
+file(RELATIVE_PATH X4VR_DATADIR_FROM_BINDIR ${CMAKE_INSTALL_FULL_BINDIR} ${CMAKE_INSTALL_FULL_DATADIR})
 configure_file(x4vr-run.in ${CMAKE_CURRENT_BINARY_DIR}/x4vr-run @ONLY)
 
 install(TARGETS x4vr RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
