@@ -1,0 +1,47 @@
+# Linux release archive (linux/release/build.sh): built in Valve's Steam Runtime "sniper" SDK
+# (glibc 2.31), started on Ubuntu 20.04 to prove it runs there, then attached to the GitHub
+# release. Runs when a release or pre-release is published; "Run workflow" in the Actions tab
+# redoes it for an existing release's tag.
+name: Linux release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the existing release to build and attach to (e.g. v0.6.0)
+        required: true
+
+permissions:
+  contents: write # attach files to the release
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0             # all history and tags: the version is git describe --tags
+          persist-credentials: false # the build never sees the access token
+
+      - name: Build in the sniper SDK
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src \
+            registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest linux/release/build.sh
+
+      - name: Start it on Ubuntu 20.04 (glibc 2.31)
+        run: |
+          mkdir smoke
+          tar -xzf "dist/X4_VR-$TAG-linux-x86_64.tar.gz" -C smoke
+          version=$(docker run --rm -v "$PWD/smoke/x4vr":/x4vr:ro ubuntu:20.04 /x4vr/bin/x4vr version | head -1)
+          echo "$version"
+          [ "$version" = "x4vr $TAG" ] || { echo "expected: x4vr $TAG"; exit 1; }
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"

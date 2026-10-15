@@ -25,7 +25,7 @@ let
         in rel == ".git" || lib.hasPrefix ".git/" rel;
     };
   } ''
-    git -c safe.directory='*' --git-dir="$git/.git" describe --always > $out
+    git -c safe.directory='*' --git-dir="$git/.git" describe --tags --always > $out
   '');
 in
 pkgs.stdenv.mkDerivation {

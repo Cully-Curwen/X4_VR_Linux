@@ -2,7 +2,8 @@
 # the bug report and the mod's log. Run at every build (linux/CMakeLists.txt, target
 # x4vr_build_info), so a `git pull` and rebuild never reports the old commit; the header is only
 # rewritten when it changes, so an unchanged checkout rebuilds nothing.
-# The version is `git describe --dirty --always`: the nearest annotated tag (a release), and for a
+# The version is `git describe --tags --dirty --always`: the nearest tag (a release; as
+# scripts/package.ps1 names the Windows zip), and for a
 # build after it the commits since and the commit, "-dirty" with uncommitted changes:
 #   v0.5.0                         the release itself
 #   v0.5.0-3-gdc86c67              3 commits after it
@@ -35,7 +36,7 @@ if(NOT commit AND GIT_COMMIT)
   set(commit "${GIT_COMMIT}")
   set(build "${GIT_DESCRIBE} (Nix)")
 elseif(commit)
-  git(build describe --dirty --always)
+  git(build describe --tags --dirty --always)
   git(date log -1 --format=%cd --date=format:%Y-%m-%d\ %H:%M)
   git(subject log -1 --format=%s)
   git(changed status --porcelain --untracked-files=no)

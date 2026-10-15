@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Builds the Linux release archive, dist/x4vr-linux-x86_64.tar.gz, and its checksum file.
+# Builds the Linux release archive, dist/X4_VR-<version>-linux-x86_64.tar.gz, and its checksum file.
+# The version is `git describe --tags`, as scripts/package.ps1 names the Windows zip: the release
+# tag on a release commit (v0.6.0), else tag-count-commit, -dirty with uncommitted changes.
 # Runs inside Valve's Steam Runtime "sniper" SDK image (Debian 11, glibc 2.31), so the binaries
 # run on every system that runs Steam. The same script runs locally and in CI. From the
 # repository's top folder:
@@ -13,13 +15,14 @@ set -euo pipefail
 build=build/release            # build folder (build/ is ignored by git)
 stage=$build/x4vr              # what goes into the archive, as installed
 dist=dist                      # the archive and its checksum (ignored by git)
-name=x4vr-linux-x86_64
 max_glibc=2.31                 # Steam's own minimum: what every player has
 
 die() { echo "release build: $*" >&2; exit 1; }
 
 [ -f linux/CMakeLists.txt ] || die "run this from the repository's top folder"
 command -v g++-14 >/dev/null || die "g++-14 not found: run this inside the sniper SDK image"
+version=$(git describe --tags --always --dirty) || die "can't read the version from git"
+name=X4_VR-$version-linux-x86_64
 
 # 1. Configure, from scratch: GCC 14 (the image's plain gcc is GCC 10), lib/ for the library.
 rm -rf "$build" "$dist"
@@ -32,6 +35,7 @@ CC=gcc-14 CXX=g++-14 cmake -S . -B "$build" "${cmake_args[@]}"
 cmake --build "$build" -j "$(nproc)"
 ctest --test-dir "$build" --output-on-failure
 cmake --install "$build"
+echo "$version" > "$stage/version.txt"   # as in the Windows zip: the version without running anything
 
 # 3. Checks: nothing newer than glibc 2.31, and the C++ runtime built in (no libstdc++/libgcc_s).
 binaries=("$stage/bin/x4vr" "$stage/lib/libx4vr.so")
