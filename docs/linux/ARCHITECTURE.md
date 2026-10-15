@@ -230,7 +230,7 @@ Linux environment variables, set in front of `x4vr-run` in the launch option:
   while the lock is held (in X4, a hang), if the mod connects to SteamVR there, or if it doesn't
   set up VR with `x4vr vr-vulkan`'s answers. No Vulkan
   loader or driver needed.
-- **CI** (`.github/workflows/linux.yml`): both routes on Ubuntu 24.04 when files the Linux build
+- **CI** (`.github/workflows/linux.yaml`): both routes on Ubuntu 24.04 when files the Linux build
   reads change.
 
 ## Linux addresses (X4 9.00)
