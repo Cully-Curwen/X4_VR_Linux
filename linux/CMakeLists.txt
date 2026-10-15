@@ -39,6 +39,8 @@ target_include_directories(x4vr_openvr_api PRIVATE ${OPENVR_SOURCE_DIR}/src ${OP
 target_compile_definitions(x4vr_openvr_api PRIVATE VR_API_PUBLIC VRCORE_NO_PLATFORM LINUX POSIX LINUX64)
 set_target_properties(x4vr_openvr_api PROPERTIES CXX_VISIBILITY_PRESET hidden)
 target_compile_options(x4vr_openvr_api PRIVATE -w) # Valve's code, as shipped
+# dlopen and co.: in libdl up to glibc 2.33 (the release build's 2.31), in libc after.
+target_link_libraries(x4vr_openvr_api PUBLIC ${CMAKE_DL_LIBS})
 
 # Portable code shared with the Windows build, compiled as it is.
 add_library(x4vr_vr STATIC ${X4VR_ROOT}/src/math.cpp ${X4VR_ROOT}/src/session.cpp)
@@ -51,7 +53,7 @@ target_include_directories(x4vr_elf PUBLIC ${X4VR_ROOT}/src/linux)
 target_compile_options(x4vr_elf PRIVATE ${X4VR_WARNINGS})
 
 add_executable(x4vr ${X4VR_ROOT}/tools/linux/x4vr_cli.cpp)
-target_link_libraries(x4vr PRIVATE x4vr_vr x4vr_elf)
+target_link_libraries(x4vr PRIVATE x4vr_vr x4vr_elf ${CMAKE_DL_LIBS})
 target_compile_options(x4vr PRIVATE ${X4VR_WARNINGS})
 # Its own copy of the C++ runtime, as the mod has: a release binary then also runs where the
 # system's libstdc++ is older than the build's.
@@ -80,7 +82,7 @@ add_library(x4vr_mod SHARED ${X4VR_ROOT}/src/linux/observe_layer.cpp ${X4VR_ROOT
 set_target_properties(x4vr_mod PROPERTIES OUTPUT_NAME x4vr CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 target_include_directories(x4vr_mod PRIVATE ${X4VR_ROOT}/src/linux ${CMAKE_CURRENT_BINARY_DIR}/generated)
 add_dependencies(x4vr_mod x4vr_build_info)
-target_link_libraries(x4vr_mod PRIVATE x4vr_vr x4vr_elf Threads::Threads)
+target_link_libraries(x4vr_mod PRIVATE x4vr_vr x4vr_elf Threads::Threads ${CMAKE_DL_LIBS})
 target_compile_options(x4vr_mod PRIVATE ${X4VR_WARNINGS})
 target_link_options(x4vr_mod PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,-z,defs
   -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/x4vr.map)
