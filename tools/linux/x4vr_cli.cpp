@@ -17,6 +17,7 @@
 #include "common.hpp"
 #include "x4.hpp"
 #include "hud.hpp"
+#include "x4_settings.hpp"
 #include "x4_settings_rules.hpp"
 #include "vr_query.hpp"
 #include <vulkan/vulkan.h>
@@ -82,103 +83,6 @@ void usage() {
         "  fix-settings [--auto]            X4's VR settings fixed for VR (backup: config.xml.x4vr-backup)\n"
         "  hud --refresh                    the HUD extension as chosen in the menu, rebuilt after a game update\n"
         "  hud --park                       the HUD extension out of X4's sight, for 2D\n";
-}
-
-// ---- check / fix-settings --------------------------------------------------------------------
-// The Windows launcher's checks (tools/launcher/launcher_settings.hpp, tested in launcher_tests),
-// minus "fullscreen, not borderless": on Windows that is for NVIDIA DSR; on Linux X4's borderless
-// window at the desktop resolution is fine.
-// X4's resolution: the smallest common 16:9 mode at least as large as what SteamVR uses (saved by
-// SteamVR directly when it runs, else saved by the mod in x4_resolution.txt while X4 ran), so X4
-// doesn't render pixels SteamVR throws away. Chosen in the menu: stereo.txt x4_width/x4_height.
-// X4VR_RESOLUTION=WxH sets it, =0 leaves it alone.
-// What the mod computes at startup (src/linux/observe_layer.cpp, presenter_initialize): X4's image spans
-// 2*tan_x by 2*tan_y (tan_y = game_tan_y, X4's FOV), at the pixels per tangent SteamVR recommends.
-// Asked as a background app: it doesn't start SteamVR or show up as a running game.
-bool steamvr_resolution(const std::string& xml, int& w, int& h) {
-    if (std::getenv("X4VR_NO_STEAMVR_QUERY")) return false;
-    auto error = vr::VRInitError_None;
-    auto* system = vr::VR_Init(&error, vr::VRApplication_Background);
-    if (!system || error != vr::VRInitError_None) return false;
-    uint32_t rec_w = 0, rec_h = 0;
-    system->GetRecommendedRenderTargetSize(&rec_w, &rec_h);
-    double want_x = 0, want_y = 0;
-    for (int e = 0; e < 2; ++e) {
-        float l, r, t, b;
-        system->GetProjectionRaw(vr::EVREye(e), &l, &r, &t, &b);
-        if (r > l) want_x = std::max(want_x, rec_w/double(r-l));
-        if (b != t) want_y = std::max(want_y, rec_h/std::fabs(double(b-t)));
-    }
-    vr::VR_Shutdown();
-    double tan_y = 0.8675; // stereo.txt game_tan_y
-    std::ifstream settings(get_settings_file());
-    for (std::string line; std::getline(settings, line);) if (line.rfind("game_tan_y=", 0) == 0) tan_y = std::atof(line.c_str()+11);
-    std::string rw, rh;
-    const double aspect = x4vr::launcher::xml_value(xml, "res_width", rw) && x4vr::launcher::xml_value(xml, "res_height", rh) &&
-                          std::atoi(rh.c_str()) > 0 ? std::atof(rw.c_str())/std::atof(rh.c_str()) : 16.0/9;
-    w = int(std::lround(2*tan_y*aspect*want_x));
-    h = int(std::lround(2*tan_y*want_y));
-    return w > 0 && h > 0;
-}
-std::pair<int, int> compute_vr_resolution(const std::string& xml) {
-    int w = 0, h = 0;
-    if (const char* set = std::getenv("X4VR_RESOLUTION"); set && *set) {
-        if (std::sscanf(set, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) return {w, h};
-        return {0, 0};
-    }
-    // Chosen in the menu (stereo.txt x4_width / x4_height, as the Windows launcher); 0: automatic.
-    w = std::atoi(x4vr::linux_port::read_setting(get_settings_file(), "x4_width", "0").c_str());
-    h = std::atoi(x4vr::linux_port::read_setting(get_settings_file(), "x4_height", "0").c_str());
-    if (w > 0 && h > 0) return {w, h};
-    const auto saved = get_settings_file().parent_path()/"x4_resolution.txt";
-    if (steamvr_resolution(xml, w, h)) {
-        std::ofstream(saved, std::ios::trunc) << w << 'x' << h << '\n';
-    } else { // SteamVR not running: what the mod saved last time
-        std::ifstream in(saved);
-        if (!(in >> w) || in.get() != 'x' || !(in >> h) || w <= 0 || h <= 0) return {0, 0};
-    }
-    static constexpr std::pair<int, int> modes[] = {{1920, 1080}, {2560, 1440}, {2880, 1620}, {3200, 1800}, {3840, 2160}};
-    for (const auto& mode : modes) if (mode.first >= w && mode.second >= h) return mode;
-    return modes[std::size(modes)-1];
-}
-std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
-    const auto [width, height] = compute_vr_resolution(xml);
-    return x4vr::linux_port::linux_checks(xml, width, height, is_hud_scaled()); // x4_settings_rules.hpp
-}
-// Fixes X4's VR settings for VR; `automatic` (x4vr-run): quiet unless something changed.
-int check_settings(bool automatic) {
-    const auto path = x4_config();
-    if (path.empty()) { std::cerr << "X4's config.xml not found under ~/.config/EgoSoft/X4 (start X4 once).\n"; return automatic ? 0 : 1; }
-    const auto xml = read_text(path);
-    const auto checks = linux_checks(xml);
-    // Required settings written with their VR value, optional ones only shown (x4_settings_rules.hpp).
-    std::vector<x4vr::launcher::Check> fixable;
-    for (const auto& c : checks) {
-        const bool write = x4vr::linux_port::to_write(c, xml);
-        if (write) fixable.push_back(c);
-        using x4vr::linux_port::Kind;
-        const auto kind = x4vr::linux_port::kind(c);
-        const std::string note = c.ok || write ? "" : kind == Kind::optional ? "  (optional: change it in X4 if you like)"
-                                 : kind == Kind::warning ? "  ("+std::string(x4vr::linux_port::frame_limit_reason)+")" : "  (change it in X4)";
-        if (!automatic) std::printf("%-4s %-36s %s%s\n", c.ok ? "ok" : kind == Kind::required ? "FIX" : kind == Kind::optional ? "opt" : "warn",
-                                    c.label.c_str(), c.current.c_str(), note.c_str());
-    }
-    if (fixable.empty()) { if (!automatic) std::cout << "Nothing to fix.\n"; return 0; }
-    if (is_x4_running()) { std::cerr << "X4 is running: close it first (it rewrites config.xml when it exits).\n"; return 1; }
-    const auto backup = path.string()+".x4vr-backup";
-    std::error_code error;
-    if (!std::filesystem::exists(backup)) std::filesystem::copy_file(path, backup, error);
-    const auto temporary = path.string()+".x4vr-tmp";
-    {
-        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-        out << x4vr::linux_port::write_settings(xml, fixable);
-        if (!out) { std::cerr << "Can't write " << temporary << '\n'; return 1; }
-    }
-    std::filesystem::rename(temporary, path);
-    for (const auto& c : fixable)
-        std::cout << "x4vr: X4 setting set for VR: " << c.label << " (was " << c.current << ")\n";
-    std::cout << "x4vr: " << path.string() << " updated; original kept as " << backup << '\n';
-    return 0;
 }
 
 // ---- ctl ------------------------------------------------------------------------------------
@@ -332,7 +236,7 @@ Checks current_checks() {
         const auto vr = std::filesystem::path(config.string()+".x4vr-vr");
         const auto xml = read_text(c.in_vr ? config : vr);
         c.settings_to_fix = c.in_vr || std::filesystem::exists(vr) ? 0 : -2;
-        if (c.settings_to_fix == 0) for (const auto& check : linux_checks(xml)) {
+        if (c.settings_to_fix == 0) for (const auto& check : x4_checks(xml)) {
             // Wrong ones: required ones x4vr sets (counted), optional ones and warnings listed for the player.
             if (check.ok || (check.required && !x4vr::linux_port::to_write(check, xml))) continue;
             if (check.required) ++c.settings_to_fix;
@@ -1065,7 +969,7 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
         const auto vr_copy = std::filesystem::path(config.string()+".x4vr-vr");
         const bool have = !config.empty() && (in_vr || std::filesystem::exists(vr_copy));
         const auto xml = have ? read_text(in_vr ? config : vr_copy) : std::string();
-        const auto checks = have ? linux_checks(xml) : std::vector<x4vr::launcher::Check>{};
+        const auto checks = have ? x4_checks(xml) : std::vector<x4vr::launcher::Check>{};
         // One row: from X4's settings file when it has the key, else to check in the game.
         std::vector<Item> items;
         const auto row = [&](const char* label, const char* want, std::initializer_list<const char*> keys) {
@@ -1414,7 +1318,7 @@ int main(int argc, char** argv) {
         if (command == "patterns") return patterns(args);
         if (command == "vr-vulkan" && args.empty()) return vr_vulkan();
         if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))
-            return check_settings(!args.empty());
+            return fix_x4_settings(!args.empty());
         if (command == "help" || command == "--help" || command == "-h") { usage(); return 0; }
         if (command == "version" || command == "--version") { std::cout << build_text(); return 0; }
         usage();
