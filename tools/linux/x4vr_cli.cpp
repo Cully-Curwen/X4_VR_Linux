@@ -5,7 +5,6 @@
 #include "code_scan.hpp"
 #include "../launcher/hud_mod.hpp"
 #include "../launcher/launcher_settings.hpp"
-#include "md5.hpp"
 #include "build_info.h"
 #include "gpu_status.hpp"
 #include "launch_option.hpp"
@@ -18,7 +17,7 @@
 #include "common.hpp"
 #include "x4.hpp"
 #include "hud.hpp"
-#include "x4_settings.hpp"
+#include "x4_settings_rules.hpp"
 #include "vr_query.hpp"
 #include <vulkan/vulkan.h>
 #include <openvr.h>
@@ -144,7 +143,7 @@ std::pair<int, int> compute_vr_resolution(const std::string& xml) {
 }
 std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
     const auto [width, height] = compute_vr_resolution(xml);
-    return x4vr::linux_port::linux_checks(xml, width, height, is_hud_scaled()); // x4_settings.hpp
+    return x4vr::linux_port::linux_checks(xml, width, height, is_hud_scaled()); // x4_settings_rules.hpp
 }
 // Fixes X4's VR settings for VR; `automatic` (x4vr-run): quiet unless something changed.
 int check_settings(bool automatic) {
@@ -152,7 +151,7 @@ int check_settings(bool automatic) {
     if (path.empty()) { std::cerr << "X4's config.xml not found under ~/.config/EgoSoft/X4 (start X4 once).\n"; return automatic ? 0 : 1; }
     const auto xml = read_text(path);
     const auto checks = linux_checks(xml);
-    // Required settings written with their VR value, optional ones only shown (x4_settings.hpp).
+    // Required settings written with their VR value, optional ones only shown (x4_settings_rules.hpp).
     std::vector<x4vr::launcher::Check> fixable;
     for (const auto& c : checks) {
         const bool write = x4vr::linux_port::to_write(c, xml);

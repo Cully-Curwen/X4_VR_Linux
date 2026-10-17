@@ -1,8 +1,8 @@
-// X4's VR settings on Linux (tools/linux/x4_settings.hpp): after x4vr's fix, every required setting
+// X4's VR settings on Linux (tools/linux/x4_settings_rules.hpp): after x4vr's fix, every required setting
 // is in config.xml with its VR value, whether it was wrong or missing; optional ones are never
 // changed. The table below is the expected VR value of each, written out here independently of
 // the checks.
-#include "x4_settings.hpp"
+#include "x4_settings_rules.hpp"
 #include <cstdio>
 #include <map>
 #include <string>
@@ -140,5 +140,5 @@ int main() {
     check(value(fix(safe_on), "uisafemode") == "true", "HUD Scaled off: Protected UI Mode left alone");
 
     if (failures) return 1;
-    std::printf("x4_settings: all passed\n");
+    std::printf("x4_settings_rules: all passed\n");
 }
