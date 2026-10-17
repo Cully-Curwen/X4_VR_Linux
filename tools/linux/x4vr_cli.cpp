@@ -121,7 +121,6 @@ bool x4_running() { return x4_pid() != 0; }
 // SteamVR directly when it runs, else saved by the mod in x4_resolution.txt while X4 ran), so X4
 // doesn't render pixels SteamVR throws away. Chosen in the menu: stereo.txt x4_width/x4_height.
 // X4VR_RESOLUTION=WxH sets it, =0 leaves it alone.
-std::filesystem::path settings_marker();
 // What the mod computes at startup (src/linux/observe_layer.cpp, presenter_initialize): X4's image spans
 // 2*tan_x by 2*tan_y (tan_y = game_tan_y, X4's FOV), at the pixels per tangent SteamVR recommends.
 // Asked as a background app: it doesn't start SteamVR or show up as a running game.
@@ -176,7 +175,6 @@ std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
     const auto [width, height] = wanted_resolution(xml);
     return x4vr::linux_port::linux_checks(xml, width, height, hud_scaled()); // x4_settings.hpp
 }
-std::string read_text(const std::filesystem::path& path) { return x4vr::steam::read_file(path); }
 // Fixes X4's VR settings for VR; `automatic` (x4vr-run): quiet unless something changed.
 int check_settings(bool automatic) {
     const auto path = x4_config();
@@ -235,19 +233,6 @@ std::string source_hash(const std::map<std::string, std::string>& originals) {
     std::string all;
     for (const auto& [path, blob] : originals) all += path+x4vr::linux_port::md5_hex(blob);
     return x4vr::linux_port::md5_hex(all);
-}
-// Replaces a file atomically (a temporary, then a rename): a crash mid-write leaves the old one,
-// never half of X4's content.xml.
-bool write_text(const std::filesystem::path& path, const std::string& text) {
-    const auto temporary = path.string()+".x4vr-tmp";
-    {
-        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-        out << text;
-        if (!out) return false;
-    }
-    std::error_code error;
-    std::filesystem::rename(temporary, path, error);
-    return !error;
 }
 // x4vr_hud.txt: scale=, source=
 std::map<std::string, std::string> installed_hud(const std::filesystem::path& extension) {
@@ -367,7 +352,6 @@ int ctl(const std::vector<std::string_view>& args) {
 // `steam -applaunch` asks the running Steam client to start X4 with Steam's usual chain
 // (reaper, the Steam Linux Runtime); the game inherits Steam's environment, not ours.
 std::filesystem::path program; // this executable as started (argv[0], symlinks unresolved)
-std::filesystem::path state_dir() { return settings_file().parent_path(); }
 std::filesystem::path run_script() { return program.parent_path()/"x4vr-run"; }
 std::filesystem::path desktop_file() {
     const char* data = std::getenv("XDG_DATA_HOME");
@@ -445,9 +429,6 @@ std::string copy_to_clipboard(const std::string& text) {
 }
 std::string launch_option_steps() { return "In Steam: X4 > Properties > General > Launch options, paste it there."; }
 
-// X4's settings for 2D and for VR, kept apart (settings_swap.hpp); the marker names the config
-// while X4 has its VR settings.
-std::filesystem::path settings_marker() { return state_dir()/"x4-settings.vr"; }
 using x4vr::linux_port::copy_over;
 // X4's per-user content.xml may have the extension turned off (<extension id="x4vr_hud"
 // enabled="false"/>, from X4's Extensions menu or an older x4vr): turned on for VR. Outside VR
