@@ -16,6 +16,7 @@
 #include "steam_config.hpp"
 #include "terminal_ui.hpp"
 #include "common.hpp"
+#include "game.hpp"
 #include "x4_settings.hpp"
 #include "vr_query.hpp"
 #include <vulkan/vulkan.h>
@@ -84,36 +85,6 @@ void usage() {
 }
 
 // ---- check / fix-settings --------------------------------------------------------------------
-// Linux X4 keeps one config per Steam account under ~/.config/EgoSoft/X4/<id>/ (also looked for
-// under $XDG_CONFIG_HOME when that is set elsewhere); use the newest.
-std::filesystem::path x4_config() {
-    const char* home = std::getenv("HOME");
-    const char* xdg = std::getenv("XDG_CONFIG_HOME");
-    std::vector<std::filesystem::path> bases{std::filesystem::path(home ? home : ".")/".config/EgoSoft/X4"};
-    if (xdg && *xdg) bases.push_back(std::filesystem::path(xdg)/"EgoSoft/X4");
-    std::filesystem::path best;
-    std::filesystem::file_time_type newest{};
-    for (const auto& base : bases) {
-        std::error_code error;
-        for (const auto& entry : std::filesystem::directory_iterator(base, error)) {
-            std::error_code time_error;
-            const auto config = entry.path()/"config.xml";
-            const auto time = std::filesystem::last_write_time(config, time_error);
-            if (!time_error && (best.empty() || time > newest)) { best = config; newest = time; }
-        }
-    }
-    return best;
-}
-// X4's process id, 0 when it isn't running.
-int x4_pid() {
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {
-        std::error_code link_error;
-        if (std::filesystem::read_symlink(entry.path()/"exe", link_error).filename() == "X4") return std::atoi(entry.path().filename().c_str());
-    }
-    return 0;
-}
-bool x4_running() { return x4_pid() != 0; }
 // The Windows launcher's checks (tools/launcher/launcher_settings.hpp, tested in launcher_tests),
 // minus "fullscreen, not borderless": on Windows that is for NVIDIA DSR; on Linux X4's borderless
 // window at the desktop resolution is fine.
@@ -214,12 +185,6 @@ int check_settings(bool automatic) {
 // ---- hud --------------------------------------------------------------------------------------
 // The Windows launcher's HUD distance mod (tools/launcher/hud_mod.hpp, launcher.cpp): the HUD's
 // anchor positions and world-space scale factors times k, as a substitution extension.
-std::filesystem::path game_dir() {
-    if (const char* dir = std::getenv("X4VR_GAME_DIR"); dir && *dir) return dir;
-    for (const auto& library : x4vr::steam::libraries()) // every Steam library, also on other drives
-        if (const auto candidate = library/"steamapps/common/X4 Foundations"; std::filesystem::exists(candidate/"01.cat")) return candidate;
-    return {};
-}
 // Linux X4 9.00 ships each UI script as .lua and as .xpl, precompiled bytecode, and loads the
 // .xpl: replacing only the .lua moved the HUD back but kept its size (2026-10-04). The extension
 // therefore also puts the patched Lua source at the .xpl path (Lua's loader takes source or bytecode).
