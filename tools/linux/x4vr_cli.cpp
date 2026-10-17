@@ -17,6 +17,7 @@
 #include "terminal_ui.hpp"
 #include "common.hpp"
 #include "x4.hpp"
+#include "hud.hpp"
 #include "x4_settings.hpp"
 #include "vr_query.hpp"
 #include <vulkan/vulkan.h>
@@ -111,7 +112,7 @@ bool steamvr_resolution(const std::string& xml, int& w, int& h) {
     }
     vr::VR_Shutdown();
     double tan_y = 0.8675; // stereo.txt game_tan_y
-    std::ifstream settings(settings_file());
+    std::ifstream settings(get_settings_file());
     for (std::string line; std::getline(settings, line);) if (line.rfind("game_tan_y=", 0) == 0) tan_y = std::atof(line.c_str()+11);
     std::string rw, rh;
     const double aspect = x4vr::launcher::xml_value(xml, "res_width", rw) && x4vr::launcher::xml_value(xml, "res_height", rh) &&
@@ -120,17 +121,17 @@ bool steamvr_resolution(const std::string& xml, int& w, int& h) {
     h = int(std::lround(2*tan_y*want_y));
     return w > 0 && h > 0;
 }
-std::pair<int, int> wanted_resolution(const std::string& xml) {
+std::pair<int, int> compute_vr_resolution(const std::string& xml) {
     int w = 0, h = 0;
     if (const char* set = std::getenv("X4VR_RESOLUTION"); set && *set) {
         if (std::sscanf(set, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) return {w, h};
         return {0, 0};
     }
     // Chosen in the menu (stereo.txt x4_width / x4_height, as the Windows launcher); 0: automatic.
-    w = std::atoi(x4vr::linux_port::read_setting(settings_file(), "x4_width", "0").c_str());
-    h = std::atoi(x4vr::linux_port::read_setting(settings_file(), "x4_height", "0").c_str());
+    w = std::atoi(x4vr::linux_port::read_setting(get_settings_file(), "x4_width", "0").c_str());
+    h = std::atoi(x4vr::linux_port::read_setting(get_settings_file(), "x4_height", "0").c_str());
     if (w > 0 && h > 0) return {w, h};
-    const auto saved = settings_file().parent_path()/"x4_resolution.txt";
+    const auto saved = get_settings_file().parent_path()/"x4_resolution.txt";
     if (steamvr_resolution(xml, w, h)) {
         std::ofstream(saved, std::ios::trunc) << w << 'x' << h << '\n';
     } else { // SteamVR not running: what the mod saved last time
@@ -141,10 +142,9 @@ std::pair<int, int> wanted_resolution(const std::string& xml) {
     for (const auto& mode : modes) if (mode.first >= w && mode.second >= h) return mode;
     return modes[std::size(modes)-1];
 }
-bool hud_scaled();
 std::vector<x4vr::launcher::Check> linux_checks(const std::string& xml) {
-    const auto [width, height] = wanted_resolution(xml);
-    return x4vr::linux_port::linux_checks(xml, width, height, hud_scaled()); // x4_settings.hpp
+    const auto [width, height] = compute_vr_resolution(xml);
+    return x4vr::linux_port::linux_checks(xml, width, height, is_hud_scaled()); // x4_settings.hpp
 }
 // Fixes X4's VR settings for VR; `automatic` (x4vr-run): quiet unless something changed.
 int check_settings(bool automatic) {
@@ -165,7 +165,7 @@ int check_settings(bool automatic) {
                                     c.label.c_str(), c.current.c_str(), note.c_str());
     }
     if (fixable.empty()) { if (!automatic) std::cout << "Nothing to fix.\n"; return 0; }
-    if (x4_running()) { std::cerr << "X4 is running: close it first (it rewrites config.xml when it exits).\n"; return 1; }
+    if (is_x4_running()) { std::cerr << "X4 is running: close it first (it rewrites config.xml when it exits).\n"; return 1; }
     const auto backup = path.string()+".x4vr-backup";
     std::error_code error;
     if (!std::filesystem::exists(backup)) std::filesystem::copy_file(path, backup, error);
@@ -182,129 +182,10 @@ int check_settings(bool automatic) {
     return 0;
 }
 
-// ---- hud --------------------------------------------------------------------------------------
-// The Windows launcher's HUD distance mod (tools/launcher/hud_mod.hpp, launcher.cpp): the HUD's
-// anchor positions and world-space scale factors times k, as a substitution extension.
-// Linux X4 9.00 ships each UI script as .lua and as .xpl, precompiled bytecode, and loads the
-// .xpl: replacing only the .lua moved the HUD back but kept its size (2026-10-04). The extension
-// therefore also puts the patched Lua source at the .xpl path (Lua's loader takes source or bytecode).
-std::string xpl_of(const std::string& lua) { return lua.substr(0, lua.size()-4)+".xpl"; }
-std::map<std::string, std::string> hud_originals(const std::filesystem::path& game) {
-    std::set<std::string> paths(x4vr::launcher::hud_anchor_files().begin(), x4vr::launcher::hud_anchor_files().end());
-    for (const auto& script : x4vr::launcher::hud_scripts()) { paths.insert(script); paths.insert(xpl_of(script)); }
-    return x4vr::launcher::read_game_files(game, paths);
-}
-std::string source_hash(const std::map<std::string, std::string>& originals) {
-    std::string all;
-    for (const auto& [path, blob] : originals) all += path+x4vr::linux_port::md5_hex(blob);
-    return x4vr::linux_port::md5_hex(all);
-}
-// x4vr_hud.txt: scale=, source=
-std::map<std::string, std::string> installed_hud(const std::filesystem::path& extension) {
-    std::map<std::string, std::string> values;
-    std::ifstream in(extension/"x4vr_hud.txt");
-    for (std::string line; std::getline(in, line);)
-        if (const auto split = line.find('='); split != std::string::npos) values[line.substr(0, split)] = line.substr(split+1);
-    return values;
-}
-bool install_hud(const std::filesystem::path& game, double scale, std::string& error) {
-    const auto originals = hud_originals(game);
-    auto files = x4vr::launcher::hud_files(originals, scale, error);
-    if (files.empty()) return false;
-    for (const auto& script : x4vr::launcher::hud_scripts())
-        if (originals.count(xpl_of(script))) files[xpl_of(script)] = files.at(script);
-    const auto extension = game/"extensions/x4vr_hud";
-    std::error_code ignored;
-    std::filesystem::remove_all(extension, ignored);
-    std::filesystem::create_directories(extension, ignored);
-    std::ofstream data(extension/"subst_01.dat", std::ios::binary);
-    std::string index;
-    const auto stamp = std::to_string(std::time(nullptr));
-    for (const auto& [path, blob] : files) {
-        data.write(blob.data(), std::streamsize(blob.size()));
-        index += path+' '+std::to_string(blob.size())+' '+stamp+' '+x4vr::linux_port::md5_hex(blob)+'\n';
-    }
-    data.close();
-    const auto scale_text = x4vr::launcher::format_number(scale);
-    char made[16]; // when the extension was built (X4 shows it in its Extensions menu)
-    const auto now = std::time(nullptr);
-    std::strftime(made, sizeof made, "%Y-%m-%d", std::localtime(&now));
-    const bool ok = data && write_text(extension/"subst_01.cat", index) &&
-        write_text(extension/"content.xml", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-            "<content id=\"x4vr_hud\" name=\"X4 VR HUD distance\" version=\"100\" author=\"X4 VR\" date=\""+std::string(made)+"\" "
-            "save=\"0\" enabled=\"1\"\n"
-            "  description=\"Generated by x4vr: HUD "+scale_text+"x farther away at the same apparent size, for VR. "
-            "Built from your own game files. Controlled by the x4vr menu (HUD Scaled), not this menu: active in VR only, "
-            "turned back on at each VR launch.\">\n</content>\n") &&
-        write_text(extension/"x4vr_hud.txt", "scale="+scale_text+"\nsource="+source_hash(originals)+"\n");
-    if (!ok) error = "could not write "+extension.string();
-    return ok;
-}
-// X4's per-user content.xml (next to config.xml) remembers extensions turned off in its menu.
-// Outside a VR session the extension stays off: a VR launch turns it on (settings-mode).
-void enable_hud_in_vr() {
-    const auto config = x4_config();
-    if (config.empty() || !std::filesystem::exists(settings_marker())) return;
-    const auto content_path = config.parent_path()/"content.xml";
-    bool disabled = false;
-    const auto content = x4vr::launcher::enable_extension(read_text(content_path), "x4vr_hud", disabled);
-    if (disabled && !write_text(content_path, content))
-        std::cout << "X4 has it turned off: turn on \"X4 VR HUD distance\" in X4's Extensions menu.\n";
-}
-// The factor chosen in the menu (stereo.txt hud_factor, 0: X4's default), or -1 if never chosen.
-double wanted_hud() {
-    const auto value = x4vr::linux_port::read_setting(settings_file(), "hud_factor", "");
-    return value.empty() ? -1 : std::atof(value.c_str());
-}
-// `hud <factor>` / `remove` install at once (X4 closed); the menu sets hud_factor in stereo.txt
-// and x4vr-run's `hud --refresh` applies it at the next VR launch, also rebuilding the extension
-// after a game update.
-// The extension, and where it waits outside VR (settings_swap.hpp, place_hud).
-std::filesystem::path hud_extension(const std::filesystem::path& game) { return game/"extensions/x4vr_hud"; }
-std::filesystem::path hud_parked(const std::filesystem::path& game) { return game/"x4vr_hud.off"; }
-// Its x4vr_hud.txt, wherever it is now.
-std::map<std::string, std::string> hud_installed(const std::filesystem::path& game) {
-    const auto in_place = installed_hud(hud_extension(game));
-    return in_place.empty() ? installed_hud(hud_parked(game)) : in_place;
-}
-// hud --park (x4vr-run, for 2D: before Steam's Play and after a VR session): out of X4's sight.
-int hud_park() {
-    const auto game = x4_dir();
-    if (game.empty() || x4_running()) return 0;
-    if (!x4vr::linux_port::place_hud(hud_extension(game), hud_parked(game), false)) { std::cerr << "x4vr: can't move the HUD extension aside for 2D\n"; return 1; }
-    return 0;
-}
-int hud_refresh() {
-    const auto game = x4_dir();
-    if (game.empty()) return 0;
-    if (!x4_running() && !x4vr::linux_port::place_hud(hud_extension(game), hud_parked(game), true))
-        std::cerr << "x4vr: can't put the HUD extension back in place\n";
-    const auto extension = hud_extension(game);
-    const auto installed = installed_hud(extension);
-    const double installed_scale = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
-    if (x4_running()) { std::cerr << "X4 is running: close it first (it loads extensions at startup).\n"; return 0; }
-    std::error_code ignored;
-    const double wanted = wanted_hud();
-    if (wanted == 0 && installed_scale > 0) { std::filesystem::remove_all(extension, ignored); std::cout << "x4vr: HUD distance mod removed\n"; return 0; }
-    std::string error;
-    if (wanted > 0 && std::fabs(wanted-installed_scale) > 0.001) { // changed in the menu
-        if (!install_hud(game, wanted, error)) { std::cerr << "Could not build the HUD mod: " << error << '\n'; return 1; }
-        std::cout << "x4vr: HUD distance mod installed: factor " << x4vr::launcher::format_number(wanted) << " (" << extension.string() << ")\n";
-        enable_hud_in_vr();
-        return 0;
-    }
-    if (installed_scale <= 0 || (installed.count("source") && installed.at("source") == source_hash(hud_originals(game)))) return 0;
-    // After a game update the mod would replace new game files with old copies.
-    if (install_hud(game, installed_scale, error)) { std::cout << "x4vr: HUD distance mod rebuilt for the updated game files\n"; return 0; }
-    std::filesystem::remove_all(extension, ignored);
-    std::cout << "x4vr: HUD distance mod removed: it no longer matches this X4 version (" << error << ")\n";
-    return 0;
-}
-
 // ---- ctl ------------------------------------------------------------------------------------
 int ctl(const std::vector<std::string_view>& args) {
     if (args.size() != 1 || (args[0] != "recenter" && args[0] != "flat")) { usage(); return 2; }
-    const auto path = settings_file();
+    const auto path = get_settings_file();
     const int next = x4vr::linux_port::control_settings(path, args[0]);
     if (next < 0) { std::cerr << "Can't update " << path << " (start X4 once with x4vr-run)\n"; return 1; }
     std::cout << (args[0] == "recenter" ? "recentred" : next == 2 ? "flat screen on" : "flat screen automatic") << '\n';
@@ -328,7 +209,7 @@ std::string quoted_path(const std::filesystem::path& path) {
     const auto text = path.string();
     return text.find(' ') == std::string::npos ? text : "\""+text+"\"";
 }
-std::string wanted_launch_option() { return quoted_path(run_script())+" %command%"; }
+std::string make_launch_option() { return quoted_path(run_script())+" %command%"; }
 
 // Runs a program. `detach`: in its own session, not waited for, output discarded. Else waited for,
 // `input` on its standard input, output appended to `log` (none: discarded); true on exit status 0.
@@ -395,28 +276,18 @@ std::string copy_to_clipboard(const std::string& text) {
 std::string launch_option_steps() { return "In Steam: X4 > Properties > General > Launch options, paste it there."; }
 
 using x4vr::linux_port::copy_over;
-// X4's per-user content.xml may have the extension turned off (<extension id="x4vr_hud"
-// enabled="false"/>, from X4's Extensions menu or an older x4vr): turned on for VR. Outside VR
-// the extension is moved aside instead (hud --park), as X4 often has no such file.
-void hud_extension_enabled(const std::filesystem::path& config, bool on) {
-    const auto path = config.parent_path()/"content.xml";
-    const auto text = read_text(path);
-    const auto changed = std::regex_replace(text, std::regex(R"re((<extension\s+id="x4vr_hud"\s+enabled=")(true|false)")re"),
-                                            std::string("$1")+(on ? "true" : "false")+"\"");
-    if (changed != text) write_text(path, changed);
-}
 int settings_mode(const std::vector<std::string_view>& args) {
     if (args.size() != 1 || (args[0] != "vr" && args[0] != "2d" && args[0] != "status")) { usage(); return 2; }
-    const auto in_vr = x4vr::linux_port::config_in_vr(settings_marker());
+    const auto in_vr = x4vr::linux_port::config_in_vr(get_settings_marker());
     const auto config = in_vr.empty() ? x4_config() : in_vr;
     if (args[0] == "status") { std::cout << (!in_vr.empty() ? "X4 has its VR settings (" : "X4 has its 2D settings (") << config.string() << ")\n"; return 0; }
     if (config.empty()) return 0; // X4 never started: nothing to keep apart
-    for (int i = 0; i < 20 && x4_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500)); // X4 finishing its exit
-    if (x4_running()) { std::cerr << "X4 is running: its settings are switched when it isn't.\n"; return 1; }
-    const auto done = x4vr::linux_port::switch_settings(settings_marker(), config, args[0] == "vr");
+    for (int i = 0; i < 20 && is_x4_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500)); // X4 finishing its exit
+    if (is_x4_running()) { std::cerr << "X4 is running: its settings are switched when it isn't.\n"; return 1; }
+    const auto done = x4vr::linux_port::switch_settings(get_settings_marker(), config, args[0] == "vr");
     if (!done.ok) { std::cerr << "x4vr: " << done.message << '\n'; return 1; }
     if (done.changed) {
-        if (args[0] == "vr") hud_extension_enabled(config, true);
+        if (args[0] == "vr") set_hud_extension_enabled(config, true);
         std::cout << "x4vr: " << done.message << '\n';
     }
     return 0;
@@ -447,11 +318,11 @@ Checks current_checks() {
     Checks c;
     c.steam = x4vr::steam::steam_running();
     c.steamvr = steamvr_running();
-    c.x4 = x4_running();
-    c.in_vr = std::filesystem::exists(settings_marker());
+    c.x4 = is_x4_running();
+    c.in_vr = std::filesystem::exists(get_settings_marker());
     c.option = launch_option();
-    if (const auto game = x4_dir(); !game.empty()) {
-        const auto installed = hud_installed(game);
+    if (const auto game = find_x4_dir(); !game.empty()) {
+        const auto installed = find_installed_hud(game);
         c.hud = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
     }
     if (const auto config = x4_config(); !config.empty()) {
@@ -475,7 +346,7 @@ Checks current_checks() {
 // The GPU of the last VR session (gpu_status.hpp). `state` as status().
 std::string gpu_summary(int& state) {
     for (const auto* name : {"x4vr.log", "x4vr.previous.log"})
-        if (const auto gpu = x4vr::linux_port::gpu_from_log(read_text(state_dir()/name))) { state = gpu->state; return gpu->text; }
+        if (const auto gpu = x4vr::linux_port::gpu_from_log(read_text(get_state_dir()/name))) { state = gpu->state; return gpu->text; }
     state = 3;
     return "known after the first VR launch";
 }
@@ -504,7 +375,7 @@ std::vector<std::string> captured(const std::function<void()>& body) {
 // Launch in VR: SteamVR (started if needed, waiting for it), then the request for x4vr-run and
 // `steam -applaunch`. `progress` shows a line; `cancelled` is polled while waiting.
 bool launch_vr(const std::function<void(const std::string&)>& progress, const std::function<bool()>& cancelled) {
-    if (x4_running()) { progress("X4 is already running."); return false; }
+    if (is_x4_running()) { progress("X4 is already running."); return false; }
     const auto option = launch_option();
     if (option.state != 1 && !(option.state == 2 && std::getenv("X4VR_ANY_RUN"))) {
         progress(option.accounts == 0 ? "Start X4 once from Steam first, then set its launch option."
@@ -523,16 +394,16 @@ bool launch_vr(const std::function<void(const std::string&)>& progress, const st
         progress("SteamVR is running.");
     }
     std::error_code error;
-    std::filesystem::create_directories(state_dir(), error);
-    if (!write_text(state_dir()/"launch.request", std::to_string(std::time(nullptr))+"\n")) { progress("Can't write the launch request."); return false; }
+    std::filesystem::create_directories(get_state_dir(), error);
+    if (!write_text(get_state_dir()/"launch.request", std::to_string(std::time(nullptr))+"\n")) { progress("Can't write the launch request."); return false; }
     progress("Starting X4 through Steam... If the headset isn't connected yet, X4 waits up to 2 minutes for it: put it on.");
     run({"steam", "-applaunch", std::string(x4vr::steam::x4_app)}, {.detach = true});
-    for (int i = 0; i < 240 && !x4_running(); ++i) {
+    for (int i = 0; i < 240 && !is_x4_running(); ++i) {
         if (cancelled()) { progress("Stopped waiting; X4 may still start."); return true; }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
-    progress(x4_running() ? "X4 is running in VR. Recentre: Ctrl+F12 or SteamVR's menu." : "X4 didn't start within 2 minutes; check Steam.");
-    return x4_running();
+    progress(is_x4_running() ? "X4 is running in VR. Recentre: Ctrl+F12 or SteamVR's menu." : "X4 didn't start within 2 minutes; check Steam.");
+    return is_x4_running();
 }
 
 // `x4vr vr-vulkan`, run by x4vr-run just before X4 starts: SteamVR's Vulkan requirements for the mod
@@ -776,7 +647,7 @@ std::string make_report() {
     std::error_code error;
     std::filesystem::create_directory(staging, error);
     for (const auto* name : {"x4vr.log", "x4vr.previous.log", "stderr.log", "stderr.previous.log", "stereo.txt", "x4_resolution.txt", "pair_stats.txt"})
-        std::filesystem::copy_file(state_dir()/name, staging/name, error), error.clear();
+        std::filesystem::copy_file(get_state_dir()/name, staging/name, error), error.clear();
     if (const auto config = x4_config(); !config.empty()) std::filesystem::copy_file(config, staging/"x4-config.xml", error), error.clear();
     std::ostringstream summary;
     summary << "x4vr report " << stamp << "\nx4vr build: " << X4VR_BUILD << "\nx4vr commit: " << X4VR_COMMIT << ' ' << X4VR_COMMIT_SUBJECT << "\n";
@@ -852,14 +723,14 @@ std::string make_report() {
     // Where the last runs stopped, and while X4 runs stuck, what its threads wait on.
     bool stuck = false;
     for (const auto* name : {"x4vr.log", "x4vr.previous.log"}) {
-        const auto run = x4vr::report::last_run(read_text(state_dir()/name));
+        const auto run = x4vr::report::last_run(read_text(get_state_dir()/name));
         if (!run.unfinished) continue;
         const bool current = std::string_view(name) == "x4vr.log";
         stuck = stuck || (current && c.x4 && !run.exit);
         summary << name << ": stopped in a SteamVR call: " << *run.unfinished << " ("
                 << (run.exit ? *run.exit : current && c.x4 ? std::string("X4 still running") : std::string("no exit logged")) << ")\n";
     }
-    if (const int pid = x4_pid()) {
+    if (const int pid = find_x4_pid()) {
         write_text(staging/"x4-threads.txt", x4_threads(pid));
         if (stuck) { // a backtrace of every thread: gdb or eu-stack, as the kernel allows (ptrace)
             const auto scope = first_line("/proc/sys/kernel/yama/ptrace_scope");
@@ -875,7 +746,7 @@ std::string make_report() {
                                                  : "none (no gdb or eu-stack); see x4-threads.txt") << "\n";
         }
     }
-    if (const auto game = x4_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
+    if (const auto game = find_x4_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
         summary << "x4 scan (" << (game/"X4").string() << "):\n";
         try {
             for (const auto& note : x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load((game/"X4").string())).notes) summary << "  " << note << "\n";
@@ -938,7 +809,7 @@ std::vector<Removal> removals() {
         {"hud", "Remove the HUD distance extension", true, "X4 must be closed. Saves made with it stay flagged as modified."},
         {"restore_x4", "Restore X4's settings from before the mod", false, "config.xml.x4vr-backup, the first copy: also undoes 2D settings changed since."},
         {"x4_copies", "Delete the mod's copies of X4's settings", true, "config.xml.x4vr-2d, -vr and -backup. Your 2D settings stay in config.xml."},
-        {"state", "Delete the mod's settings, profiles and logs", true, state_dir().string()},
+        {"state", "Delete the mod's settings, profiles and logs", true, get_state_dir().string()},
     };
     std::vector<std::filesystem::path> places;
     const auto files = installed_files(&places);
@@ -954,13 +825,13 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
     const auto on = [&](std::string_view id) { return std::any_of(chosen.begin(), chosen.end(), [&](const auto& r) { return r.id == id && r.on; }); };
     std::error_code error;
     // X4 rewrites config.xml when it exits, and a VR session's 2D settings are only in the -2d copy.
-    if (x4_running()) return {"X4 is running: close it first, then uninstall."};
+    if (is_x4_running()) return {"X4 is running: close it first, then uninstall."};
     if (on("desktop")) { std::filesystem::remove(desktop_file(), error); done.push_back("Desktop entry removed."); }
     {
         if (on("hud")) {
-            if (const auto game = x4_dir(); !game.empty()) { // in place, and aside for 2D
+            if (const auto game = find_x4_dir(); !game.empty()) { // in place, and aside for 2D
                 std::filesystem::remove_all(hud_extension(game), error);
-                std::filesystem::remove_all(hud_parked(game), error);
+                std::filesystem::remove_all(get_parked_hud(game), error);
             }
             if (const auto config = x4_config(); !config.empty()) { // and X4's own record of it
                 const auto content = config.parent_path()/"content.xml";
@@ -989,7 +860,7 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         }
     }
     if (on("state")) {
-        x4vr::linux_port::remove_state_files(state_dir()); // its own files only: X4VR_DIR may be any directory
+        x4vr::linux_port::remove_state_files(get_state_dir()); // its own files only: X4VR_DIR may be any directory
         done.push_back("Mod settings and logs deleted.");
     }
     if (on("program")) {
@@ -1006,7 +877,7 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
 // A profile holds stereo.txt lines for the settings the menu shows; loading one writes them to
 // stereo.txt. The profile last loaded or saved is named in <state>/profile.
 std::filesystem::path data_dir() { return program.parent_path().parent_path()/"share/x4vr"; }
-std::filesystem::path user_profiles() { return state_dir()/"profiles"; }
+std::filesystem::path user_profiles() { return get_state_dir()/"profiles"; }
 // The settings a profile holds, with the mod's defaults (runtime_bootstrap.hpp) for missing lines.
 const std::vector<std::pair<const char*, const char*>> profile_keys{
     {"stereo", "1"}, {"shared_pose", "1"}, {"ipd_scale", "1"}, {"predict", "0.035"}, {"async_submit", "1"}, {"cursor", "1"},
@@ -1026,7 +897,7 @@ std::vector<Profile> profiles() {
     return list;
 }
 std::string current_profile() {
-    auto name = read_text(state_dir()/"profile");
+    auto name = read_text(get_state_dir()/"profile");
     while (!name.empty() && std::isspace(static_cast<unsigned char>(name.back()))) name.pop_back();
     return name;
 }
@@ -1035,7 +906,7 @@ bool profile_matches(const Profile& p) {
     for (const auto& [key, fallback] : profile_keys) {
         const auto wanted = x4vr::linux_port::read_setting(p.file, key, "");
         if (wanted.empty()) continue;
-        const auto now = x4vr::linux_port::read_setting(settings_file(), key, fallback);
+        const auto now = x4vr::linux_port::read_setting(get_settings_file(), key, fallback);
         if (now.empty() || std::fabs(std::atof(now.c_str())-std::atof(wanted.c_str())) > 1e-6) return false;
     }
     return true;
@@ -1044,8 +915,8 @@ bool load_profile(const Profile& p) {
     bool ok = true;
     for (const auto& [key, fallback] : profile_keys)
         if (const auto value = x4vr::linux_port::read_setting(p.file, key, ""); !value.empty())
-            ok = x4vr::linux_port::write_setting(settings_file(), key, value) && ok;
-    return write_text(state_dir()/"profile", p.name+"\n") && ok;
+            ok = x4vr::linux_port::write_setting(get_settings_file(), key, value) && ok;
+    return write_text(get_state_dir()/"profile", p.name+"\n") && ok;
 }
 std::string save_profile(const std::string& name) {
     if (name.empty() || name.find_first_of("/\\") != std::string::npos || name[0] == '.') return "Not a usable name: "+name;
@@ -1054,9 +925,9 @@ std::string save_profile(const std::string& name) {
     std::filesystem::create_directories(user_profiles(), error);
     std::string text = "# x4vr profile, saved from the menu\n";
     for (const auto& [key, fallback] : profile_keys)
-        if (const auto value = x4vr::linux_port::read_setting(settings_file(), key, fallback); !value.empty()) text += std::string(key)+"="+value+"\n";
+        if (const auto value = x4vr::linux_port::read_setting(get_settings_file(), key, fallback); !value.empty()) text += std::string(key)+"="+value+"\n";
     if (!write_text(user_profiles()/(name+".txt"), text)) return "Can't write "+(user_profiles()/(name+".txt")).string();
-    write_text(state_dir()/"profile", name+"\n");
+    write_text(get_state_dir()/"profile", name+"\n");
     return "Saved as profile \""+name+"\".";
 }
 
@@ -1078,7 +949,7 @@ std::vector<std::pair<int, std::string>> notices() {
 
 // The headset's frame rate while X4 runs in VR: the mod's newest pair_stats.txt line (every ~2 s).
 std::optional<x4vr::launcher::Stats> headset_stats() {
-    const auto path = state_dir()/"pair_stats.txt";
+    const auto path = get_state_dir()/"pair_stats.txt";
     std::error_code error;
     const auto time = std::filesystem::last_write_time(path, error);
     if (error || std::filesystem::file_time_type::clock::now()-time > std::chrono::seconds(6)) return std::nullopt;
@@ -1182,12 +1053,6 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
 
 // README "Set X4's options" as a screen, by where each setting is in X4, with the value X4 has
 // in its VR settings (config.xml during a VR session, else the VR copy). Linux: windowed, not fullscreen + DSR.
-// HUD Scaled: chosen in the menu (stereo.txt hud_factor), else whether the extension is installed.
-bool hud_scaled() {
-    if (const double wanted = wanted_hud(); wanted >= 0) return wanted > 0;
-    const auto game = x4_dir();
-    return !game.empty() && hud_installed(game).count("scale") > 0;
-}
 void checklist_screen(x4vr::tui::Terminal& terminal) {
     using namespace x4vr::tui;
     Menu menu(terminal);
@@ -1197,7 +1062,7 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
     menu.label_width = 38;
     for (;;) {
         const auto config = x4_config();
-        const bool in_vr = std::filesystem::exists(settings_marker());
+        const bool in_vr = std::filesystem::exists(get_settings_marker());
         const auto vr_copy = std::filesystem::path(config.string()+".x4vr-vr");
         const bool have = !config.empty() && (in_vr || std::filesystem::exists(vr_copy));
         const auto xml = have ? read_text(in_vr ? config : vr_copy) : std::string();
@@ -1241,7 +1106,7 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
         items.push_back(section("Settings > Graphics (recommended, not required)"));
         row("Chromatic Aberration", "Off", {"chromaticaberration"});
         row("Distortion", "Off", {"distortion"});
-        if (hud_scaled()) { // only matters with the HUD extension
+        if (is_hud_scaled()) { // only matters with the HUD extension
             items.push_back(section("Settings > Extensions (HUD Scaled is on)"));
             row("Protected UI Mode", "Off", {"uisafemode"});
         }
@@ -1261,7 +1126,7 @@ int menu(std::string_view start = {}) {
     Terminal terminal;
     if (!terminal.ok()) { std::cerr << "x4vr: the menu needs a terminal (run it in one, or use the subcommands: x4vr help)\n"; return 1; }
     if (start == "uninstall") { uninstall_screen(terminal); return 0; }
-    const auto path = settings_file();
+    const auto path = get_settings_file();
     if (!std::filesystem::exists(path)) { // first use: the defaults, as x4vr-run would copy them
         std::error_code error;
         std::filesystem::create_directories(path.parent_path(), error);
@@ -1281,7 +1146,7 @@ int menu(std::string_view start = {}) {
     }
     x4vr::linux_port::code::X4Sites sites;
     bool scanned = false;
-    if (const auto game = x4_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
+    if (const auto game = find_x4_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
         try { sites = x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load((game/"X4").string())); scanned = true; } catch (...) {}
     }
     const auto board = notices();
@@ -1294,7 +1159,7 @@ int menu(std::string_view start = {}) {
         const auto c = current_checks();
         int scan_state = 3;
         const auto scan_text = scanned ? scan_summary(sites, scan_state) : std::string("X4 not found (set X4VR_GAME_DIR)");
-        const double wanted_hud_factor = wanted_hud();
+        const double wanted_hud_factor = read_hud_factor();
         const double hud_factor = wanted_hud_factor >= 0 ? wanted_hud_factor : c.hud;
         std::vector<Item> items;
 
@@ -1306,7 +1171,7 @@ int menu(std::string_view start = {}) {
         const auto gpu_text = gpu_summary(gpu_state);
         items.push_back(status("GPU", gpu_state, gpu_text));
         items.push_back(status("Steam launch option", c.option.state == 1 ? 0 : 2,
-            c.option.state == 1 ? (c.option.value == wanted_launch_option() ? "set" : "set: "+c.option.value) : c.option.state == 2 ? "points to another x4vr-run: copy it again (Setup)"
+            c.option.state == 1 ? (c.option.value == make_launch_option() ? "set" : "set: "+c.option.value) : c.option.state == 2 ? "points to another x4vr-run: copy it again (Setup)"
             : c.option.state == 3 ? "set to something else: "+c.option.value : c.option.accounts ? "not set: copy it (Setup)" : "start X4 once from Steam first"));
         items.push_back(status("X4 settings for VR", c.settings_to_fix < 0 ? 3 : c.to_fix.empty() ? 0 : 1,
             c.settings_to_fix == -1 ? "X4's config.xml not found (start X4 once)" : c.settings_to_fix == -2 ? "made at the first VR launch"
@@ -1446,7 +1311,7 @@ int menu(std::string_view start = {}) {
                 if (custom_resolution) { // start from the size in use: the choice before, else SteamVR's last
                     w = int(num("x4_width", "0")); h = int(num("x4_height", "0"));
                     if (w <= 0 || h <= 0) {
-                        std::ifstream saved(state_dir()/"x4_resolution.txt");
+                        std::ifstream saved(get_state_dir()/"x4_resolution.txt");
                         if (!(saved >> w) || saved.get() != 'x' || !(saved >> h) || w <= 0 || h <= 0) { w = 2560; h = 1440; }
                     }
                 } else if (item.choice > 0) std::sscanf(item.choices[size_t(item.choice)].c_str(), "%dx%d", &w, &h);
@@ -1485,11 +1350,11 @@ int menu(std::string_view start = {}) {
             std::error_code error;
             const auto name = current_profile();
             std::filesystem::remove(user_profiles()/(name+".txt"), error);
-            std::filesystem::remove(state_dir()/"profile", error);
+            std::filesystem::remove(get_state_dir()/"profile", error);
             menu.messages = {"Profile \""+name+"\" deleted; your settings stay as they are."};
         } else if (e.id == "option_copy") {
-            const auto how = copy_to_clipboard(wanted_launch_option());
-            menu.messages = {"Copied (" + how + "): " + wanted_launch_option(), launch_option_steps()};
+            const auto how = copy_to_clipboard(make_launch_option());
+            menu.messages = {"Copied (" + how + "): " + make_launch_option(), launch_option_steps()};
         } else if (e.id == "desktop") menu.messages = {install_desktop()};
         else if (e.id == "report") {
             const auto file = make_report();
@@ -1509,7 +1374,7 @@ using namespace x4vr::linux_launcher;   // for patterns() and main(), until x4vr
 // The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
 int patterns(const std::vector<std::string_view>& args) {
     if (args.size() > 1) { usage(); return 2; }
-    const std::filesystem::path path = args.empty() ? x4_dir()/"X4" : std::filesystem::path(args[0]);
+    const std::filesystem::path path = args.empty() ? find_x4_dir()/"X4" : std::filesystem::path(args[0]);
     if (path.empty() || !std::filesystem::exists(path)) { std::cerr << "X4 not found; give its path\n"; return 1; }
     const auto sites = x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load(path.string()));
     std::cout << path.string() << ":\n";
@@ -1545,8 +1410,8 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (command == "ctl") return ctl(args);
-        if (command == "hud" && args.size() == 1 && args[0] == "--refresh") return hud_refresh();
-        if (command == "hud" && args.size() == 1 && args[0] == "--park") return hud_park();
+        if (command == "hud" && args.size() == 1 && args[0] == "--refresh") return refresh_hud();
+        if (command == "hud" && args.size() == 1 && args[0] == "--park") return park_hud();
         if (command == "patterns") return patterns(args);
         if (command == "vr-vulkan" && args.empty()) return vr_vulkan();
         if (command == "fix-settings" && args.size() <= 1 && (args.empty() || args[0] == "--auto"))

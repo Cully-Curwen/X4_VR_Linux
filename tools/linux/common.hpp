@@ -8,15 +8,15 @@
 namespace x4vr::linux_launcher {
 
 // The VR settings (stereo.txt): in $X4VR_DIR if set, else $XDG_STATE_HOME/x4vr, else ~/.local/state/x4vr.
-std::filesystem::path settings_file();
+std::filesystem::path get_settings_file();
 
 // The mod's state folder: logs, the launch request, the 2D/VR marker. For now the same folder as
 // stereo.txt; it gets its own lookup when stereo.txt moves to the config folder.
-std::filesystem::path state_dir();
+std::filesystem::path get_state_dir();
 
 // X4's settings for 2D and for VR, kept apart (settings_swap.hpp); the marker names the config
 // while X4 has its VR settings.
-std::filesystem::path settings_marker();
+std::filesystem::path get_settings_marker();
 
 // A whole file as text; empty if it can't be read.
 std::string read_text(const std::filesystem::path& path);

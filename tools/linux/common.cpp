@@ -6,16 +6,16 @@
 
 namespace x4vr::linux_launcher {
 
-std::filesystem::path settings_file() {
+std::filesystem::path get_settings_file() {
     if (const char* dir = std::getenv("X4VR_DIR"); dir && *dir) return std::filesystem::path(dir)/"stereo.txt";
     if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state) return std::filesystem::path(state)/"x4vr/stereo.txt";
     const char* home = std::getenv("HOME");
     return std::filesystem::path(home ? home : ".")/".local/state/x4vr/stereo.txt";
 }
 
-std::filesystem::path state_dir() { return settings_file().parent_path(); }
+std::filesystem::path get_state_dir() { return get_settings_file().parent_path(); }
 
-std::filesystem::path settings_marker() { return state_dir()/"x4-settings.vr"; }
+std::filesystem::path get_settings_marker() { return get_state_dir()/"x4-settings.vr"; }
 
 std::string read_text(const std::filesystem::path& path) { return x4vr::steam::read_file(path); }
 

@@ -27,14 +27,14 @@ std::filesystem::path x4_config() {
     return best;
 }
 
-std::filesystem::path x4_dir() {
+std::filesystem::path find_x4_dir() {
     if (const char* dir = std::getenv("X4VR_GAME_DIR"); dir && *dir) return dir;
     for (const auto& library : x4vr::steam::libraries()) // every Steam library, also on other drives
         if (const auto candidate = library/"steamapps/common/X4 Foundations"; std::filesystem::exists(candidate/"01.cat")) return candidate;
     return {};
 }
 
-int x4_pid() {
+int find_x4_pid() {
     std::error_code error;
     for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {
         std::error_code link_error;
@@ -43,6 +43,6 @@ int x4_pid() {
     return 0;
 }
 
-bool x4_running() { return x4_pid() != 0; }
+bool is_x4_running() { return find_x4_pid() != 0; }
 
 } // namespace x4vr::linux_launcher
