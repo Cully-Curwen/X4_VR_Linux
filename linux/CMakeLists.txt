@@ -52,7 +52,7 @@ add_library(x4vr_elf STATIC ${X4VR_ROOT}/src/linux/elf_classes.cpp)
 target_include_directories(x4vr_elf PUBLIC ${X4VR_ROOT}/src/linux)
 target_compile_options(x4vr_elf PRIVATE ${X4VR_WARNINGS})
 
-add_executable(x4vr ${X4VR_ROOT}/tools/linux/x4vr_cli.cpp)
+add_executable(x4vr ${X4VR_ROOT}/tools/linux/x4vr_cli.cpp ${X4VR_ROOT}/tools/linux/common.cpp)
 target_link_libraries(x4vr PRIVATE x4vr_vr x4vr_elf ${CMAKE_DL_LIBS})
 target_compile_options(x4vr PRIVATE ${X4VR_WARNINGS})
 # Its own copy of the C++ runtime, as the mod has: a release binary then also runs where the

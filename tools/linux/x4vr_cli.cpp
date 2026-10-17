@@ -15,6 +15,7 @@
 #include "state_files.hpp"
 #include "steam_config.hpp"
 #include "terminal_ui.hpp"
+#include "common.hpp"
 #include "x4_settings.hpp"
 #include "vr_query.hpp"
 #include <vulkan/vulkan.h>
@@ -49,6 +50,7 @@
 #include <thread>
 #include <vector>
 
+namespace x4vr::linux_launcher {
 namespace {
 
 void usage() {
@@ -119,7 +121,6 @@ bool x4_running() { return x4_pid() != 0; }
 // SteamVR directly when it runs, else saved by the mod in x4_resolution.txt while X4 ran), so X4
 // doesn't render pixels SteamVR throws away. Chosen in the menu: stereo.txt x4_width/x4_height.
 // X4VR_RESOLUTION=WxH sets it, =0 leaves it alone.
-std::filesystem::path settings_file();
 std::filesystem::path settings_marker();
 // What the mod computes at startup (src/linux/observe_layer.cpp, presenter_initialize): X4's image spans
 // 2*tan_x by 2*tan_y (tan_y = game_tan_y, X4's FOV), at the pixels per tangent SteamVR recommends.
@@ -351,12 +352,6 @@ int hud_refresh() {
 }
 
 // ---- ctl ------------------------------------------------------------------------------------
-std::filesystem::path settings_file() {
-    if (const char* dir = std::getenv("X4VR_DIR"); dir && *dir) return std::filesystem::path(dir)/"stereo.txt";
-    if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state) return std::filesystem::path(state)/"x4vr/stereo.txt";
-    const char* home = std::getenv("HOME");
-    return std::filesystem::path(home ? home : ".")/".local/state/x4vr/stereo.txt";
-}
 int ctl(const std::vector<std::string_view>& args) {
     if (args.size() != 1 || (args[0] != "recenter" && args[0] != "flat")) { usage(); return 2; }
     const auto path = settings_file();
@@ -1559,7 +1554,11 @@ int menu(std::string_view start = {}) {
         else if (e.id == "tiling") tiling_screen(terminal);
     }
 }
-}
+}  // namespace
+}  // namespace x4vr::linux_launcher
+using namespace x4vr::linux_launcher;   // for patterns() and main(), until x4vr.cpp
+
+// The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
 
 // The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
 int patterns(const std::vector<std::string_view>& args) {
