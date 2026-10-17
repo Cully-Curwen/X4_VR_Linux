@@ -1,4 +1,4 @@
-#include "game.hpp"
+#include "x4.hpp"
 #include "steam_config.hpp"
 #include <cstdlib>
 #include <system_error>
@@ -27,7 +27,7 @@ std::filesystem::path x4_config() {
     return best;
 }
 
-std::filesystem::path game_dir() {
+std::filesystem::path x4_dir() {
     if (const char* dir = std::getenv("X4VR_GAME_DIR"); dir && *dir) return dir;
     for (const auto& library : x4vr::steam::libraries()) // every Steam library, also on other drives
         if (const auto candidate = library/"steamapps/common/X4 Foundations"; std::filesystem::exists(candidate/"01.cat")) return candidate;

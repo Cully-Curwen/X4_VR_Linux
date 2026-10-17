@@ -1,4 +1,4 @@
-// The game: where X4 is installed, its config, whether it's running.
+// X4 itself: where it's installed, its config, whether it's running.
 
 #pragma once
 
@@ -11,7 +11,7 @@ namespace x4vr::linux_launcher {
 std::filesystem::path x4_config();
 
 // X4's game folder: $X4VR_GAME_DIR if set, else the first Steam library that has X4; empty if none.
-std::filesystem::path game_dir();
+std::filesystem::path x4_dir();
 
 // X4's process id, 0 when it isn't running.
 int x4_pid();

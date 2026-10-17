@@ -16,7 +16,7 @@
 #include "steam_config.hpp"
 #include "terminal_ui.hpp"
 #include "common.hpp"
-#include "game.hpp"
+#include "x4.hpp"
 #include "x4_settings.hpp"
 #include "vr_query.hpp"
 #include <vulkan/vulkan.h>
@@ -269,13 +269,13 @@ std::map<std::string, std::string> hud_installed(const std::filesystem::path& ga
 }
 // hud --park (x4vr-run, for 2D: before Steam's Play and after a VR session): out of X4's sight.
 int hud_park() {
-    const auto game = game_dir();
+    const auto game = x4_dir();
     if (game.empty() || x4_running()) return 0;
     if (!x4vr::linux_port::place_hud(hud_extension(game), hud_parked(game), false)) { std::cerr << "x4vr: can't move the HUD extension aside for 2D\n"; return 1; }
     return 0;
 }
 int hud_refresh() {
-    const auto game = game_dir();
+    const auto game = x4_dir();
     if (game.empty()) return 0;
     if (!x4_running() && !x4vr::linux_port::place_hud(hud_extension(game), hud_parked(game), true))
         std::cerr << "x4vr: can't put the HUD extension back in place\n";
@@ -450,7 +450,7 @@ Checks current_checks() {
     c.x4 = x4_running();
     c.in_vr = std::filesystem::exists(settings_marker());
     c.option = launch_option();
-    if (const auto game = game_dir(); !game.empty()) {
+    if (const auto game = x4_dir(); !game.empty()) {
         const auto installed = hud_installed(game);
         c.hud = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
     }
@@ -875,7 +875,7 @@ std::string make_report() {
                                                  : "none (no gdb or eu-stack); see x4-threads.txt") << "\n";
         }
     }
-    if (const auto game = game_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
+    if (const auto game = x4_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
         summary << "x4 scan (" << (game/"X4").string() << "):\n";
         try {
             for (const auto& note : x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load((game/"X4").string())).notes) summary << "  " << note << "\n";
@@ -958,7 +958,7 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
     if (on("desktop")) { std::filesystem::remove(desktop_file(), error); done.push_back("Desktop entry removed."); }
     {
         if (on("hud")) {
-            if (const auto game = game_dir(); !game.empty()) { // in place, and aside for 2D
+            if (const auto game = x4_dir(); !game.empty()) { // in place, and aside for 2D
                 std::filesystem::remove_all(hud_extension(game), error);
                 std::filesystem::remove_all(hud_parked(game), error);
             }
@@ -1185,7 +1185,7 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
 // HUD Scaled: chosen in the menu (stereo.txt hud_factor), else whether the extension is installed.
 bool hud_scaled() {
     if (const double wanted = wanted_hud(); wanted >= 0) return wanted > 0;
-    const auto game = game_dir();
+    const auto game = x4_dir();
     return !game.empty() && hud_installed(game).count("scale") > 0;
 }
 void checklist_screen(x4vr::tui::Terminal& terminal) {
@@ -1281,7 +1281,7 @@ int menu(std::string_view start = {}) {
     }
     x4vr::linux_port::code::X4Sites sites;
     bool scanned = false;
-    if (const auto game = game_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
+    if (const auto game = x4_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
         try { sites = x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load((game/"X4").string())); scanned = true; } catch (...) {}
     }
     const auto board = notices();
@@ -1509,7 +1509,7 @@ using namespace x4vr::linux_launcher;   // for patterns() and main(), until x4vr
 // The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
 int patterns(const std::vector<std::string_view>& args) {
     if (args.size() > 1) { usage(); return 2; }
-    const std::filesystem::path path = args.empty() ? game_dir()/"X4" : std::filesystem::path(args[0]);
+    const std::filesystem::path path = args.empty() ? x4_dir()/"X4" : std::filesystem::path(args[0]);
     if (path.empty() || !std::filesystem::exists(path)) { std::cerr << "X4 not found; give its path\n"; return 1; }
     const auto sites = x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load(path.string()));
     std::cout << path.string() << ":\n";
