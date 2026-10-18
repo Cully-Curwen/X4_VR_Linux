@@ -191,9 +191,13 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   target_compile_options(state_files_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME state_files COMMAND state_files_tests)
 
-  add_executable(fix_settings_tests ${X4VR_ROOT}/tests/linux/fix_settings_tests.cpp)
-  target_compile_options(fix_settings_tests PRIVATE ${X4VR_WARNINGS})
+  # The x4vr command run as players run it, in a fake home directory (tests/linux/run_x4vr.hpp).
+  foreach(suite IN ITEMS fix_settings_tests settings_mode_tests)
+    add_executable(${suite} ${X4VR_ROOT}/tests/linux/${suite}.cpp)
+    target_compile_options(${suite} PRIVATE ${X4VR_WARNINGS})
+  endforeach()
   add_test(NAME fix_settings COMMAND fix_settings_tests $<TARGET_FILE:x4vr>)
+  add_test(NAME settings_mode COMMAND settings_mode_tests $<TARGET_FILE:x4vr>)
 
   foreach(suite IN ITEMS launch_option_tests settings_swap_tests x4_settings_rules_tests)
     add_executable(${suite} ${X4VR_ROOT}/tests/linux/${suite}.cpp)

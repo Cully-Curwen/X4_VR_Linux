@@ -8,6 +8,7 @@
 #include "x4.hpp"
 #include "x4_settings_rules.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -18,6 +19,7 @@
 #include <openvr.h>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -139,6 +141,21 @@ int fix_x4_settings(bool quiet) {
         std::cout << "x4vr: X4 setting set for VR: " << c.label << " (was " << c.current << ")\n";
     std::cout << "x4vr: " << path.string() << " updated; original kept as " << backup.string() << '\n';
     return 0;
+}
+
+x4vr::linux_port::Switched switch_x4_settings(bool vr) {
+    // During a VR session the marker names X4's config.xml; else it's X4's own (none: never started).
+    const std::filesystem::path in_vr = x4vr::linux_port::config_in_vr(get_settings_marker());
+    const std::filesystem::path config = in_vr.empty() ? x4_config() : in_vr;
+    if (config.empty()) return {};
+
+    // X4 rewrites config.xml when it exits: give it up to 10 seconds to finish.
+    for (int i = 0; i < 20 && is_x4_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    if (is_x4_running()) return {false, false, "X4 is running: its settings are switched when it isn't."};
+
+    const x4vr::linux_port::Switched done = x4vr::linux_port::switch_settings(get_settings_marker(), config, vr);
+    if (done.ok && done.changed && vr) set_hud_extension_enabled(config, true);
+    return done;
 }
 
 } // namespace x4vr::linux_launcher

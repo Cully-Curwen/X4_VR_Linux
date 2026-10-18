@@ -179,20 +179,19 @@ std::string copy_to_clipboard(const std::string& text) {
 std::string launch_option_steps() { return "In Steam: X4 > Properties > General > Launch options, paste it there."; }
 
 using x4vr::linux_port::copy_over;
-int settings_mode(const std::vector<std::string_view>& args) {
+int cmd_settings_mode(const std::vector<std::string_view>& args) {
     if (args.size() != 1 || (args[0] != "vr" && args[0] != "2d" && args[0] != "status")) { usage(); return 2; }
-    const auto in_vr = x4vr::linux_port::config_in_vr(get_settings_marker());
-    const auto config = in_vr.empty() ? x4_config() : in_vr;
-    if (args[0] == "status") { std::cout << (!in_vr.empty() ? "X4 has its VR settings (" : "X4 has its 2D settings (") << config.string() << ")\n"; return 0; }
-    if (config.empty()) return 0; // X4 never started: nothing to keep apart
-    for (int i = 0; i < 20 && is_x4_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500)); // X4 finishing its exit
-    if (is_x4_running()) { std::cerr << "X4 is running: its settings are switched when it isn't.\n"; return 1; }
-    const auto done = x4vr::linux_port::switch_settings(get_settings_marker(), config, args[0] == "vr");
-    if (!done.ok) { std::cerr << "x4vr: " << done.message << '\n'; return 1; }
-    if (done.changed) {
-        if (args[0] == "vr") set_hud_extension_enabled(config, true);
-        std::cout << "x4vr: " << done.message << '\n';
+
+    if (args[0] == "status") {
+        const std::filesystem::path in_vr = x4vr::linux_port::config_in_vr(get_settings_marker());
+        const std::filesystem::path config = in_vr.empty() ? x4_config() : in_vr;
+        std::cout << (!in_vr.empty() ? "X4 has its VR settings (" : "X4 has its 2D settings (") << config.string() << ")\n";
+        return 0;
     }
+
+    const x4vr::linux_port::Switched done = switch_x4_settings(args[0] == "vr");
+    if (!done.ok) { std::cerr << "x4vr: " << done.message << '\n'; return 1; }
+    if (done.changed) std::cout << "x4vr: " << done.message << '\n';
     return 0;
 }
 std::string install_desktop() {
@@ -258,21 +257,6 @@ std::string scan_summary(const x4vr::linux_port::code::X4Sites& sites, int& stat
     const bool core = sites.opentrack_vtable && sites.frame_half_global;
     state = all ? 0 : core ? 1 : 2;
     return all ? "all VR features supported" : core ? "some features off in this X4 (see Bug report)" : "this X4 build isn't supported";
-}
-
-// Runs `body` with std::cout and std::cerr captured (functions shared with the command line
-// print); returns what they printed, one entry per line.
-std::vector<std::string> captured(const std::function<void()>& body) {
-    std::ostringstream text;
-    auto* out = std::cout.rdbuf(text.rdbuf());
-    auto* err = std::cerr.rdbuf(text.rdbuf());
-    try { body(); } catch (const std::exception& e) { text << e.what() << '\n'; }
-    std::cout.rdbuf(out);
-    std::cerr.rdbuf(err);
-    std::vector<std::string> lines;
-    std::istringstream in(text.str());
-    for (std::string line; std::getline(in, line);) if (!line.empty()) lines.push_back(line);
-    return lines;
 }
 
 // Launch in VR: SteamVR (started if needed, waiting for it), then the request for x4vr-run and
@@ -746,9 +730,7 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         }
         // A VR session that didn't finish: its 2D settings back in place first (only then: the -2d copy
         // is otherwise an old one, and the live config.xml has the player's 2D settings).
-        int switched = 1;
-        captured([&] { switched = settings_mode(std::vector<std::string_view>{"2d"}); });
-        if (switched != 0) {
+        if (!switch_x4_settings(false).ok) {
             done.push_back("Can't put X4's 2D settings back (see x4vr settings-mode 2d): its copies and the mod's settings are kept.");
             return done;
         }
@@ -1273,8 +1255,6 @@ int menu(std::string_view start = {}) {
 using namespace x4vr::linux_launcher;   // for patterns() and main(), until x4vr.cpp
 
 // The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
-
-// The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
 int patterns(const std::vector<std::string_view>& args) {
     if (args.size() > 1) { usage(); return 2; }
     const std::filesystem::path path = args.empty() ? find_x4_dir()/"X4" : std::filesystem::path(args[0]);
@@ -1305,7 +1285,7 @@ int main(int argc, char** argv) {
     try {
         if (command == "menu") return menu();
         if (command == "uninstall") return menu("uninstall");
-        if (command == "settings-mode") return settings_mode(args);
+        if (command == "settings-mode") return cmd_settings_mode(args);
         if (command == "report" && args.empty()) {
             const auto file = make_report();
             if (file.empty()) { std::cerr << "Couldn't write the report (tar missing?)\n"; return 1; }
