@@ -127,43 +127,43 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   add_test(NAME camera_sampling COMMAND camera_sampling_tests)
   add_test(NAME vulkan_bootstrap_contract COMMAND vulkan_bootstrap_tests)
 
-  add_executable(opentrack_tests ${X4VR_ROOT}/tests/linux/opentrack_tests.cpp)
+  add_executable(opentrack_tests ${X4VR_ROOT}/tests/linux/unit/opentrack_tests.cpp)
   target_include_directories(opentrack_tests PRIVATE ${X4VR_ROOT}/src/linux)
   target_compile_options(opentrack_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME opentrack_packet COMMAND opentrack_tests)
 
-  add_executable(md5_tests ${X4VR_ROOT}/tests/linux/md5_tests.cpp)
+  add_executable(md5_tests ${X4VR_ROOT}/tests/linux/unit/md5_tests.cpp)
   target_include_directories(md5_tests PRIVATE ${X4VR_ROOT}/src/linux)
   target_compile_options(md5_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME md5 COMMAND md5_tests)
 
   # The scan reads absolute pointers from the file, as in Linux X4: the test inspects itself, so
   # it is linked without PIE like the game.
-  add_executable(elf_classes_tests ${X4VR_ROOT}/tests/linux/elf_classes_tests.cpp)
+  add_executable(elf_classes_tests ${X4VR_ROOT}/tests/linux/unit/elf_classes_tests.cpp)
   target_link_libraries(elf_classes_tests PRIVATE x4vr_elf)
   set_target_properties(elf_classes_tests PROPERTIES POSITION_INDEPENDENT_CODE OFF)
   target_compile_options(elf_classes_tests PRIVATE ${X4VR_WARNINGS} -fno-pie)
   target_link_options(elf_classes_tests PRIVATE -no-pie)
   add_test(NAME elf_classes COMMAND elf_classes_tests)
 
-  add_executable(code_scan_tests ${X4VR_ROOT}/tests/linux/code_scan_tests.cpp)
+  add_executable(code_scan_tests ${X4VR_ROOT}/tests/linux/unit/code_scan_tests.cpp)
   target_link_libraries(code_scan_tests PRIVATE x4vr_elf)
   set_target_properties(code_scan_tests PROPERTIES POSITION_INDEPENDENT_CODE OFF)
   target_compile_options(code_scan_tests PRIVATE ${X4VR_WARNINGS} -fno-pie -O2 -fcf-protection=none) # X4: no endbr64
   target_link_options(code_scan_tests PRIVATE -no-pie)
   add_test(NAME code_scan COMMAND code_scan_tests)
 
-  add_executable(steam_config_tests ${X4VR_ROOT}/tests/linux/steam_config_tests.cpp)
+  add_executable(steam_config_tests ${X4VR_ROOT}/tests/linux/unit/steam_config_tests.cpp)
   target_include_directories(steam_config_tests PRIVATE ${X4VR_ROOT}/tools/linux)
   target_compile_options(steam_config_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME steam_config COMMAND steam_config_tests)
 
-  add_executable(report_info_tests ${X4VR_ROOT}/tests/linux/report_info_tests.cpp)
+  add_executable(report_info_tests ${X4VR_ROOT}/tests/linux/unit/report_info_tests.cpp)
   target_include_directories(report_info_tests PRIVATE ${X4VR_ROOT}/tools/linux)
   target_compile_options(report_info_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME report_info COMMAND report_info_tests)
 
-  add_executable(vr_query_tests ${X4VR_ROOT}/tests/linux/vr_query_tests.cpp)
+  add_executable(vr_query_tests ${X4VR_ROOT}/tests/linux/unit/vr_query_tests.cpp)
   target_include_directories(vr_query_tests PRIVATE ${X4VR_ROOT}/src/linux)
   target_compile_options(vr_query_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME vr_query COMMAND vr_query_tests)
@@ -171,12 +171,12 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   # Issue #7: X4 hung when SteamVR answered the mod's Vulkan questions inside X4's Vulkan setup.
   # loader_lock_tests stands in for X4 and the Vulkan loader (its lock included), fake_vrclient for
   # SteamVR; no Vulkan loader or driver needed.
-  add_library(fake_vrclient MODULE ${X4VR_ROOT}/tests/linux/fake_vrclient.cpp)
+  add_library(fake_vrclient MODULE ${X4VR_ROOT}/tests/linux/unit/fake_vrclient.cpp)
   target_include_directories(fake_vrclient PRIVATE ${OPENVR_SOURCE_DIR}/headers ${OPENVR_SOURCE_DIR}/src)
   target_link_libraries(fake_vrclient PRIVATE ${CMAKE_DL_LIBS})
   set_target_properties(fake_vrclient PROPERTIES PREFIX "" OUTPUT_NAME vrclient
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fake_steamvr/bin/linux64)
-  add_executable(loader_lock_tests ${X4VR_ROOT}/tests/linux/loader_lock_tests.cpp)
+  add_executable(loader_lock_tests ${X4VR_ROOT}/tests/linux/unit/loader_lock_tests.cpp)
   target_include_directories(loader_lock_tests PRIVATE ${X4VR_ROOT}/src/linux ${VULKAN_HEADERS_DIR})
   target_compile_definitions(loader_lock_tests PRIVATE VK_NO_PROTOTYPES)
   target_compile_options(loader_lock_tests PRIVATE ${X4VR_WARNINGS})
@@ -186,21 +186,21 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   add_test(NAME loader_lock COMMAND loader_lock_tests $<TARGET_FILE:x4vr_mod> ${CMAKE_CURRENT_BINARY_DIR}/fake_steamvr)
   set_tests_properties(loader_lock PROPERTIES TIMEOUT 60)
 
-  add_executable(state_files_tests ${X4VR_ROOT}/tests/linux/state_files_tests.cpp)
+  add_executable(state_files_tests ${X4VR_ROOT}/tests/linux/unit/state_files_tests.cpp)
   target_include_directories(state_files_tests PRIVATE ${X4VR_ROOT}/tools/linux)
   target_compile_options(state_files_tests PRIVATE ${X4VR_WARNINGS})
   add_test(NAME state_files COMMAND state_files_tests)
 
-  # The x4vr command run as players run it, in a fake home directory (tests/linux/run_x4vr.hpp).
-  foreach(suite IN ITEMS fix_settings_tests settings_mode_tests)
-    add_executable(${suite} ${X4VR_ROOT}/tests/linux/${suite}.cpp)
-    target_compile_options(${suite} PRIVATE ${X4VR_WARNINGS})
+  # End-to-end: each runs one x4vr command as players run it, in a fake home directory, and is
+  # named after it (tests/linux/end_to_end/run_x4vr.hpp).
+  foreach(command IN ITEMS fix-settings settings-mode)
+    add_executable(test-${command} ${X4VR_ROOT}/tests/linux/end_to_end/${command}.cpp)
+    target_compile_options(test-${command} PRIVATE ${X4VR_WARNINGS})
+    add_test(NAME ${command} COMMAND test-${command} $<TARGET_FILE:x4vr>)
   endforeach()
-  add_test(NAME fix_settings COMMAND fix_settings_tests $<TARGET_FILE:x4vr>)
-  add_test(NAME settings_mode COMMAND settings_mode_tests $<TARGET_FILE:x4vr>)
 
   foreach(suite IN ITEMS launch_option_tests settings_swap_tests x4_settings_rules_tests)
-    add_executable(${suite} ${X4VR_ROOT}/tests/linux/${suite}.cpp)
+    add_executable(${suite} ${X4VR_ROOT}/tests/linux/unit/${suite}.cpp)
     target_include_directories(${suite} PRIVATE ${X4VR_ROOT}/tools/linux)
     target_compile_options(${suite} PRIVATE ${X4VR_WARNINGS})
   endforeach()

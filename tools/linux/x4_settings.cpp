@@ -149,8 +149,8 @@ x4vr::linux_port::Switched switch_x4_settings(bool vr) {
     const std::filesystem::path config = in_vr.empty() ? x4_config() : in_vr;
     if (config.empty()) return {};
 
-    // X4 rewrites config.xml when it exits: give it up to 10 seconds to finish.
-    for (int i = 0; i < 20 && is_x4_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // X4 rewrites config.xml when it exits: give it up to 10 seconds to finish, checking every 0.1 s.
+    for (int i = 0; i < 100 && is_x4_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (is_x4_running()) return {false, false, "X4 is running: its settings are switched when it isn't."};
 
     const x4vr::linux_port::Switched done = x4vr::linux_port::switch_settings(get_settings_marker(), config, vr);

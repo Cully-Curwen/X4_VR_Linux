@@ -1,20 +1,22 @@
 // `x4vr settings-mode` (tools/linux/x4_settings.cpp, switch_x4_settings) run as x4vr-run runs it,
 // on a config.xml in a fake home directory: X4's 2D settings put aside for VR and back, the
-// marker, the HUD extension switched on for VR, and nothing touched while X4 runs.
-// usage: settings_mode_tests <x4vr>
-// Run with `--sleep`, it stands in for a running X4 (copied as a file named X4).
+// marker, the HUD extension switched on for VR, and the wait for X4 to finish exiting.
+// usage: test-settings-mode <x4vr>
+// Run with `--exit-soon`, it stands in for X4 exiting (copied as a file named X4).
 #include "run_x4vr.hpp"
-#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 
 int main(int argc, char** argv) {
-    if (argc == 2 && std::string(argv[1]) == "--sleep") { sleep(60); return 0; }
-    if (argc != 2) { std::fprintf(stderr, "usage: settings_mode_tests <x4vr>\n"); return 2; }
+    if (argc == 2 && std::string(argv[1]) == "--exit-soon") { usleep(200 * 1000); return 0; }
+    if (argc != 2) { std::fprintf(stderr, "usage: test-settings-mode <x4vr>\n"); return 2; }
     namespace fs = std::filesystem;
     const char* x4vr = argv[1];
     char pattern[] = "/tmp/x4vr-settings-mode-test-XXXXXX";
@@ -77,21 +79,27 @@ int main(int argc, char** argv) {
     check(run.exit_code == 0 && run.output.empty(), "2d again: does nothing");
     check(read_file(config) == settings_2d && read_file(vr) == changed_vr, "2d again: files unchanged");
 
-    // X4 running: waits for it to exit (10 seconds), then gives up without touching anything.
+    // X4 still exiting (x4vr-run runs as X4 closes): x4vr waits for it, then switches.
     const fs::path fake_x4 = home/"X4";
     fs::copy_file("/proc/self/exe", fake_x4);
     const pid_t x4 = fork();
     if (x4 == 0) {
-        execl(fake_x4.c_str(), "X4", "--sleep", nullptr);
+        execl(fake_x4.c_str(), "X4", "--exit-soon", nullptr);
         _exit(127);
     }
-    usleep(200 * 1000); // until it shows up in /proc
+    const fs::path x4_exe = "/proc/" + std::to_string(x4) + "/exe";
+    for (int i = 0; i < 1000; ++i) { // until x4vr can see it (it is still the test program right after fork)
+        std::error_code error;
+        if (fs::read_symlink(x4_exe, error).filename() == "X4") break;
+        usleep(1000);
+    }
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     run = run_x4vr(x4vr, home, {"settings-mode", "vr"});
-    kill(x4, SIGKILL);
+    const std::chrono::steady_clock::duration waited = std::chrono::steady_clock::now() - start;
     waitpid(x4, nullptr, 0);
-    check(run.exit_code == 1, "X4 running: exit 1");
-    check(contains(run.output, "x4vr: X4 is running: its settings are switched when it isn't."), "X4 running: says so");
-    check(read_file(config) == settings_2d && !fs::exists(marker), "X4 running: nothing changed");
+    check(waited >= std::chrono::milliseconds(50), "X4 exiting: x4vr waited for it");
+    check(run.exit_code == 0 && contains(run.output, "VR settings in place"), "X4 exiting: then switched");
+    check(read_file(config) == changed_vr && fs::exists(marker), "X4 exiting: VR settings in place");
 
     fs::remove_all(home);
     if (failures) return 1;
