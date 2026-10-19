@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -28,8 +29,8 @@ struct Run {
     int exit_code = -1;
 };
 
-// Runs `x4vr <args>` with HOME=`home`, SteamVR not asked and X4's resolution fixed at 1920x1080.
-inline Run run_x4vr(const char* x4vr, const std::filesystem::path& home, const std::vector<std::string>& args) {
+// Runs `argv` with only `env` as its environment, waiting for it.
+inline Run run_program(const std::vector<std::string>& argv, const std::vector<std::string>& env) {
     int out[2];
     if (pipe(out) != 0) return {};
 
@@ -39,13 +40,12 @@ inline Run run_x4vr(const char* x4vr, const std::filesystem::path& home, const s
         dup2(out[1], STDERR_FILENO);
         close(out[0]);
         close(out[1]);
-        const std::string home_var = "HOME=" + home.string();
-        char* env[] = {const_cast<char*>(home_var.c_str()), const_cast<char*>("PATH=/usr/bin:/bin"),
-                       const_cast<char*>("X4VR_NO_STEAMVR_QUERY=1"), const_cast<char*>("X4VR_RESOLUTION=1920x1080"), nullptr};
-        std::vector<char*> argv{const_cast<char*>(x4vr)};
-        for (const std::string& arg : args) argv.push_back(const_cast<char*>(arg.c_str()));
-        argv.push_back(nullptr);
-        execve(x4vr, argv.data(), env);
+        std::vector<char*> args, vars;
+        for (const std::string& arg : argv) args.push_back(const_cast<char*>(arg.c_str()));
+        for (const std::string& var : env) vars.push_back(const_cast<char*>(var.c_str()));
+        args.push_back(nullptr);
+        vars.push_back(nullptr);
+        execve(args[0], args.data(), vars.data());
         _exit(127);
     }
     close(out[1]);
@@ -60,4 +60,17 @@ inline Run run_x4vr(const char* x4vr, const std::filesystem::path& home, const s
     waitpid(pid, &status, 0);
     if (WIFEXITED(status)) run.exit_code = WEXITSTATUS(status);
     return run;
+}
+
+// The caller's PATH, so x4vr finds the programs it runs (tar for the bug report).
+inline std::string get_path_var() {
+    const char* path = std::getenv("PATH");
+    return std::string("PATH=") + (path ? path : "/usr/bin:/bin");
+}
+
+// Runs `x4vr <args>` with HOME=`home`, SteamVR not asked and X4's resolution fixed at 1920x1080.
+inline Run run_x4vr(const char* x4vr, const std::filesystem::path& home, const std::vector<std::string>& args) {
+    std::vector<std::string> argv{x4vr};
+    argv.insert(argv.end(), args.begin(), args.end());
+    return run_program(argv, {"HOME=" + home.string(), get_path_var(), "X4VR_NO_STEAMVR_QUERY=1", "X4VR_RESOLUTION=1920x1080"});
 }

@@ -23,17 +23,14 @@
 #include <vulkan/vulkan.h>
 #include <openvr.h>
 #include <dlfcn.h>
-#include <fcntl.h>
 #include <gnu/libc-version.h>
 #include <sys/utsname.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
-#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -100,7 +97,6 @@ int ctl(const std::vector<std::string_view>& args) {
 // request from here is fresh (linux/x4vr-run.in), so Steam's Play button starts the normal game.
 // `steam -applaunch` asks the running Steam client to start X4 with Steam's usual chain
 // (reaper, the Steam Linux Runtime); the game inherits Steam's environment, not ours.
-std::filesystem::path program; // this executable as started (argv[0], symlinks unresolved)
 std::filesystem::path run_script() { return program.parent_path()/"x4vr-run"; }
 std::filesystem::path desktop_file() {
     const char* data = std::getenv("XDG_DATA_HOME");
@@ -108,47 +104,7 @@ std::filesystem::path desktop_file() {
     return (data && *data ? std::filesystem::path(data) : std::filesystem::path(home ? home : ".")/".local/share")/"applications/x4vr.desktop";
 }
 bool steamvr_running() { return x4vr::steam::process_named("vrserver"); }
-std::string quoted_path(const std::filesystem::path& path) {
-    const auto text = path.string();
-    return text.find(' ') == std::string::npos ? text : "\""+text+"\"";
-}
-std::string make_launch_option() { return quoted_path(run_script())+" %command%"; }
-
-// Runs a program. `detach`: in its own session, not waited for, output discarded. Else waited for,
-// `input` on its standard input, output appended to `log` (none: discarded); true on exit status 0.
-struct Run { bool detach = false; const std::string* input = nullptr; std::filesystem::path log; };
-bool run(const std::vector<std::string>& argv, const Run& how = {}) {
-    int fds[2]{-1, -1};
-    if (how.input && pipe(fds) != 0) return false;
-    const pid_t child = fork();
-    if (child == 0) {
-        if (how.detach) { setsid(); if (fork() != 0) _exit(0); }
-        const int null = ::open("/dev/null", O_RDWR);
-        const int out = how.log.empty() ? null : ::open(how.log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
-        dup2(how.input ? fds[0] : null, 0); dup2(out, 1); dup2(out, 2);
-        if (how.input) { close(fds[0]); close(fds[1]); }
-        std::vector<char*> args;
-        for (const auto& a : argv) args.push_back(const_cast<char*>(a.c_str()));
-        args.push_back(nullptr);
-        execvp(args[0], args.data());
-        _exit(127);
-    }
-    if (how.input) {
-        close(fds[0]);
-        if (child > 0) { // the program may have exited already (not installed): no SIGPIPE
-            struct sigaction ignore{}, previous{};
-            ignore.sa_handler = SIG_IGN;
-            sigaction(SIGPIPE, &ignore, &previous);
-            (void)!::write(fds[1], how.input->data(), how.input->size());
-            sigaction(SIGPIPE, &previous, nullptr);
-        }
-        close(fds[1]);
-    }
-    if (child < 0) return false;
-    int status = 0;
-    waitpid(child, &status, 0);
-    return how.detach || (WIFEXITED(status) && WEXITSTATUS(status) == 0);
-}
+std::string make_launch_option() { return quote_path(run_script())+" %command%"; }
 
 // X4's launch option in every Steam account (launch_option.hpp).
 using x4vr::linux_port::LaunchOption;
@@ -198,7 +154,7 @@ std::string install_desktop() {
     const auto file = desktop_file();
     std::error_code error;
     std::filesystem::create_directories(file.parent_path(), error);
-    const auto exec = quoted_path(program);
+    const auto exec = quote_path(program);
     const bool ok = write_text(file, "[Desktop Entry]\nType=Application\nName=X4 VR\n"
         "Comment=X4: Foundations in VR: checks, settings and launch\nExec="+exec+"\nTerminal=true\n"
         "Icon=steam_icon_392160\nCategories=Game;\n");

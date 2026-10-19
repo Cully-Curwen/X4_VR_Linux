@@ -193,7 +193,7 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
 
   # End-to-end: each runs one x4vr command as players run it, in a fake home directory, and is
   # named after it (tests/linux/end_to_end/run_x4vr.hpp).
-  foreach(command IN ITEMS fix-settings settings-mode)
+  foreach(command IN ITEMS fix-settings report settings-mode)
     add_executable(test-${command} ${X4VR_ROOT}/tests/linux/end_to_end/${command}.cpp)
     target_compile_options(test-${command} PRIVATE ${X4VR_WARNINGS})
     add_test(NAME ${command} COMMAND test-${command} $<TARGET_FILE:x4vr>)
