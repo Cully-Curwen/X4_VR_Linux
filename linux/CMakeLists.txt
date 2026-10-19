@@ -53,7 +53,7 @@ target_include_directories(x4vr_elf PUBLIC ${X4VR_ROOT}/src/linux)
 target_compile_options(x4vr_elf PRIVATE ${X4VR_WARNINGS})
 
 add_executable(x4vr ${X4VR_ROOT}/tools/linux/x4vr_cli.cpp ${X4VR_ROOT}/tools/linux/common.cpp
-               ${X4VR_ROOT}/tools/linux/x4.cpp ${X4VR_ROOT}/tools/linux/hud.cpp ${X4VR_ROOT}/tools/linux/launch.cpp ${X4VR_ROOT}/tools/linux/status.cpp
+               ${X4VR_ROOT}/tools/linux/x4.cpp ${X4VR_ROOT}/tools/linux/hud.cpp ${X4VR_ROOT}/tools/linux/launch.cpp ${X4VR_ROOT}/tools/linux/report.cpp ${X4VR_ROOT}/tools/linux/status.cpp
                ${X4VR_ROOT}/tools/linux/x4_settings.cpp)
 target_link_libraries(x4vr PRIVATE x4vr_vr x4vr_elf ${CMAKE_DL_LIBS})
 target_compile_options(x4vr PRIVATE ${X4VR_WARNINGS})
