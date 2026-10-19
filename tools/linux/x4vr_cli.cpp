@@ -18,6 +18,7 @@
 #include "x4.hpp"
 #include "hud.hpp"
 #include "launch.hpp"
+#include "status.hpp"
 #include "x4_settings.hpp"
 #include "x4_settings_rules.hpp"
 #include "vr_query.hpp"
@@ -145,60 +146,6 @@ std::string install_desktop() {
         "Comment=X4: Foundations in VR: checks, settings and launch\nExec="+exec+"\nTerminal=true\n"
         "Icon=steam_icon_392160\nCategories=Game;\n");
     return ok ? "Desktop entry written: "+file.string()+" (rofi -show drun: \"X4 VR\")" : "Can't write "+file.string();
-}
-
-// What the menu shows; the X4 scan (a second on the file) only once.
-struct Checks {
-    bool steam{}, steamvr{}, x4{}, in_vr{}; // in_vr: X4 has its VR settings (a VR session)
-    x4vr::linux_port::LaunchOption option;
-    double hud{};            // installed HUD factor, 0: none
-    bool hud_off_in_x4{};    // installed but switched off in X4's Extensions menu
-    int settings_to_fix = -1; // -1: X4's config.xml not found, -2: VR settings made at the first VR launch
-    struct Fix { x4vr::linux_port::Kind kind; std::string label, current; };
-    std::vector<Fix> to_fix;
-    bool desktop{};
-};
-Checks current_checks() {
-    Checks c;
-    c.steam = x4vr::steam::steam_running();
-    c.steamvr = is_steamvr_running();
-    c.x4 = is_x4_running();
-    c.in_vr = std::filesystem::exists(get_settings_marker());
-    c.option = read_launch_option();
-    if (const auto game = find_x4_dir(); !game.empty()) {
-        const auto installed = find_installed_hud(game);
-        c.hud = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
-    }
-    if (const auto config = x4_config(); !config.empty()) {
-        bool disabled = false;
-        x4vr::launcher::enable_extension(read_text(config.parent_path()/"content.xml"), "x4vr_hud", disabled);
-        c.hud_off_in_x4 = c.hud > 0 && disabled && c.in_vr; // off outside VR on purpose
-        // config.xml holds the 2D settings except during a VR session; the VR ones are the copy.
-        const auto vr = std::filesystem::path(config.string()+".x4vr-vr");
-        const auto xml = read_text(c.in_vr ? config : vr);
-        c.settings_to_fix = c.in_vr || std::filesystem::exists(vr) ? 0 : -2;
-        if (c.settings_to_fix == 0) for (const auto& check : x4_checks(xml)) {
-            // Wrong ones: required ones x4vr sets (counted), optional ones and warnings listed for the player.
-            if (check.ok || (check.required && !x4vr::linux_port::to_write(check, xml))) continue;
-            if (check.required) ++c.settings_to_fix;
-            c.to_fix.push_back({x4vr::linux_port::kind(check), check.label, check.current});
-        }
-    }
-    c.desktop = std::filesystem::exists(desktop_file());
-    return c;
-}
-// The GPU of the last VR session (gpu_status.hpp). `state` as status().
-std::string gpu_summary(int& state) {
-    for (const auto* name : {"x4vr.log", "x4vr.previous.log"})
-        if (const auto gpu = x4vr::linux_port::gpu_from_log(read_text(get_state_dir()/name))) { state = gpu->state; return gpu->text; }
-    state = 3;
-    return "known after the first VR launch";
-}
-std::string scan_summary(const x4vr::linux_port::code::X4Sites& sites, int& state) {
-    const bool all = sites.backward_clamp && sites.onfoot_zeroing && sites.camera_offset && sites.frame_half_global && sites.opentrack_vtable;
-    const bool core = sites.opentrack_vtable && sites.frame_half_global;
-    state = all ? 0 : core ? 1 : 2;
-    return all ? "all VR features supported" : core ? "some features off in this X4 (see Bug report)" : "this X4 build isn't supported";
 }
 
 // `x4vr vr-vulkan`, run by x4vr-run just before X4 starts: SteamVR's Vulkan requirements for the mod
@@ -461,7 +408,7 @@ std::string make_report() {
     }
     summary << "cpu: " << x4vr::report::cpu(read_text("/proc/cpuinfo")) << "\nmemory: " << x4vr::report::memory(read_text("/proc/meminfo"))
             << "\nglibc: " << gnu_get_libc_version() << "\nvulkan loader: " << vulkan_loader_version() << "\n";
-    const auto c = current_checks();
+    const Status c = read_status();
     summary << "steam running: " << c.steam << "\nsteamvr running: " << c.steamvr << "\nx4 running: " << c.x4
             << "\nlaunch option: " << (c.option.value.empty() ? std::string("-") : c.option.value)
             << "\nlaunch option check: " << launch_option_check(c.option.state) << "\nx4 compatibility tool: " << x4_compat_tool()
@@ -513,7 +460,7 @@ std::string make_report() {
         summary << "layer manifest: " << local.string() << "\n";
 
     int gpu_state = 3;
-    summary << "gpu (last VR session): " << gpu_summary(gpu_state) << "\n";
+    summary << "gpu (last VR session): " << read_gpu_summary(gpu_state) << "\n";
 
     // Where the last runs stopped, and while X4 runs stuck, what its threads wait on.
     bool stuck = false;
@@ -949,9 +896,9 @@ int menu(std::string_view start = {}) {
     const std::string live = "live", next = "next launch";
     bool custom_resolution = false; // "Custom" picked: width and height shown even if they match a listed size
     for (;;) {
-        const auto c = current_checks();
+        const Status c = read_status();
         int scan_state = 3;
-        const auto scan_text = scanned ? scan_summary(sites, scan_state) : std::string("X4 not found (set X4VR_GAME_DIR)");
+        const auto scan_text = scanned ? make_scan_summary(sites, scan_state) : std::string("X4 not found (set X4VR_GAME_DIR)");
         const double wanted_hud_factor = read_hud_factor();
         const double hud_factor = wanted_hud_factor >= 0 ? wanted_hud_factor : c.hud;
         std::vector<Item> items;
@@ -961,7 +908,7 @@ int menu(std::string_view start = {}) {
         items.push_back(status("SteamVR", c.steamvr ? 0 : 3, c.steamvr ? "running" : "not running (Launch starts it)"));
         items.push_back(status("X4 build", scan_state, scan_text));
         int gpu_state = 3;
-        const auto gpu_text = gpu_summary(gpu_state);
+        const auto gpu_text = read_gpu_summary(gpu_state);
         items.push_back(status("GPU", gpu_state, gpu_text));
         items.push_back(status("Steam launch option", c.option.state == 1 ? 0 : 2,
             c.option.state == 1 ? (c.option.value == make_launch_option() ? "set" : "set: "+c.option.value) : c.option.state == 2 ? "points to another x4vr-run: copy it again (Setup)"
@@ -973,8 +920,8 @@ int menu(std::string_view start = {}) {
             : std::to_string(c.settings_to_fix)+" set at the next VR launch"+
               (int(c.to_fix.size()) > c.settings_to_fix ? ", "+std::to_string(int(c.to_fix.size())-c.settings_to_fix)+" to look at" : std::string())+" (list below)"));
         if (c.hud_off_in_x4) items.push_back(status("HUD extension", 1, "turned off in X4's Extensions menu: turn on \"X4 VR HUD distance\""));
-        if (!c.x4) items.push_back(status("X4", 3, std::string("not running")+(c.in_vr ? " (VR settings still in place: restored at the next start)" : "")));
-        else if (!c.in_vr) items.push_back(status("X4", 3, "running in 2D"));
+        if (!c.x4) items.push_back(status("X4", 3, std::string("not running")+(c.vr_settings_in_place ? " (VR settings still in place: restored at the next start)" : "")));
+        else if (!c.vr_settings_in_place) items.push_back(status("X4", 3, "running in 2D"));
         else if (const auto stats = headset_stats())
             items.push_back(status("X4 in VR", stats->late || stats->repeated > 2 ? 1 : 0, std::to_string(stats->fps)+" fps per eye pair, "
                                    +std::to_string(stats->late)+" late, "+std::to_string(stats->repeated)+" repeated (last 2 s)"));
@@ -983,7 +930,7 @@ int menu(std::string_view start = {}) {
         items.push_back(section("Play"));
         if (!c.x4) items.push_back(action("launch", "Launch X4 in VR",
             "Starts SteamVR if needed, then X4 through Steam with the mod. Steam's own Play button starts the normal 2D game."));
-        else if (c.in_vr) {
+        else if (c.vr_settings_in_place) {
             items.push_back(action("recenter", "Recentre the view  (Ctrl+F12)", "Look straight ahead first. Same as Ctrl+F12 in X4, or SteamVR's recentre.", live));
             items.push_back(action("flat", "Flat screen on / automatic  (Ctrl+F11)", "Same as Ctrl+F11 in X4: the game on a flat screen in front of you.", live));
         } else items.push_back(info("X4 is running in 2D: quit it to launch in VR."));
@@ -1080,7 +1027,7 @@ int menu(std::string_view start = {}) {
             "Paste it in Steam: X4 > Properties > General > Launch options. Steam's Play still starts the normal game."));
         items.push_back(action("tiling", "Tiling window manager rules",
             "Hyprland, Sway, i3: a rule that floats the VR window (class X4VR) so X4 keeps the VR resolution. 2D isn't affected."));
-        if (!c.desktop) items.push_back(action("desktop", "Add to the app launcher", "\"X4 VR\" in your desktop's app menu, rofi or wofi: "+desktop_file().string()));
+        if (!std::filesystem::exists(desktop_file())) items.push_back(action("desktop", "Add to the app launcher", "\"X4 VR\" in your desktop's app menu, rofi or wofi: "+desktop_file().string()));
         items.push_back(action("report", "Make a bug report", "Packs logs (the mod's and SteamVR's), settings, your setup and a summary into ~/x4vr-report-<time>.tar.gz, to attach to a GitHub issue. Make it while X4 is stuck, if it is: then it also records where."));
         items.push_back(action("uninstall", "Uninstall", "Removes the desktop entry, HUD extension, the mod's copies of X4's settings, and its settings."));
         items.push_back(action("quit", "Quit"));
