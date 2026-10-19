@@ -53,7 +53,7 @@ target_include_directories(x4vr_elf PUBLIC ${X4VR_ROOT}/src/linux)
 target_compile_options(x4vr_elf PRIVATE ${X4VR_WARNINGS})
 
 add_executable(x4vr ${X4VR_ROOT}/tools/linux/x4vr_cli.cpp ${X4VR_ROOT}/tools/linux/common.cpp
-               ${X4VR_ROOT}/tools/linux/x4.cpp ${X4VR_ROOT}/tools/linux/hud.cpp
+               ${X4VR_ROOT}/tools/linux/x4.cpp ${X4VR_ROOT}/tools/linux/hud.cpp ${X4VR_ROOT}/tools/linux/launch.cpp
                ${X4VR_ROOT}/tools/linux/x4_settings.cpp)
 target_link_libraries(x4vr PRIVATE x4vr_vr x4vr_elf ${CMAKE_DL_LIBS})
 target_compile_options(x4vr PRIVATE ${X4VR_WARNINGS})
@@ -193,7 +193,7 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
 
   # End-to-end: each runs one x4vr command as players run it, in a fake home directory, and is
   # named after it (tests/linux/end_to_end/run_x4vr.hpp).
-  foreach(command IN ITEMS fix-settings report settings-mode)
+  foreach(command IN ITEMS fix-settings report settings-mode vr-vulkan)
     add_executable(test-${command} ${X4VR_ROOT}/tests/linux/end_to_end/${command}.cpp)
     target_compile_options(test-${command} PRIVATE ${X4VR_WARNINGS})
     add_test(NAME ${command} COMMAND test-${command} $<TARGET_FILE:x4vr>)

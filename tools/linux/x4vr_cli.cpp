@@ -17,6 +17,7 @@
 #include "common.hpp"
 #include "x4.hpp"
 #include "hud.hpp"
+#include "launch.hpp"
 #include "x4_settings.hpp"
 #include "x4_settings_rules.hpp"
 #include "vr_query.hpp"
@@ -93,27 +94,12 @@ int ctl(const std::vector<std::string_view>& args) {
 }
 
 // ---- menu (x4vr without arguments): checks, settings, launch in VR, bug report, uninstall ----
-// The Steam launch option `x4vr-run %command%` stays set; x4vr-run starts VR only when a launch
-// request from here is fresh (linux/x4vr-run.in), so Steam's Play button starts the normal game.
-// `steam -applaunch` asks the running Steam client to start X4 with Steam's usual chain
-// (reaper, the Steam Linux Runtime); the game inherits Steam's environment, not ours.
-std::filesystem::path run_script() { return program.parent_path()/"x4vr-run"; }
 std::filesystem::path desktop_file() {
     const char* data = std::getenv("XDG_DATA_HOME");
     const char* home = std::getenv("HOME");
     return (data && *data ? std::filesystem::path(data) : std::filesystem::path(home ? home : ".")/".local/share")/"applications/x4vr.desktop";
 }
-bool steamvr_running() { return x4vr::steam::process_named("vrserver"); }
-std::string make_launch_option() { return quote_path(run_script())+" %command%"; }
 
-// X4's launch option in every Steam account (launch_option.hpp).
-using x4vr::linux_port::LaunchOption;
-LaunchOption launch_option() {
-    std::vector<std::string> values;
-    for (const auto& file : x4vr::steam::local_configs())
-        if (const auto value = x4vr::steam::launch_options(x4vr::steam::read_file(file))) values.push_back(*value);
-    return x4vr::linux_port::judge_launch_options(values, run_script().string());
-}
 // Copies text to the clipboard: wl-copy (Wayland), xclip or xsel (X11), else the terminal's
 // own clipboard (OSC 52, which most terminals support). Returns how.
 std::string copy_to_clipboard(const std::string& text) {
@@ -164,7 +150,7 @@ std::string install_desktop() {
 // What the menu shows; the X4 scan (a second on the file) only once.
 struct Checks {
     bool steam{}, steamvr{}, x4{}, in_vr{}; // in_vr: X4 has its VR settings (a VR session)
-    LaunchOption option;
+    x4vr::linux_port::LaunchOption option;
     double hud{};            // installed HUD factor, 0: none
     bool hud_off_in_x4{};    // installed but switched off in X4's Extensions menu
     int settings_to_fix = -1; // -1: X4's config.xml not found, -2: VR settings made at the first VR launch
@@ -175,10 +161,10 @@ struct Checks {
 Checks current_checks() {
     Checks c;
     c.steam = x4vr::steam::steam_running();
-    c.steamvr = steamvr_running();
+    c.steamvr = is_steamvr_running();
     c.x4 = is_x4_running();
     c.in_vr = std::filesystem::exists(get_settings_marker());
-    c.option = launch_option();
+    c.option = read_launch_option();
     if (const auto game = find_x4_dir(); !game.empty()) {
         const auto installed = find_installed_hud(game);
         c.hud = installed.count("scale") ? std::atof(installed.at("scale").c_str()) : 0;
@@ -215,40 +201,6 @@ std::string scan_summary(const x4vr::linux_port::code::X4Sites& sites, int& stat
     return all ? "all VR features supported" : core ? "some features off in this X4 (see Bug report)" : "this X4 build isn't supported";
 }
 
-// Launch in VR: SteamVR (started if needed, waiting for it), then the request for x4vr-run and
-// `steam -applaunch`. `progress` shows a line; `cancelled` is polled while waiting.
-bool launch_vr(const std::function<void(const std::string&)>& progress, const std::function<bool()>& cancelled) {
-    if (is_x4_running()) { progress("X4 is already running."); return false; }
-    const auto option = launch_option();
-    if (option.state != 1 && !(option.state == 2 && std::getenv("X4VR_ANY_RUN"))) {
-        progress(option.accounts == 0 ? "Start X4 once from Steam first, then set its launch option."
-                 : option.state == 2 ? "X4's launch option points to another x4vr-run: copy the new one (menu: Copy the launch option)."
-                 : "Set X4's launch option first (menu: Copy the launch option).");
-        return false;
-    }
-    if (!steamvr_running()) {
-        progress("Starting SteamVR... (put the headset on and connect it)");
-        run({"steam", "steam://rungameid/250820"}, {.detach = true});
-        for (int i = 0; i < 180 && !steamvr_running(); ++i) {
-            if (cancelled()) { progress("Cancelled."); return false; }
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        }
-        if (!steamvr_running()) { progress("SteamVR didn't start within 90 s; start it from Steam and try again."); return false; }
-        progress("SteamVR is running.");
-    }
-    std::error_code error;
-    std::filesystem::create_directories(get_state_dir(), error);
-    if (!write_text(get_state_dir()/"launch.request", std::to_string(std::time(nullptr))+"\n")) { progress("Can't write the launch request."); return false; }
-    progress("Starting X4 through Steam... If the headset isn't connected yet, X4 waits up to 2 minutes for it: put it on.");
-    run({"steam", "-applaunch", std::string(x4vr::steam::x4_app)}, {.detach = true});
-    for (int i = 0; i < 240 && !is_x4_running(); ++i) {
-        if (cancelled()) { progress("Stopped waiting; X4 may still start."); return true; }
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    }
-    progress(is_x4_running() ? "X4 is running in VR. Recentre: Ctrl+F12 or SteamVR's menu." : "X4 didn't start within 2 minutes; check Steam.");
-    return is_x4_running();
-}
-
 // `x4vr vr-vulkan`, run by x4vr-run just before X4 starts: SteamVR's Vulkan requirements for the mod
 // (src/linux/vr_query.hpp), one per line on stdout, progress on stderr (x4vr.log). SteamVR may create
 // a Vulkan instance of its own to answer, which inside X4's vkCreateInstance or vkCreateDevice hangs
@@ -263,7 +215,7 @@ int vr_vulkan() {
     const auto deadline = steady_clock::now()+seconds(std::max(wait, 0));
     // Asked as a background app, which doesn't show up as a running game, but doesn't start SteamVR
     // either: started here, as the menu does.
-    if (!steamvr_running()) {
+    if (!is_steamvr_running()) {
         std::cerr << "x4vr: SteamVR isn't running: starting it\n";
         run({"steam", "steam://rungameid/250820"}, {.detach = true});
     }
@@ -1178,7 +1130,7 @@ int menu(std::string_view start = {}) {
             std::vector<std::string> lines;
             const auto show = [&](const std::string& line) { lines.push_back(line); progress.messages = lines; Event ignored; progress.step(progress_items, ignored); };
             const auto stop = [&] { return terminal.key(0) == Escape; };
-            launch_vr(show, stop); // x4vr-run switches X4 to its VR settings, fixes them and applies the HUD distance
+            play(show, stop); // x4vr-run switches X4 to its VR settings, fixes them and applies the HUD distance
             menu.messages = lines;
         } else if (e.id == "recenter" || e.id == "flat") {
             const int now = x4vr::linux_port::control_settings(path, e.id);
