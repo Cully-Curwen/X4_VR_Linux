@@ -3,7 +3,8 @@
 // The summary's settings line follows X4's state (status.cpp, read_status()): no config.xml, VR
 // settings not made yet, settings to fix, all fixed, also from the VR copy in 2D. The archive is
 // readable only by the player; when it can't be made, the message says why (no tar, tar's error)
-// and no half-written archive is left.
+// and no half-written archive is left. The summary lists the mod's Vulkan layer manifest in each
+// folder the Vulkan loader searches.
 // usage: test-report <x4vr>
 #include "run_x4vr.hpp"
 #include <unistd.h>
@@ -99,6 +100,25 @@ int main(int argc, char** argv) {
     check(get_settings_to_fix(make_summary(x4vr, home, tar)) == 0, "VR settings fixed: none to fix");
     run_x4vr(x4vr, home, {"settings-mode", "2d"});
     check(get_settings_to_fix(make_summary(x4vr, home, tar)) == 0, "back in 2D: the VR copy has none to fix");
+
+    // The mod's layer manifest wherever the Vulkan loader looks for one, each listed once: the XDG
+    // config home's default (~/.config), and folders in XDG_CONFIG_DIRS and XDG_DATA_DIRS (NixOS and
+    // Flatpak set their own). The data folder is in XDG_DATA_DIRS twice; the loader looks there once.
+    const fs::path config_dir = home/"xdg-config", data_dir = home/"xdg-data";
+    for (const fs::path& dir : {home/".config", config_dir, data_dir}) {
+        fs::create_directories(dir/"vulkan/explicit_layer.d");
+        std::ofstream(dir/"vulkan/explicit_layer.d/VkLayer_x4vr.json") << "{}\n";
+    }
+    run_program({x4vr, "report"}, {"HOME=" + home.string(), get_path_var(), "X4VR_NO_STEAMVR_QUERY=1",
+                                   "XDG_CONFIG_DIRS=" + config_dir.string(), "XDG_DATA_DIRS=" + data_dir.string() + ":" + data_dir.string()});
+    const fs::path layer_archive = find_archive(home);
+    const std::string layer_summary = run_program({tar.string(), "xzOf", layer_archive.string(), "./summary.txt"}, {get_path_var()}).output;
+    for (const fs::path& dir : {home/".config", config_dir, data_dir}) {
+        const std::string line = "layer manifest: " + (dir/"vulkan/explicit_layer.d/VkLayer_x4vr.json").string() + "\n";
+        check(contains(layer_summary, line), "layer manifest listed: " + dir.string());
+        check(layer_summary.find(line) == layer_summary.rfind(line), "layer manifest listed once: " + dir.string());
+    }
+    fs::remove(layer_archive);
 
     // No tar on PATH: says so, exit 1, nothing made.
     run = run_program({x4vr, "report"}, {"HOME=" + home.string(), "PATH=" + (home/"no-programs").string(), "X4VR_NO_STEAMVR_QUERY=1"});

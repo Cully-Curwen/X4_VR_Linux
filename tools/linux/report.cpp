@@ -133,6 +133,23 @@ static std::vector<std::string> find_vulkan_gpus() {
     return gpus;
 }
 
+// The folders the Vulkan loader searches for explicit layer manifests, in its order (the loader's
+// docs, "Linux Layer Discovery"): the XDG config folders, /etc, then the XDG data folders. An unset
+// or empty variable takes its XDG default; a folder listed twice is searched once.
+static std::vector<std::filesystem::path> get_layer_dirs(const std::filesystem::path& home) {
+    const auto env = [](const char* name, const std::string& fallback) { const char* value = std::getenv(name); return std::string(value && *value ? value : fallback); };
+    std::vector<std::filesystem::path> dirs;
+    for (const std::string& list : {env("XDG_CONFIG_HOME", (home/".config").string()), env("XDG_CONFIG_DIRS", "/etc/xdg"), std::string("/etc"),
+                                    env("XDG_DATA_HOME", (home/".local/share").string()), env("XDG_DATA_DIRS", "/usr/local/share:/usr/share")}) {
+        std::istringstream parts(list);
+        for (std::string part; std::getline(parts, part, ':');) {
+            const std::filesystem::path dir = std::filesystem::path(part)/"vulkan/explicit_layer.d";
+            if (!part.empty() && std::find(dirs.begin(), dirs.end(), dir) == dirs.end()) dirs.push_back(dir);
+        }
+    }
+    return dirs;
+}
+
 // X4's compatibility tool in Steam (report_info.hpp): "none (native)", or e.g. "proton_9: the
 // Windows X4 runs, without the Linux mod".
 static std::string read_x4_compat_tool() {
@@ -260,19 +277,18 @@ Report make_report() {
         }
     }
 
-    // GPUs and drivers, from the kernel and from Vulkan, and vulkaninfo's summary if installed.
+    // GPUs and drivers, from the kernel and from Vulkan, vulkaninfo's summary if installed, and the
+    // GPU the mod saw in the last VR session.
     for (const std::string& gpu : read_sysfs_gpus()) summary << (gpu.starts_with("nvidia: ") ? "" : "gpu ") << gpu << "\n";
     for (const std::string& gpu : find_vulkan_gpus()) summary << "vulkan gpu: " << gpu << "\n";
     if (is_on_path("vulkaninfo")) run({"timeout", "20", "vulkaninfo", "--summary"}, {.log = staging/"vulkaninfo.txt"});
-
-    // The mod's Vulkan layer manifests: more than one gives the loader's "duplicate" warnings.
-    for (const char* dir : {"/etc/vulkan", "/usr/share/vulkan", "/usr/local/share/vulkan"})
-        if (std::filesystem::exists(std::filesystem::path(dir)/"explicit_layer.d/VkLayer_x4vr.json"))
-            summary << "layer manifest: " << dir << "/explicit_layer.d/VkLayer_x4vr.json\n";
-    if (const std::filesystem::path local = home/".local/share/vulkan/explicit_layer.d/VkLayer_x4vr.json"; std::filesystem::exists(local))
-        summary << "layer manifest: " << local.string() << "\n";
     int gpu_state = 3;
     summary << "gpu (last VR session): " << read_gpu_summary(gpu_state) << "\n";
+
+    // The mod's Vulkan layer manifests, wherever the loader looks: more than one gives its
+    // "duplicate" warnings.
+    for (const std::filesystem::path& dir : get_layer_dirs(home))
+        if (std::filesystem::exists(dir/"VkLayer_x4vr.json")) summary << "layer manifest: " << (dir/"VkLayer_x4vr.json").string() << "\n";
 
     // Where the last runs stopped: a SteamVR call that never returned. Stuck when X4 still runs.
     bool stuck = false;
