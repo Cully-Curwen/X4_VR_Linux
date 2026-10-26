@@ -2,7 +2,7 @@
 // config.xml in a fake home directory: what it prints, its exit code, and what it leaves on disk.
 // SteamVR isn't asked (X4VR_NO_STEAMVR_QUERY) and the resolution is fixed (X4VR_RESOLUTION).
 // usage: test-fix-settings <x4vr>
-#include "run_x4vr.hpp"
+#include "common.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>

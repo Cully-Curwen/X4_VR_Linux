@@ -3,7 +3,7 @@
 // marker, the HUD extension switched on for VR, and the wait for X4 to finish exiting.
 // usage: test-settings-mode <x4vr>
 // Run with `--exit-soon`, it stands in for X4 exiting (copied as a file named X4).
-#include "run_x4vr.hpp"
+#include "common.hpp"
 #include <sys/wait.h>
 #include <unistd.h>
 #include <chrono>

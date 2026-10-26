@@ -4,7 +4,7 @@
 // usage: test-vr-vulkan <x4vr>
 // Started as `steam` (copied into the fake home's bin/), it stands in for Steam: writes its
 // arguments to $HOME/steam-called.
-#include "run_x4vr.hpp"
+#include "common.hpp"
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>

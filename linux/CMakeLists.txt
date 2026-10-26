@@ -192,7 +192,7 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
   add_test(NAME state_files COMMAND state_files_tests)
 
   # End-to-end: each runs one x4vr command as players run it, in a fake home directory, and is
-  # named after it (tests/linux/end_to_end/run_x4vr.hpp).
+  # named after it (tests/linux/end_to_end/common.hpp).
   foreach(command IN ITEMS fix-settings report settings-mode vr-vulkan)
     add_executable(test-${command} ${X4VR_ROOT}/tests/linux/end_to_end/${command}.cpp)
     target_compile_options(test-${command} PRIVATE ${X4VR_WARNINGS})

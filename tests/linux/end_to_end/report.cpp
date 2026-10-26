@@ -6,7 +6,7 @@
 // and no half-written archive is left. The summary lists the mod's Vulkan layer manifest in each
 // folder the Vulkan loader searches.
 // usage: test-report <x4vr>
-#include "run_x4vr.hpp"
+#include "common.hpp"
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
