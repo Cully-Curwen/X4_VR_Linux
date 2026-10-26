@@ -198,6 +198,10 @@ if(BUILD_TESTING) # include(CTest) is in the top-level CMakeLists.txt, so ctest 
     target_compile_options(test-${command} PRIVATE ${X4VR_WARNINGS})
     add_test(NAME ${command} COMMAND test-${command} $<TARGET_FILE:x4vr>)
   endforeach()
+  # One at a time: the tests that run an x4vr command acting differently while X4 runs (fix-settings,
+  # settings-mode; report runs both). x4vr looks at every process, so it would see another test's
+  # fake X4.
+  set_tests_properties(fix-settings report settings-mode PROPERTIES RESOURCE_LOCK x4_process)
 
   foreach(suite IN ITEMS launch_option_tests settings_swap_tests x4_settings_rules_tests)
     add_executable(${suite} ${X4VR_ROOT}/tests/linux/unit/${suite}.cpp)
