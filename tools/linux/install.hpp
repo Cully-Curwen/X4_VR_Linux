@@ -9,6 +9,9 @@
 
 namespace x4vr::linux_launcher {
 
+// The install's shared data, next to its bin/: share/x4vr (default stereo.txt, notices.txt, profiles/).
+std::filesystem::path get_data_dir();
+
 // The desktop entry: $XDG_DATA_HOME (default ~/.local/share)/applications/x4vr.desktop.
 std::filesystem::path get_desktop_file();
 

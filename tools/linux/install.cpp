@@ -19,6 +19,8 @@
 
 namespace x4vr::linux_launcher {
 
+std::filesystem::path get_data_dir() { return program.parent_path().parent_path()/"share/x4vr"; }
+
 // The installed program (cmake --install): the mod's files under the prefix this x4vr runs from
 // and under ~/.local (the guide's prefix), those that exist. /nix/store is skipped: read-only,
 // and a Nix install goes with the source folder's result link.

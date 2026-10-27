@@ -20,6 +20,7 @@
 #include "launch.hpp"
 #include "report.hpp"
 #include "status.hpp"
+#include "ui/profiles.hpp"
 #include "x4_settings.hpp"
 #include "x4_settings_rules.hpp"
 #include "vr_query.hpp"
@@ -251,70 +252,11 @@ int cmd_uninstall(const std::vector<std::string_view>& args) {
     return 0;
 }
 
-// ---- profiles: sets of VR settings ------------------------------------------------------------
-// Built in: share/x4vr/profiles/<name>.txt (installed); the player's own: <state>/profiles/.
-// A profile holds stereo.txt lines for the settings the menu shows; loading one writes them to
-// stereo.txt. The profile last loaded or saved is named in <state>/profile.
-std::filesystem::path data_dir() { return program.parent_path().parent_path()/"share/x4vr"; }
-std::filesystem::path user_profiles() { return get_state_dir()/"profiles"; }
-// The settings a profile holds, with the mod's defaults (runtime_bootstrap.hpp) for missing lines.
-const std::vector<std::pair<const char*, const char*>> profile_keys{
-    {"stereo", "1"}, {"shared_pose", "1"}, {"ipd_scale", "1"}, {"predict", "0.035"}, {"async_submit", "1"}, {"cursor", "1"},
-    {"theater", "1"}, {"theater_distance", "2"}, {"theater_width", "2.2"}, {"x4_width", "0"}, {"x4_height", "0"}, {"hud_factor", ""}};
-struct Profile { std::string name; bool built_in; std::filesystem::path file; };
-std::vector<Profile> profiles() {
-    std::vector<Profile> list;
-    for (const bool built_in : {true, false}) {
-        std::vector<Profile> found;
-        std::error_code error;
-        for (const auto& entry : std::filesystem::directory_iterator(built_in ? data_dir()/"profiles" : user_profiles(), error))
-            if (entry.path().extension() == ".txt") found.push_back({entry.path().stem().string(), built_in, entry.path()});
-        std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
-        for (auto& p : found)
-            if (std::none_of(list.begin(), list.end(), [&](const auto& q) { return q.name == p.name; })) list.push_back(std::move(p));
-    }
-    return list;
-}
-std::string current_profile() {
-    auto name = read_text(get_state_dir()/"profile");
-    while (!name.empty() && std::isspace(static_cast<unsigned char>(name.back()))) name.pop_back();
-    return name;
-}
-// Whether stereo.txt has what the profile sets (numbers compared as numbers).
-bool profile_matches(const Profile& p) {
-    for (const auto& [key, fallback] : profile_keys) {
-        const auto wanted = x4vr::linux_port::read_setting(p.file, key, "");
-        if (wanted.empty()) continue;
-        const auto now = x4vr::linux_port::read_setting(get_settings_file(), key, fallback);
-        if (now.empty() || std::fabs(std::atof(now.c_str())-std::atof(wanted.c_str())) > 1e-6) return false;
-    }
-    return true;
-}
-bool load_profile(const Profile& p) {
-    bool ok = true;
-    for (const auto& [key, fallback] : profile_keys)
-        if (const auto value = x4vr::linux_port::read_setting(p.file, key, ""); !value.empty())
-            ok = x4vr::linux_port::write_setting(get_settings_file(), key, value) && ok;
-    return write_text(get_state_dir()/"profile", p.name+"\n") && ok;
-}
-std::string save_profile(const std::string& name) {
-    if (name.empty() || name.find_first_of("/\\") != std::string::npos || name[0] == '.') return "Not a usable name: "+name;
-    for (const auto& p : profiles()) if (p.built_in && p.name == name) return "\""+name+"\" is built in: pick another name.";
-    std::error_code error;
-    std::filesystem::create_directories(user_profiles(), error);
-    std::string text = "# x4vr profile, saved from the menu\n";
-    for (const auto& [key, fallback] : profile_keys)
-        if (const auto value = x4vr::linux_port::read_setting(get_settings_file(), key, fallback); !value.empty()) text += std::string(key)+"="+value+"\n";
-    if (!write_text(user_profiles()/(name+".txt"), text)) return "Can't write "+(user_profiles()/(name+".txt")).string();
-    write_text(get_state_dir()/"profile", name+"\n");
-    return "Saved as profile \""+name+"\".";
-}
-
 // ---- notices: known issues, tips and requests for help, shipped in share/x4vr/notices.txt -----
 // One per line, "issue: text", "tip: text" or "help: text"; # starts a comment.
 std::vector<std::pair<int, std::string>> notices() {
     std::vector<std::pair<int, std::string>> list;
-    std::ifstream in(data_dir()/"notices.txt");
+    std::ifstream in(get_data_dir()/"notices.txt");
     for (std::string line; std::getline(in, line);) {
         if (line.empty() || line[0] == '#') continue;
         const int kind = line.rfind("tip:", 0) == 0 ? 0 : line.rfind("issue:", 0) == 0 ? 1 : line.rfind("help:", 0) == 0 ? 2 : -1;
@@ -508,8 +450,8 @@ int menu() {
     if (!std::filesystem::exists(path)) { // first use: the defaults, as x4vr-run would copy them
         std::error_code error;
         std::filesystem::create_directories(path.parent_path(), error);
-        std::filesystem::copy_file(data_dir()/"stereo.txt", path, error);
-        if (const auto list = profiles(); !list.empty() && list[0].built_in) load_profile(list[0]);
+        std::filesystem::copy_file(get_data_dir()/"stereo.txt", path, error);
+        if (const auto list = find_profiles(); !list.empty() && list[0].built_in) load_profile(list[0]);
     }
     Menu menu(terminal);
     menu.title = "X4 VR for Linux";
@@ -581,19 +523,19 @@ int menu() {
         items.push_back(section("Settings"));
         items.push_back(info("live: applies at once, also while X4 runs.   next launch: applied when X4 next starts in VR."));
         {
-            const auto list = profiles();
-            const auto name = current_profile();
+            const auto list = find_profiles();
+            const auto name = read_current_profile();
             std::vector<std::string> names;
             int at = -1;
             for (size_t i = 0; i < list.size(); ++i) {
                 const bool current = list[i].name == name;
                 if (current) at = int(i);
-                names.push_back(list[i].name+(list[i].built_in ? " (built in)" : "")+(current && !profile_matches(list[i]) ? " · changed" : ""));
+                names.push_back(list[i].name+(list[i].built_in ? " (built in)" : "")+(current && !is_profile_applied(list[i]) ? " · changed" : ""));
             }
             if (at < 0) { names.insert(names.begin(), "(none)"); at = 0; }
             items.push_back(choice("profile", "Profile", names, at,
                 "←→ loads another set of the settings below. Built in: Steam Frame. Change settings, then \"Save as profile\" to keep them.", live));
-            items.push_back(action("profile_save", "Save as profile", "Saves the settings below under a name of your choice ("+user_profiles().string()+").", {}));
+            items.push_back(action("profile_save", "Save as profile", "Saves the settings below under a name of your choice ("+get_user_profiles_dir().string()+").", {}));
             if (at < int(list.size()) && name == list[size_t(at)].name && !list[size_t(at)].built_in)
                 items.push_back(action("profile_delete", "Delete profile \""+name+"\"", "Your settings stay as they are.", {}));
         }
@@ -678,8 +620,8 @@ int menu() {
             const auto& item = e.item;
             std::string key = e.id, value;
             if (e.id == "profile") {
-                const auto list = profiles();
-                const size_t index = size_t(item.choice)-(current_profile().empty() || std::none_of(list.begin(), list.end(), [](const auto& p) { return p.name == current_profile(); }) ? 1 : 0);
+                const auto list = find_profiles();
+                const size_t index = size_t(item.choice)-(read_current_profile().empty() || std::none_of(list.begin(), list.end(), [](const auto& p) { return p.name == read_current_profile(); }) ? 1 : 0);
                 if (index < list.size()) menu.messages = {load_profile(list[index]) ? "Profile \""+list[index].name+"\" loaded." : "Can't write "+path.string()};
                 continue;
             }
@@ -721,14 +663,12 @@ int menu() {
             const int now = x4vr::linux_port::control_settings(path, e.id);
             menu.messages = {now < 0 ? "Can't update "+path.string() : e.id == "recenter" ? "Recentred." : now == 2 ? "Flat screen on." : "Flat screen automatic."};
         } else if (e.id == "profile_save") {
-            auto name = current_profile();
-            for (const auto& p : profiles()) if (p.built_in && p.name == name) name.clear();
+            auto name = read_current_profile();
+            for (const auto& p : find_profiles()) if (p.built_in && p.name == name) name.clear();
             if (const auto typed = menu.prompt(items, "Profile name", name)) menu.messages = {save_profile(*typed)};
         } else if (e.id == "profile_delete") {
-            std::error_code error;
-            const auto name = current_profile();
-            std::filesystem::remove(user_profiles()/(name+".txt"), error);
-            std::filesystem::remove(get_state_dir()/"profile", error);
+            const std::string name = read_current_profile();
+            delete_profile(name);
             menu.messages = {"Profile \""+name+"\" deleted; your settings stay as they are."};
         } else if (e.id == "option_copy") {
             const auto how = copy_to_clipboard(make_launch_option());
