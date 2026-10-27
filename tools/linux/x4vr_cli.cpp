@@ -16,6 +16,7 @@
 #include "common.hpp"
 #include "x4.hpp"
 #include "hud.hpp"
+#include "install.hpp"
 #include "launch.hpp"
 #include "report.hpp"
 #include "status.hpp"
@@ -94,11 +95,6 @@ int ctl(const std::vector<std::string_view>& args) {
 }
 
 // ---- menu (x4vr without arguments): checks, settings, launch in VR, bug report, uninstall ----
-std::filesystem::path desktop_file() {
-    const char* data = std::getenv("XDG_DATA_HOME");
-    const char* home = std::getenv("HOME");
-    return (data && *data ? std::filesystem::path(data) : std::filesystem::path(home ? home : ".")/".local/share")/"applications/x4vr.desktop";
-}
 
 // Copies text to the clipboard: wl-copy (Wayland), xclip or xsel (X11), else the terminal's
 // own clipboard (OSC 52, which most terminals support). Returns how.
@@ -120,7 +116,6 @@ std::string copy_to_clipboard(const std::string& text) {
 }
 std::string launch_option_steps() { return "In Steam: X4 > Properties > General > Launch options, paste it there."; }
 
-using x4vr::linux_port::copy_over;
 int cmd_settings_mode(const std::vector<std::string_view>& args) {
     if (args.size() != 1 || (args[0] != "vr" && args[0] != "2d" && args[0] != "status")) { usage(); return 2; }
 
@@ -135,16 +130,6 @@ int cmd_settings_mode(const std::vector<std::string_view>& args) {
     if (!done.ok) { std::cerr << "x4vr: " << done.message << '\n'; return 1; }
     if (done.changed) std::cout << "x4vr: " << done.message << '\n';
     return 0;
-}
-std::string install_desktop() {
-    const auto file = desktop_file();
-    std::error_code error;
-    std::filesystem::create_directories(file.parent_path(), error);
-    const auto exec = quote_path(program);
-    const bool ok = write_text(file, "[Desktop Entry]\nType=Application\nName=X4 VR\n"
-        "Comment=X4: Foundations in VR: checks, settings and launch\nExec="+exec+"\nTerminal=true\n"
-        "Icon=steam_icon_392160\nCategories=Game;\n");
-    return ok ? "Desktop entry written: "+file.string()+" (rofi -show drun: \"X4 VR\")" : "Can't write "+file.string();
 }
 
 // `x4vr vr-vulkan`, run by x4vr-run just before X4 starts: SteamVR's Vulkan requirements for the mod
@@ -234,125 +219,10 @@ int vr_vulkan() {
 
 constexpr const char* issues_url = "https://github.com/ToffelsKater/X4_VR/issues"; // to find one to add to, or open a new one
 
-// Uninstall: what the mod left, each as a choice.
-// The installed program (cmake --install): the mod's files under the prefix this x4vr runs from
-// and under ~/.local (the guide's prefix), those that exist. /nix/store is skipped: read-only,
-// and a Nix install goes with the source folder's result link.
-// `where`: the install folders where some were found.
-std::vector<std::filesystem::path> installed_files(std::vector<std::filesystem::path>* where = nullptr) {
-    const char* home = std::getenv("HOME");
-    std::vector<std::filesystem::path> prefixes{program.parent_path().parent_path(), std::filesystem::path(home ? home : ".")/".local"};
-    std::vector<std::filesystem::path> found;
-    for (const auto& prefix : prefixes) {
-        std::error_code error;
-        const auto real = std::filesystem::weakly_canonical(prefix, error);
-        if (error || real.string().rfind("/nix/store/", 0) == 0) continue;
-        for (const std::filesystem::path& lib : {std::filesystem::path(X4VR_INSTALL_LIBDIR), std::filesystem::path("lib"), std::filesystem::path("lib64")})
-            for (const auto& file : {real/"bin/x4vr", real/"bin/x4vr-run", real/lib/"libx4vr.so",
-                                     real/"share/vulkan/explicit_layer.d/VkLayer_x4vr.json", real/"share/x4vr"})
-                if (std::filesystem::exists(std::filesystem::symlink_status(file, error)) &&
-                    std::find(found.begin(), found.end(), file) == found.end()) {
-                    found.push_back(file);
-                    if (where && std::find(where->begin(), where->end(), real) == where->end()) where->push_back(real);
-                }
-    }
-    return found;
-}
-// The source folder this was built from (the GitHub clone), if it can be found:
-// - a CMake build: the folder compiled in, if still there;
-// - a Nix build (compiled in /build/source, gone): the folder holding the `result` link this
-//   x4vr runs through, else the one Nix records as a garbage-collector root for this build.
-std::filesystem::path source_dir() {
-    const auto is_source = [](const std::filesystem::path& dir) { return std::filesystem::exists(dir/"linux/x4vr-run.in"); };
-    if (const std::filesystem::path dir = X4VR_SOURCE_DIR; is_source(dir)) return dir;
-    for (auto dir = program.parent_path(); dir.has_relative_path(); dir = dir.parent_path())
-        if (dir.filename().string().rfind("result", 0) == 0 && is_source(dir.parent_path())) return dir.parent_path();
-    std::error_code error;
-    const auto store = std::filesystem::canonical(program, error).parent_path().parent_path(); // /nix/store/<hash>-x4vr
-    if (error || store.string().rfind("/nix/store/", 0) != 0) return {};
-    for (const auto& root : std::filesystem::directory_iterator("/nix/var/nix/gcroots/auto", error)) {
-        std::error_code link_error;
-        const auto link = std::filesystem::read_symlink(root.path(), link_error); // .../source/result
-        if (!link_error && std::filesystem::canonical(link, link_error) == store && is_source(link.parent_path())) return link.parent_path();
-    }
-    return {};
-}
-struct Removal { std::string id, label; bool on; std::string help; };
-std::vector<Removal> removals() {
-    std::vector<Removal> list{
-        {"desktop", "Remove the desktop entry", true, desktop_file().string()},
-        {"hud", "Remove the HUD distance extension", true, "X4 must be closed. Saves made with it stay flagged as modified."},
-        {"restore-x4", "Restore X4's settings from before the mod", false, "config.xml.x4vr-backup, the first copy: also undoes 2D settings changed since."},
-        {"x4-copies", "Delete the mod's copies of X4's settings", true, "config.xml.x4vr-2d, -vr and -backup. Your 2D settings stay in config.xml."},
-        {"state", "Delete the mod's settings, profiles and logs", true, get_state_dir().string()},
-    };
-    std::vector<std::filesystem::path> places;
-    const auto files = installed_files(&places);
-    std::string where;
-    for (const auto& p : places) where += (where.empty() ? "" : ", ")+p.string();
-    list.push_back({"program", "Remove the installed program files", !files.empty(),
-        files.empty() ? "None found outside /nix/store (a Nix install goes with the GitHub clone directory)."
-                      : "x4vr, x4vr-run, the mod and its data ("+std::to_string(files.size())+" found) under "+where+"."});
-    return list;
-}
-// What uninstall() did, a line each; not ok when it stopped early (X4 running, 2D settings not back).
-struct Uninstalled {
-    bool ok = true;
-    std::vector<std::string> done;
-};
-Uninstalled uninstall(const std::vector<Removal>& chosen) {
-    std::vector<std::string> done;
-    const auto on = [&](std::string_view id) { return std::any_of(chosen.begin(), chosen.end(), [&](const auto& r) { return r.id == id && r.on; }); };
-    std::error_code error;
-    // X4 rewrites config.xml when it exits, and a VR session's 2D settings are only in the -2d copy.
-    if (is_x4_running()) return {false, {"X4 is running: close it first, then uninstall."}};
-    if (on("desktop")) { std::filesystem::remove(desktop_file(), error); done.push_back("Desktop entry removed."); }
-    {
-        if (on("hud")) {
-            if (const auto game = find_x4_dir(); !game.empty()) { // in place, and aside for 2D
-                std::filesystem::remove_all(hud_extension(game), error);
-                std::filesystem::remove_all(get_parked_hud(game), error);
-            }
-            if (const auto config = x4_config(); !config.empty()) { // and X4's own record of it
-                const auto content = config.parent_path()/"content.xml";
-                const auto text = read_text(content);
-                const auto cleaned = std::regex_replace(text, std::regex(R"re([ \t]*<extension\s+id="x4vr_hud"[^>]*/>[ \t]*\r?\n?)re"), "");
-                if (cleaned != text) write_text(content, cleaned);
-            }
-            done.push_back("HUD distance extension removed.");
-        }
-        // A VR session that didn't finish: its 2D settings back in place first (only then: the -2d copy
-        // is otherwise an old one, and the live config.xml has the player's 2D settings).
-        if (!switch_x4_settings(false).ok) {
-            done.push_back("Can't put X4's 2D settings back (see x4vr settings-mode 2d): its copies and the mod's settings are kept.");
-            return {false, done};
-        }
-        if (const auto config = x4_config(); !config.empty()) {
-            const auto backup = config.string()+".x4vr-backup";
-            if (on("restore-x4") && std::filesystem::exists(backup))
-                done.push_back(copy_over(backup, config) ? "X4's settings restored from before the mod." : "Can't restore X4's settings.");
-            if (on("x4-copies")) {
-                for (const auto* suffix : {".x4vr-backup", ".x4vr-2d", ".x4vr-vr"}) std::filesystem::remove(config.string()+suffix, error);
-                done.push_back("The mod's copies of X4's settings deleted.");
-            }
-        }
-    }
-    if (on("state")) {
-        x4vr::linux_port::remove_state_files(get_state_dir()); // its own files only: X4VR_DIR may be any directory
-        done.push_back("Mod settings and logs deleted.");
-    }
-    if (on("program")) {
-        int removed = 0;
-        for (const auto& file : installed_files()) removed += int(std::filesystem::remove_all(file, error) > 0);
-        done.push_back("Program files removed: "+std::to_string(removed)+".");
-    }
-    return {true, done};
-}
-
 // `x4vr uninstall [name]...`: removes only what is named (no "all": each removal is chosen); alone,
 // lists the names and what each removes, removing nothing. As the menu's Uninstall screen.
 int cmd_uninstall(const std::vector<std::string_view>& args) {
-    std::vector<Removal> chosen = removals();
+    std::vector<Removal> chosen = make_removals();
     if (args.empty()) {
         std::cout << "x4vr uninstall <name>... removes what you name:\n";
         for (const Removal& r : chosen) std::printf("  %-11s %s: %s\n", r.id.c_str(), r.label.c_str(), r.help.c_str());
@@ -375,7 +245,7 @@ int cmd_uninstall(const std::vector<std::string_view>& args) {
     if (!result.ok) return 1;
 
     // What only the player can do (the menu screen's "Then, by hand").
-    const std::filesystem::path source = source_dir();
+    const std::filesystem::path source = find_source_dir();
     std::cout << "Then, by hand: clear X4's launch option in Steam (X4 > Properties > General > Launch options)"
               << (source.empty() ? std::string(".") : "; delete the GitHub clone directory: "+source.string()) << '\n';
     return 0;
@@ -532,7 +402,7 @@ void tiling_screen(x4vr::tui::Terminal& terminal) {
 
 void uninstall_screen(x4vr::tui::Terminal& terminal) {
     using namespace x4vr::tui;
-    auto chosen = removals();
+    auto chosen = make_removals();
     Menu menu(terminal);
     menu.title = "X4 VR  ·  Uninstall";
     menu.keys = "↑↓ move   Space tick   Enter select   Esc back";
@@ -544,7 +414,7 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
         items.push_back(action("back", "Back"));
         items.push_back(section("Then, by hand"));
         items.push_back(info("1. In Steam: X4 > Properties > General > Launch options: clear the line."));
-        const auto source = source_dir();
+        const auto source = find_source_dir();
         items.push_back(info("2. Delete the GitHub clone directory"+(source.empty() ? std::string(" you built the mod from.")
                                                                                   : ": "+source.string())));
         if (const auto wm = tiling_wm(); !wm.empty())
@@ -795,7 +665,7 @@ int menu() {
             "Paste it in Steam: X4 > Properties > General > Launch options. Steam's Play still starts the normal game."));
         items.push_back(action("tiling", "Tiling window manager rules",
             "Hyprland, Sway, i3: a rule that floats the VR window (class X4VR) so X4 keeps the VR resolution. 2D isn't affected."));
-        if (!std::filesystem::exists(desktop_file())) items.push_back(action("desktop", "Add to the app launcher", "\"X4 VR\" in your desktop's app menu, rofi or wofi: "+desktop_file().string()));
+        if (!std::filesystem::exists(get_desktop_file())) items.push_back(action("desktop", "Add to the app launcher", "\"X4 VR\" in your desktop's app menu, rofi or wofi: "+get_desktop_file().string()));
         items.push_back(action("report", "Make a bug report", "Packs logs (the mod's and SteamVR's), settings, your setup and a summary into ~/x4vr-report-<time>.tar.gz, to attach to a GitHub issue. Make it while X4 is stuck, if it is: then it also records where."));
         items.push_back(action("uninstall", "Uninstall", "Removes the desktop entry, HUD extension, the mod's copies of X4's settings, and its settings."));
         items.push_back(action("quit", "Quit"));
@@ -863,7 +733,7 @@ int menu() {
         } else if (e.id == "option_copy") {
             const auto how = copy_to_clipboard(make_launch_option());
             menu.messages = {"Copied (" + how + "): " + make_launch_option(), launch_option_steps()};
-        } else if (e.id == "desktop") menu.messages = {install_desktop()};
+        } else if (e.id == "desktop") menu.messages = {install_desktop_entry()};
         else if (e.id == "report") {
             const Report report = make_report();
             if (report.file.empty()) menu.messages = {"Couldn't write the report: "+report.error};
