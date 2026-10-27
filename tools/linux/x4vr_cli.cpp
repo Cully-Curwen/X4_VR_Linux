@@ -12,7 +12,7 @@
 #include "settings_swap.hpp"
 #include "state_files.hpp"
 #include "steam_config.hpp"
-#include "terminal_ui.hpp"
+#include "ui/terminal_ui.hpp"
 #include "common.hpp"
 #include "x4.hpp"
 #include "hud.hpp"

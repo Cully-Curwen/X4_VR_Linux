@@ -177,7 +177,7 @@ Windows also compensates mouse turns (`turn_comp`); Linux doesn't need it with t
 
 ## The `x4vr` menu (Linux)
 
-A terminal menu (`tools/linux/x4vr_cli.cpp`, `terminal_ui.hpp`) in place of the Windows launcher:
+A terminal menu (`tools/linux/x4vr_cli.cpp`, `tools/linux/ui/terminal_ui.hpp`) in place of the Windows launcher:
 status (SteamVR, X4 build support, launch option, live frame rate), notices
 (`config/linux/notices.txt`), settings with profiles (`config/linux/profiles/`), the in-game
 settings checklist, tiling window manager rules, bug report and uninstall. Settings tagged *live*

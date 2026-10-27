@@ -28,7 +28,7 @@ struct Status {
 Status read_status();
 
 // The GPU of the last VR session, from the mod's logs (gpu_status.hpp). `state` as the menu's status
-// rows (terminal_ui.hpp): 0 ok, 1 warning, 2 problem, 3 neutral.
+// rows (ui/terminal_ui.hpp): 0 ok, 1 warning, 2 problem, 3 neutral.
 std::string read_gpu_summary(int& state);
 
 // The X4 scan's result in words (code_scan.hpp: which of the mod's code sites this X4 has); `state`
