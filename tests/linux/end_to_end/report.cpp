@@ -12,17 +12,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <string>
-
-// A program on the caller's PATH, as the shell finds it; empty if there is none.
-static std::filesystem::path find_on_path(const std::string& name) {
-    const char* path = std::getenv("PATH");
-    std::istringstream dirs(path ? path : "");
-    for (std::string dir; std::getline(dirs, dir, ':');)
-        if (!dir.empty() && access((std::filesystem::path(dir)/name).c_str(), X_OK) == 0) return std::filesystem::path(dir)/name;
-    return {};
-}
 
 // The archive `x4vr report` made in the home folder; empty if there is none.
 static std::filesystem::path find_archive(const std::filesystem::path& home) {

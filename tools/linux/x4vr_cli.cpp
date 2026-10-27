@@ -58,8 +58,9 @@ void usage() {
         "\n"
         "  (no command) or menu\n"
         "      The menu: checks, VR settings, Launch X4 in VR, HUD distance, bug report, uninstall.\n"
-        "  uninstall\n"
-        "      The menu's uninstall screen.\n"
+        "  uninstall [desktop | hud | restore-x4 | x4-copies | state | program]...\n"
+        "      Removes what the mod set up, only what you name. x4vr uninstall alone lists what each\n"
+        "      name removes, removing nothing. The menu's Uninstall screen does the same.\n"
         "  version\n"
         "      The version and commit this x4vr was built from (its date, local changes) and the ones before it.\n"
 
@@ -281,8 +282,8 @@ std::vector<Removal> removals() {
     std::vector<Removal> list{
         {"desktop", "Remove the desktop entry", true, desktop_file().string()},
         {"hud", "Remove the HUD distance extension", true, "X4 must be closed. Saves made with it stay flagged as modified."},
-        {"restore_x4", "Restore X4's settings from before the mod", false, "config.xml.x4vr-backup, the first copy: also undoes 2D settings changed since."},
-        {"x4_copies", "Delete the mod's copies of X4's settings", true, "config.xml.x4vr-2d, -vr and -backup. Your 2D settings stay in config.xml."},
+        {"restore-x4", "Restore X4's settings from before the mod", false, "config.xml.x4vr-backup, the first copy: also undoes 2D settings changed since."},
+        {"x4-copies", "Delete the mod's copies of X4's settings", true, "config.xml.x4vr-2d, -vr and -backup. Your 2D settings stay in config.xml."},
         {"state", "Delete the mod's settings, profiles and logs", true, get_state_dir().string()},
     };
     std::vector<std::filesystem::path> places;
@@ -294,12 +295,17 @@ std::vector<Removal> removals() {
                       : "x4vr, x4vr-run, the mod and its data ("+std::to_string(files.size())+" found) under "+where+"."});
     return list;
 }
-std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
+// What uninstall() did, a line each; not ok when it stopped early (X4 running, 2D settings not back).
+struct Uninstalled {
+    bool ok = true;
+    std::vector<std::string> done;
+};
+Uninstalled uninstall(const std::vector<Removal>& chosen) {
     std::vector<std::string> done;
     const auto on = [&](std::string_view id) { return std::any_of(chosen.begin(), chosen.end(), [&](const auto& r) { return r.id == id && r.on; }); };
     std::error_code error;
     // X4 rewrites config.xml when it exits, and a VR session's 2D settings are only in the -2d copy.
-    if (is_x4_running()) return {"X4 is running: close it first, then uninstall."};
+    if (is_x4_running()) return {false, {"X4 is running: close it first, then uninstall."}};
     if (on("desktop")) { std::filesystem::remove(desktop_file(), error); done.push_back("Desktop entry removed."); }
     {
         if (on("hud")) {
@@ -319,13 +325,13 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         // is otherwise an old one, and the live config.xml has the player's 2D settings).
         if (!switch_x4_settings(false).ok) {
             done.push_back("Can't put X4's 2D settings back (see x4vr settings-mode 2d): its copies and the mod's settings are kept.");
-            return done;
+            return {false, done};
         }
         if (const auto config = x4_config(); !config.empty()) {
             const auto backup = config.string()+".x4vr-backup";
-            if (on("restore_x4") && std::filesystem::exists(backup))
+            if (on("restore-x4") && std::filesystem::exists(backup))
                 done.push_back(copy_over(backup, config) ? "X4's settings restored from before the mod." : "Can't restore X4's settings.");
-            if (on("x4_copies")) {
+            if (on("x4-copies")) {
                 for (const auto* suffix : {".x4vr-backup", ".x4vr-2d", ".x4vr-vr"}) std::filesystem::remove(config.string()+suffix, error);
                 done.push_back("The mod's copies of X4's settings deleted.");
             }
@@ -340,8 +346,39 @@ std::vector<std::string> uninstall(const std::vector<Removal>& chosen) {
         for (const auto& file : installed_files()) removed += int(std::filesystem::remove_all(file, error) > 0);
         done.push_back("Program files removed: "+std::to_string(removed)+".");
     }
-    done.push_back("Then clear X4's launch option in Steam and delete the GitHub clone directory (see below).");
-    return done;
+    return {true, done};
+}
+
+// `x4vr uninstall [name]...`: removes only what is named (no "all": each removal is chosen); alone,
+// lists the names and what each removes, removing nothing. As the menu's Uninstall screen.
+int cmd_uninstall(const std::vector<std::string_view>& args) {
+    std::vector<Removal> chosen = removals();
+    if (args.empty()) {
+        std::cout << "x4vr uninstall <name>... removes what you name:\n";
+        for (const Removal& r : chosen) std::printf("  %-11s %s: %s\n", r.id.c_str(), r.label.c_str(), r.help.c_str());
+        return 0;
+    }
+
+    for (Removal& r : chosen) r.on = false;
+    for (const std::string_view name : args) {
+        bool known = false;
+        for (Removal& r : chosen) {
+            if (r.id != name) continue;
+            r.on = true;
+            known = true;
+        }
+        if (!known) { usage(); return 2; }
+    }
+
+    const Uninstalled result = uninstall(chosen);
+    for (const std::string& line : result.done) (result.ok ? std::cout : std::cerr) << line << '\n';
+    if (!result.ok) return 1;
+
+    // What only the player can do (the menu screen's "Then, by hand").
+    const std::filesystem::path source = source_dir();
+    std::cout << "Then, by hand: clear X4's launch option in Steam (X4 > Properties > General > Launch options)"
+              << (source.empty() ? std::string(".") : "; delete the GitHub clone directory: "+source.string()) << '\n';
+    return 0;
 }
 
 // ---- profiles: sets of VR settings ------------------------------------------------------------
@@ -519,7 +556,7 @@ void uninstall_screen(x4vr::tui::Terminal& terminal) {
         if (e.kind == Event::Back || (e.kind == Event::Activate && e.id == "back")) return;
         if (e.kind == Event::Changed)
             for (auto& r : chosen) if (r.id == e.id) r.on = e.item.on;
-        if (e.kind == Event::Activate && e.id == "go") menu.messages = uninstall(chosen);
+        if (e.kind == Event::Activate && e.id == "go") menu.messages = uninstall(chosen).done;
     }
 }
 
@@ -592,12 +629,11 @@ void checklist_screen(x4vr::tui::Terminal& terminal) {
 // The menu: one screen in sections. Status and the X4 settings list are rebuilt every 2 s.
 // Settings tagged "live" are in stereo.txt, re-read by the mod every half second; "next launch"
 // ones are applied by x4vr-run when X4 starts in VR (resolution, HUD extension).
-int menu(std::string_view start = {}) {
+int menu() {
     using namespace x4vr::tui;
     setenv("X4VR_NO_STEAMVR_QUERY", "1", 1); // the settings checks: no SteamVR client from here
     Terminal terminal;
     if (!terminal.ok()) { std::cerr << "x4vr: the menu needs a terminal (run it in one, or use the subcommands: x4vr help)\n"; return 1; }
-    if (start == "uninstall") { uninstall_screen(terminal); return 0; }
     const auto path = get_settings_file();
     if (!std::filesystem::exists(path)) { // first use: the defaults, as x4vr-run would copy them
         std::error_code error;
@@ -871,7 +907,7 @@ int main(int argc, char** argv) {
     const std::vector<std::string_view> args(argv+2, argv+argc);
     try {
         if (command == "menu") return menu();
-        if (command == "uninstall") return menu("uninstall");
+        if (command == "uninstall") return cmd_uninstall(args);
         if (command == "settings-mode") return cmd_settings_mode(args);
         if (command == "report" && args.empty()) {
             const Report report = make_report();

@@ -3,14 +3,15 @@
 
 #pragma once
 
-#include <sys/wait.h>
-#include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <vector>
 
 inline int failures = 0;
@@ -66,6 +67,15 @@ inline Run run_program(const std::vector<std::string>& argv, const std::vector<s
 inline std::string get_path_var() {
     const char* path = std::getenv("PATH");
     return std::string("PATH=") + (path ? path : "/usr/bin:/bin");
+}
+
+// A program on the caller's PATH, as the shell finds it; empty if there is none.
+inline std::filesystem::path find_on_path(const std::string& name) {
+    const char* path = std::getenv("PATH");
+    std::istringstream dirs(path ? path : "");
+    for (std::string dir; std::getline(dirs, dir, ':');)
+        if (!dir.empty() && access((std::filesystem::path(dir) / name).c_str(), X_OK) == 0) return std::filesystem::path(dir) / name;
+    return {};
 }
 
 // Runs `x4vr <args>` with HOME=`home`, SteamVR not asked and X4's resolution fixed at 1920x1080.
