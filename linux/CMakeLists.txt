@@ -56,7 +56,7 @@ add_executable(x4vr ${X4VR_ROOT}/tools/linux/x4vr_cli.cpp ${X4VR_ROOT}/tools/lin
                ${X4VR_ROOT}/tools/linux/x4.cpp ${X4VR_ROOT}/tools/linux/hud.cpp ${X4VR_ROOT}/tools/linux/install.cpp
                ${X4VR_ROOT}/tools/linux/launch.cpp ${X4VR_ROOT}/tools/linux/report.cpp
                ${X4VR_ROOT}/tools/linux/status.cpp ${X4VR_ROOT}/tools/linux/x4_settings.cpp
-               ${X4VR_ROOT}/tools/linux/ui/profiles.cpp)
+               ${X4VR_ROOT}/tools/linux/ui/menu.cpp ${X4VR_ROOT}/tools/linux/ui/profiles.cpp)
 target_link_libraries(x4vr PRIVATE x4vr_vr x4vr_elf ${CMAKE_DL_LIBS})
 target_compile_options(x4vr PRIVATE ${X4VR_WARNINGS})
 # Its own copy of the C++ runtime, as the mod has: a release binary then also runs where the

@@ -6,6 +6,9 @@
 
 namespace x4vr::linux_launcher {
 
+// Where players send a report: to find an issue to add to, or open a new one.
+constexpr const char* issues_url = "https://github.com/ToffelsKater/X4_VR/issues";
+
 // The commit this x4vr was built from and the ones before it (build_info.h, made at build time):
 // `x4vr version`, and build.txt in the report.
 std::string make_build_text();

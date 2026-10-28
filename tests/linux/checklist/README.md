@@ -6,7 +6,7 @@ the commit message.
 
 | Checklist | Covers |
 |---|---|
-| [menu.md](menu.md) | the main menu, profiles |
+| [menu.md](menu.md) | the main menu, profiles, the checklist, tiling and uninstall screens |
 
 ## Setup: a fake home with an installed build
 
@@ -57,7 +57,8 @@ go()       { tmux send-keys -t x4vr Home; sleep 0.1                 # move to th
 - `type` sends one character at a time: the menu reads one key per keypress, so text sent at once
   loses characters.
 - In a prompt, clear the suggested name first: `for i in $(seq 12); do key BSpace; done`.
-- `go` before every `key Enter`: Enter on the wrong row acts on it (the last row is Quit).
+- `go` before every `key Enter`, and only press Enter if it found the row: Enter on the wrong row acts
+  on it (the last row is Quit). Match the row as shown, with its `▸` for actions: `go '▸ Uninstall'`.
 
 End with `tmux kill-session -t x4vr`.
 
