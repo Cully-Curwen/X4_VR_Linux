@@ -1,6 +1,6 @@
 // `x4vr fix-settings` (tools/linux/x4_settings.cpp, fix_x4_settings) run as players run it, on a
 // config.xml in a fake home directory: what it prints, its exit code, and what it leaves on disk.
-// SteamVR isn't asked (X4VR_NO_STEAMVR_QUERY) and the resolution is fixed (X4VR_RESOLUTION).
+// The resolution is fixed (X4VR_RESOLUTION), so SteamVR isn't asked.
 // usage: test-fix-settings <x4vr>
 #include "common.hpp"
 #include <cstdio>

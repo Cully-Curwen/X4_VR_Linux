@@ -78,9 +78,9 @@ inline std::filesystem::path find_on_path(const std::string& name) {
     return {};
 }
 
-// Runs `x4vr <args>` with HOME=`home`, SteamVR not asked and X4's resolution fixed at 1920x1080.
+// Runs `x4vr <args>` with HOME=`home` and X4's resolution fixed at 1920x1080 (so SteamVR isn't asked).
 inline Run run_x4vr(const char* x4vr, const std::filesystem::path& home, const std::vector<std::string>& args) {
     std::vector<std::string> argv{x4vr};
     argv.insert(argv.end(), args.begin(), args.end());
-    return run_program(argv, {"HOME=" + home.string(), get_path_var(), "X4VR_NO_STEAMVR_QUERY=1", "X4VR_RESOLUTION=1920x1080"});
+    return run_program(argv, {"HOME=" + home.string(), get_path_var(), "X4VR_RESOLUTION=1920x1080"});
 }

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,13 @@ std::vector<Profile> find_profiles();
 
 // The profile last loaded or saved; empty if none.
 std::string read_current_profile();
+
+// The profile at `choice` in the menu's list, which starts with "(none)" when the current profile
+// isn't one of them; none for "(none)".
+std::optional<Profile> find_profile_at(int choice);
+
+// The name "Save as profile" suggests: the current profile's, unless it's a built-in one.
+std::string get_suggested_profile_name();
 
 // Whether stereo.txt has what the profile sets (numbers compared as numbers).
 bool is_profile_applied(const Profile& profile);

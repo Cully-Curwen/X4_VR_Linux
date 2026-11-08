@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
         fs::create_directories(dir/"vulkan/explicit_layer.d");
         std::ofstream(dir/"vulkan/explicit_layer.d/VkLayer_x4vr.json") << "{}\n";
     }
-    run_program({x4vr, "report"}, {"HOME=" + home.string(), get_path_var(), "X4VR_NO_STEAMVR_QUERY=1",
+    run_program({x4vr, "report"}, {"HOME=" + home.string(), get_path_var(),
                                    "XDG_CONFIG_DIRS=" + config_dir.string(), "XDG_DATA_DIRS=" + data_dir.string() + ":" + data_dir.string()});
     const fs::path layer_archive = find_archive(home);
     const std::string layer_summary = run_program({tar.string(), "xzOf", layer_archive.string(), "./summary.txt"}, {get_path_var()}).output;
@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
     fs::remove(layer_archive);
 
     // No tar on PATH: says so, exit 1, nothing made.
-    run = run_program({x4vr, "report"}, {"HOME=" + home.string(), "PATH=" + (home/"no-programs").string(), "X4VR_NO_STEAMVR_QUERY=1"});
+    run = run_program({x4vr, "report"}, {"HOME=" + home.string(), "PATH=" + (home/"no-programs").string()});
     check(run.exit_code == 1, "no tar: exit 1");
     check(contains(run.output, "Couldn't write the report: tar didn't run (is it installed?)"), "no tar: says so");
     check(find_archive(home).empty(), "no tar: no archive");
@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
     fs::create_directories(fake);
     std::ofstream(fake/"tar") << "#!/bin/sh\nprintf 'half an archive' > \"$2\"\necho 'tar: write error: No space left on device' >&2\nexit 2\n";
     fs::permissions(fake/"tar", fs::perms::owner_all);
-    run = run_program({x4vr, "report"}, {"HOME=" + home.string(), "PATH=" + fake.string(), "X4VR_NO_STEAMVR_QUERY=1"});
+    run = run_program({x4vr, "report"}, {"HOME=" + home.string(), "PATH=" + fake.string()});
     check(run.exit_code == 1, "tar fails halfway: exit 1");
     check(contains(run.output, "Couldn't write the report: tar: write error: No space left on device"), "tar fails halfway: tar's own message");
     check(find_archive(home).empty(), "tar fails halfway: the half-written archive removed");

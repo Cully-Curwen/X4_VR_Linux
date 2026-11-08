@@ -52,15 +52,16 @@ inline std::vector<launcher::Check> opentrack_factor_checks(const std::string& x
 // warning, shown. `width`, `height`: the VR resolution, 0
 // when it isn't known. A required setting missing from config.xml is wrong, whatever X4's default
 // would be: "not set", and written at the next VR launch.
-// Three kinds of setting: required (written at each VR launch), optional (shown, the player
-// decides) and warning (shown with why it matters, never changed: some players want it anyway).
-enum class Kind { required, optional, warning };
+// How much a setting X4 doesn't have as VR needs it matters: required (written at each VR launch),
+// optional (shown, the player decides) and warning (shown with why it matters, never changed: some
+// players want it anyway).
+enum class SettingSeverity { required, optional, warning };
 // The frame rate limit: the mod paces X4 to the headset, so a limit adds nothing, and one under
 // 180 fps holds back pair mode.
 inline constexpr std::string_view frame_limit_reason = "VR is paced to the headset; a limit under 180 fps holds back pair mode";
-inline Kind kind(const launcher::Check& check) {
-    if (check.required) return Kind::required;
-    return !check.fix.empty() && check.fix[0].first == "frameratelimit" ? Kind::warning : Kind::optional;
+inline SettingSeverity get_setting_severity(const launcher::Check& check) {
+    if (check.required) return SettingSeverity::required;
+    return !check.fix.empty() && check.fix[0].first == "frameratelimit" ? SettingSeverity::warning : SettingSeverity::optional;
 }
 
 // Anti-aliasing: any kind but temporal (TAA), which blends in frames from the other eye; X4's

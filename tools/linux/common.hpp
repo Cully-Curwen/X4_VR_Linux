@@ -42,4 +42,8 @@ struct Run { bool detach = false; const std::string* input = nullptr; std::files
 // Runs a program, found on PATH; true on exit status 0 (always true when detached).
 bool run(const std::vector<std::string>& argv, const Run& options = {});
 
+// Copies text to the clipboard: wl-copy (Wayland), xclip or xsel (X11), else the terminal's own
+// clipboard (OSC 52, which most terminals support). Returns how, for a message.
+std::string copy_to_clipboard(const std::string& text);
+
 } // namespace x4vr::linux_launcher

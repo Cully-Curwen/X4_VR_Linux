@@ -4,6 +4,7 @@
 #include "common.hpp"
 #include "install.hpp"
 #include "settings_control.hpp"
+#include "vr_settings.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -14,17 +15,6 @@
 #include <vector>
 
 namespace x4vr::linux_launcher {
-
-// A setting a profile holds, and the mod's default for it (runtime_bootstrap.hpp) when stereo.txt has none.
-struct ProfileSetting {
-    const char* key;
-    const char* fallback;
-};
-
-// The settings a profile holds: the ones the menu shows. hud_factor's empty default: X4's own HUD size.
-static const ProfileSetting profile_settings[] = {
-    {"stereo", "1"}, {"shared_pose", "1"}, {"ipd_scale", "1"}, {"predict", "0.035"}, {"async_submit", "1"}, {"cursor", "1"},
-    {"theater", "1"}, {"theater_distance", "2"}, {"theater_width", "2.2"}, {"x4_width", "0"}, {"x4_height", "0"}, {"hud_factor", ""}};
 
 // Names the profile last loaded or saved.
 static bool write_current_profile(const std::string& name) { return write_text(get_state_dir()/"profile", name+"\n"); }
@@ -59,11 +49,29 @@ std::string read_current_profile() {
     return name;
 }
 
+std::optional<Profile> find_profile_at(int choice) {
+    const std::vector<Profile> list = find_profiles();
+    const std::string current = read_current_profile();
+    bool listed = false;
+    for (const Profile& profile : list)
+        if (profile.name == current) listed = true;
+    const int index = listed ? choice : choice-1;
+    if (index < 0 || index >= int(list.size())) return std::nullopt;
+    return list[size_t(index)];
+}
+
+std::string get_suggested_profile_name() {
+    const std::string name = read_current_profile();
+    for (const Profile& profile : find_profiles())
+        if (profile.built_in && profile.name == name) return {};
+    return name;
+}
+
 bool is_profile_applied(const Profile& profile) {
-    for (const ProfileSetting& setting : profile_settings) {
+    for (const VrSetting& setting : vr_setting_table) {
         const std::string wanted = x4vr::linux_port::read_setting(profile.file, setting.key, "");
         if (wanted.empty()) continue;
-        const std::string now = x4vr::linux_port::read_setting(get_settings_file(), setting.key, setting.fallback);
+        const std::string now = x4vr::linux_port::read_setting(get_settings_file(), setting.key, setting.default_value);
         if (now.empty() || std::fabs(std::atof(now.c_str())-std::atof(wanted.c_str())) > 1e-6) return false;
     }
     return true;
@@ -71,7 +79,7 @@ bool is_profile_applied(const Profile& profile) {
 
 bool load_profile(const Profile& profile) {
     bool ok = true;
-    for (const ProfileSetting& setting : profile_settings) {
+    for (const VrSetting& setting : vr_setting_table) {
         const std::string value = x4vr::linux_port::read_setting(profile.file, setting.key, "");
         if (!value.empty()) ok = x4vr::linux_port::write_setting(get_settings_file(), setting.key, value) && ok;
     }
@@ -85,8 +93,8 @@ std::string save_profile(const std::string& name) {
 
     // stereo.txt's values for the profile's settings, as stereo.txt lines.
     std::string text = "# x4vr profile, saved from the menu\n";
-    for (const ProfileSetting& setting : profile_settings) {
-        const std::string value = x4vr::linux_port::read_setting(get_settings_file(), setting.key, setting.fallback);
+    for (const VrSetting& setting : vr_setting_table) {
+        const std::string value = x4vr::linux_port::read_setting(get_settings_file(), setting.key, setting.default_value);
         if (!value.empty()) text += std::string(setting.key)+"="+value+"\n";
     }
 

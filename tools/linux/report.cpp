@@ -4,9 +4,7 @@
 
 #include "report.hpp"
 #include "build_info.h"
-#include "code_scan.hpp"
 #include "common.hpp"
-#include "elf_classes.hpp"
 #include "report_info.hpp"
 #include "status.hpp"
 #include "steam_config.hpp"
@@ -200,7 +198,6 @@ std::string make_build_text() {
 
 Report make_report() {
     // The archive's name: in the home folder, with the time it was made.
-    setenv("X4VR_NO_STEAMVR_QUERY", "1", 1); // the settings check: no SteamVR client from here
     char stamp[32];
     const std::time_t now = std::time(nullptr);
     std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", std::localtime(&now));
@@ -324,12 +321,10 @@ Report make_report() {
     }
 
     // The X4 scan (code_scan.hpp): where the mod's code sites are in this X4 build.
-    if (const std::filesystem::path game = find_x4_dir(); !game.empty() && std::filesystem::exists(game/"X4")) {
-        summary << "x4 scan (" << (game/"X4").string() << "):\n";
-        try {
-            const x4vr::linux_port::code::X4Sites sites = x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load((game/"X4").string()));
-            for (const std::string& note : sites.notes) summary << "  " << note << "\n";
-        } catch (const std::exception& e) { summary << "  " << e.what() << "\n"; }
+    if (const X4Scan scan = scan_x4({}); scan.result != X4Scan::Result::not_found) {
+        summary << "x4 scan (" << scan.program.string() << "):\n";
+        if (scan.result == X4Scan::Result::unreadable) summary << "  " << scan.error << "\n";
+        for (const std::string& note : scan.sites.notes) summary << "  " << note << "\n";
     }
 
     // The summary, then all of it packed, readable only by the player; if tar failed, its own

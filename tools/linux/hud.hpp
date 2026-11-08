@@ -14,6 +14,10 @@ double read_hud_factor();
 // HUD Scaled: chosen in the menu (stereo.txt hud_factor), else whether the extension is installed.
 bool is_hud_scaled();
 
+// Turns HUD Scaled on or off (stereo.txt hud_factor): on, the installed extension's factor
+// (`installed`, 0: none) else 2.5, a good start; off, 0. False if stereo.txt can't be written.
+bool set_hud_scaled(bool on, double installed);
+
 // The extension, and where it waits outside VR (settings_swap.hpp, place_hud).
 std::filesystem::path hud_extension(const std::filesystem::path& game);
 

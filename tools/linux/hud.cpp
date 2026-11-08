@@ -11,6 +11,7 @@
 #include "settings_control.hpp"
 #include "settings_swap.hpp"
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
@@ -102,6 +103,13 @@ bool is_hud_scaled() {
     if (const double wanted = read_hud_factor(); wanted >= 0) return wanted > 0;
     const auto game = find_x4_dir();
     return !game.empty() && find_installed_hud(game).count("scale") > 0;
+}
+
+bool set_hud_scaled(bool on, double installed) {
+    if (!on) return x4vr::linux_port::write_setting(get_settings_file(), "hud_factor", "0");
+    char factor[32];
+    std::snprintf(factor, sizeof factor, "%.1f", installed > 0 ? installed : 2.5);
+    return x4vr::linux_port::write_setting(get_settings_file(), "hud_factor", factor);
 }
 
 std::filesystem::path hud_extension(const std::filesystem::path& game) { return game/"extensions/x4vr_hud"; }

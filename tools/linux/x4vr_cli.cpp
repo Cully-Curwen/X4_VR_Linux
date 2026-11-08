@@ -1,8 +1,6 @@
 // x4vr: the Linux port's tool. Without arguments, a full-screen menu (checks, VR settings, Launch
 // in VR, HUD distance, bug report, uninstall). Subcommands: the steps x4vr-run takes, plus a few
 // for when the menu can't help (x4vr help).
-#include "elf_classes.hpp"
-#include "code_scan.hpp"
 #include "../launcher/hud_mod.hpp"
 #include "../launcher/launcher_settings.hpp"
 #include "build_info.h"
@@ -236,10 +234,11 @@ using namespace x4vr::linux_launcher;   // for patterns() and main(), until x4vr
 // The X4 scan the mod runs at startup (code_scan.hpp), on the executable file.
 int patterns(const std::vector<std::string_view>& args) {
     if (args.size() > 1) { usage(); return 2; }
-    const std::filesystem::path path = args.empty() ? find_x4_dir()/"X4" : std::filesystem::path(args[0]);
-    if (path.empty() || !std::filesystem::exists(path)) { std::cerr << "X4 not found; give its path\n"; return 1; }
-    const auto sites = x4vr::linux_port::code::find_x4_sites(x4vr::elf::Image::load(path.string()));
-    std::cout << path.string() << ":\n";
+    const X4Scan scan = scan_x4(args.empty() ? std::filesystem::path() : std::filesystem::path(args[0]));
+    if (scan.result == X4Scan::Result::not_found) { std::cerr << "X4 not found; give its path\n"; return 1; }
+    if (scan.result == X4Scan::Result::unreadable) { std::cerr << scan.error << '\n'; return 1; }
+    const x4vr::linux_port::code::X4Sites& sites = scan.sites;
+    std::cout << scan.program.string() << ":\n";
     for (const auto& note : sites.notes) std::cout << "  " << note << '\n';
     const bool all = sites.backward_clamp && sites.onfoot_zeroing && sites.camera_offset && sites.frame_half_global && sites.opentrack_vtable;
     std::cout << (all ? "All found: the mod supports this X4.\n" : "Some not found: those features stay off in this X4.\n");

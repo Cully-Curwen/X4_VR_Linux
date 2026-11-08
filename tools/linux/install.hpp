@@ -19,6 +19,11 @@ std::filesystem::path get_desktop_file();
 // in a line for the menu.
 std::string install_desktop_entry();
 
+// The player's own files, made when missing (on first use, or after they were deleted): stereo.txt
+// from the install's defaults, with the built-in profile loaded. Nothing when they are there. Empty
+// when all is well, else what went wrong, in a line for the menu.
+std::string prepare_user_files();
+
 // The source folder this was built from (the GitHub clone), if it can be found; shown at uninstall,
 // never deleted.
 std::filesystem::path find_source_dir();

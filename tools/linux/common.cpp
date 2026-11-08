@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <system_error>
@@ -84,6 +85,26 @@ bool run(const std::vector<std::string>& argv, const Run& options) {
     int status = 0;
     waitpid(child, &status, 0);
     return options.detach || (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+std::string copy_to_clipboard(const std::string& text) {
+    for (const std::vector<std::string>& tool : std::vector<std::vector<std::string>>{{"wl-copy"}, {"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}})
+        if (run(tool, {.input = &text})) return tool[0];
+
+    static const char* table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string encoded;
+    for (size_t i = 0; i < text.size(); i += 3) {
+        const uint32_t group = (uint32_t(uint8_t(text[i])) << 16) | (i+1 < text.size() ? uint32_t(uint8_t(text[i+1])) << 8 : 0) |
+                           (i+2 < text.size() ? uint8_t(text[i+2]) : 0);
+        encoded += table[(group >> 18) & 63];
+        encoded += table[(group >> 12) & 63];
+        encoded += i+1 < text.size() ? table[(group >> 6) & 63] : '=';
+        encoded += i+2 < text.size() ? table[group & 63] : '=';
+    }
+
+    const std::string sequence = "\x1b]52;c;"+encoded+"\a";
+    (void)!::write(STDOUT_FILENO, sequence.data(), sequence.size());
+    return "the terminal";
 }
 
 } // namespace x4vr::linux_launcher

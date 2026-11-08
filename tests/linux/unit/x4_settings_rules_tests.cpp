@@ -22,6 +22,17 @@ const std::map<std::string, std::string> optional{{"chromaticaberration", "false
 // Warnings: shown with why, never written (the player may want a frame rate limit).
 const std::map<std::string, std::string> warning{{"frameratelimit", "false"}};
 
+// The table above a check belongs in, by how much its setting matters.
+const std::map<std::string, std::string>& get_table(const launcher::Check& c) {
+    switch (linux_port::get_setting_severity(c)) {
+    case linux_port::SettingSeverity::required: return required;
+    case linux_port::SettingSeverity::optional: return optional;
+    case linux_port::SettingSeverity::warning: return warning;
+    }
+    static const std::map<std::string, std::string> none; // no table: the check using it fails
+    return none;
+}
+
 // x4vr fix-settings, as x4vr_cli.cpp does it.
 std::string fix(const std::string& xml) {
     std::vector<launcher::Check> writes;
@@ -59,8 +70,7 @@ int main() {
     // The table covers every check, and every check is in the table.
     for (const auto& c : linux_port::linux_checks(config({}), width, height))
         for (const auto& [key, v] : c.fix)
-            check((c.required ? required : linux_port::kind(c) == linux_port::Kind::warning ? warning : optional).count(key) == 1,
-                  "check not in the test's table: "+c.label+" ("+key+")");
+            check(get_table(c).count(key) == 1, "check not in the test's table: "+c.label+" ("+key+")");
 
     // Missing is never assumed to be X4's default: every required setting missing is wrong.
     for (const auto& c : linux_port::linux_checks(config({}), width, height))
@@ -97,7 +107,7 @@ int main() {
     for (const auto& c : linux_port::linux_checks(between, width, height)) {
         if (c.fix[0].first == "fov") check(!c.ok, "FOV 1.5: wrong (only 1.3333 is right)");
         if (c.fix[0].first == "frameratelimit")
-            check(!c.ok && !c.required && linux_port::kind(c) == linux_port::Kind::warning && c.current == "120 fps", "frame rate limit on: a warning, 120 fps");
+            check(!c.ok && !c.required && linux_port::get_setting_severity(c) == linux_port::SettingSeverity::warning && c.current == "120 fps", "frame rate limit on: a warning, 120 fps");
         if (c.fix[0].first == "antialiasing") check(c.ok, "FXAA: fine (not temporal)");
     }
     const auto between_fixed = fix(between);

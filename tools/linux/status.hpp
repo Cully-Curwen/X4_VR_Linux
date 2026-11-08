@@ -3,9 +3,12 @@
 
 #pragma once
 
+#include "../launcher/launcher_settings.hpp"
 #include "code_scan.hpp"
 #include "launch_option.hpp"
 #include "x4_settings_rules.hpp"
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,19 +23,35 @@ struct Status {
     double hud = 0;            // installed HUD factor, 0: none
     bool hud_off_in_x4 = false; // installed but switched off in X4's Extensions menu
     int settings_to_fix = -1;  // -1: X4's config.xml not found, -2: VR settings made at the first VR launch
-    struct Fix { x4vr::linux_port::Kind kind; std::string label, current; };
+    struct Fix { x4vr::linux_port::SettingSeverity severity; std::string label, current; };
     std::vector<Fix> to_fix;   // required ones x4vr sets, optional ones and warnings for the player
 };
 
 // Reads all of it now: Steam's config, /proc, X4's config.xml and content.xml, the HUD extension.
+// X4's settings are checked against the saved VR resolution: SteamVR isn't asked (x4_settings.hpp).
 Status read_status();
+
+// The headset's frame rate while X4 runs in VR: the mod's newest pair_stats.txt line (every ~2 s);
+// none when the mod hasn't written one for 6 s (no frames reaching SteamVR).
+std::optional<x4vr::launcher::Stats> read_headset_stats();
 
 // The GPU of the last VR session, from the mod's logs (gpu_status.hpp). `state` as the menu's status
 // rows (ui/terminal_ui.hpp): 0 ok, 1 warning, 2 problem, 3 neutral.
 std::string read_gpu_summary(int& state);
 
-// The X4 scan's result in words (code_scan.hpp: which of the mod's code sites this X4 has); `state`
-// as above.
-std::string make_scan_summary(const x4vr::linux_port::code::X4Sites& sites, int& state);
+// The X4 scan (code_scan.hpp): which of the mod's code sites X4's program file has.
+struct X4Scan {
+    enum class Result { not_found, unreadable, scanned };
+    Result result = Result::not_found;
+    std::filesystem::path program;          // X4's program file, unless not found
+    x4vr::linux_port::code::X4Sites sites;  // when scanned
+    std::string error;                      // when unreadable: why
+};
+
+// Scans `program`, or when empty the installed X4's (find_x4_dir()/X4).
+X4Scan scan_x4(const std::filesystem::path& program);
+
+// The scan's result in words; `state` as above.
+std::string make_scan_summary(const X4Scan& scan, int& state);
 
 } // namespace x4vr::linux_launcher

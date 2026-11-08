@@ -106,13 +106,17 @@ inline std::vector<std::string> wrap(const std::string& s, size_t columns) {
 }
 inline std::string format(double value, int decimals) { char t[32]; std::snprintf(t, sizeof t, "%.*f", decimals, value); return t; }
 
+// A notice's kind: what it tells the player, shown as its mark (tip, issue, help).
+enum class NoticeKind { tip, issue, help };
+
 // One row of a menu.
 struct Item {
     enum Kind { Section, Info, Status, Notice, Toggle, Choice, Number, Action } kind = Info;
     std::string id, label, value, help;
     std::string tag;                     // shown at the right: "live", "next launch", ...
     std::string mark;                    // Status: another symbol for the state (same colour)
-    int state = 0;                       // Status: 0 ok, 1 warning, 2 problem, 3 neutral; Notice: 0 tip, 1 issue, 2 help
+    int state = 0;                       // Status: 0 ok, 1 warning, 2 problem, 3 neutral
+    NoticeKind notice = NoticeKind::tip; // Notice
     bool on = false;                     // Toggle
     std::vector<std::string> choices;    // Choice
     int choice = 0;
@@ -127,7 +131,7 @@ inline Item info(std::string label) { Item i; i.kind = Item::Info; i.label = std
 inline Item status(std::string label, int state, std::string value) {
     Item i; i.kind = Item::Status; i.label = std::move(label); i.state = state; i.value = std::move(value); return i;
 }
-inline Item notice(int kind, std::string text) { Item i; i.kind = Item::Notice; i.state = kind; i.label = std::move(text); return i; }
+inline Item notice(NoticeKind kind, std::string text) { Item i; i.kind = Item::Notice; i.notice = kind; i.label = std::move(text); return i; }
 inline Item action(std::string id, std::string label, std::string help = {}, std::string tag = {}) {
     Item i; i.kind = Item::Action; i.id = std::move(id); i.label = std::move(label); i.help = std::move(help); i.tag = std::move(tag); return i;
 }
@@ -155,6 +159,12 @@ public:
     std::vector<std::string> messages; // shown above the help until the next key
     int timeout_ms = -1;               // redraw without a key after this (-1: wait), for live status
     size_t label_width = 30;           // columns for labels, before values
+
+    // Draws only, without reading a key: for a screen shown while work runs.
+    void show(const std::vector<Item>& items) {
+        clamp(items);
+        draw(items);
+    }
 
     // Draws, then handles one key; true with `event` set when something happened.
     bool step(std::vector<Item>& items, Event& event) {
@@ -282,8 +292,12 @@ private:
             return lines;
         }
         case Item::Notice: {
-            const std::string mark = item.state == 1 ? std::string(yellow)+"issue"+reset : item.state == 2 ? std::string(green)+"help "+reset
-                                   : std::string(cyan)+"tip  "+reset;
+            std::string mark;
+            switch (item.notice) {
+            case NoticeKind::tip: mark = std::string(cyan)+"tip  "+reset; break;
+            case NoticeKind::issue: mark = std::string(yellow)+"issue"+reset; break;
+            case NoticeKind::help: mark = std::string(green)+"help "+reset; break;
+            }
             const auto lines = wrap(item.label, columns > 12 ? columns-12 : 1);
             std::vector<std::string> out;
             for (size_t i = 0; i < lines.size(); ++i) out.push_back("  "+(i ? std::string(5, ' ') : mark)+"  "+lines[i]);

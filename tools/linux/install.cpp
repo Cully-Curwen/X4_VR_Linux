@@ -6,6 +6,7 @@
 #include "hud.hpp"
 #include "settings_swap.hpp"
 #include "state_files.hpp"
+#include "ui/profiles.hpp"
 #include "x4.hpp"
 #include "x4_settings.hpp"
 #include <algorithm>
@@ -67,6 +68,26 @@ std::string install_desktop_entry() {
         "Comment=X4: Foundations in VR: checks, settings and launch\nExec="+exec+"\nTerminal=true\n"
         "Icon=steam_icon_392160\nCategories=Game;\n");
     return ok ? "Desktop entry written: "+file.string()+" (rofi -show drun: \"X4 VR\")" : "Can't write "+file.string();
+}
+
+std::string prepare_user_files() {
+    const std::filesystem::path path = get_settings_file();
+    if (std::filesystem::exists(path)) return {};
+
+    // The install's defaults, copied as x4vr-run copies them: writable (a Nix install's are read-only).
+    const std::filesystem::path defaults = get_data_dir()/"stereo.txt";
+    if (!std::filesystem::exists(defaults)) return "The mod's default settings are missing: "+defaults.string()+" (reinstall the mod).";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) return "Can't make "+path.parent_path().string()+": "+error.message();
+    std::filesystem::copy_file(defaults, path, error);
+    if (error) return "Can't copy the default settings to "+path.string()+": "+error.message();
+    std::filesystem::permissions(path, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, error);
+
+    // The built-in profile's settings in it, and named the current profile.
+    for (const Profile& profile : find_profiles())
+        if (profile.built_in) return load_profile(profile) ? std::string() : "Can't write "+path.string();
+    return {};
 }
 
 // Where it is looked for:
